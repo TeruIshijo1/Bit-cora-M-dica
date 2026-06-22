@@ -1,10 +1,15 @@
 @echo off
 echo ===================================================
-echo   Iniciando MVP Bitacora-HES - Hospital Escandon
+echo   Iniciando MediReg HES - Entorno Productivo
+echo ===================================================
+echo ===================================================
+echo Para usar el sistema, abre tu navegador en:
+echo - http://localhost:8000  (Si estas en esta misma PC)
+echo - http://192.168.254.249:8000 (Desde cualquier otra PC en la red)
 echo ===================================================
 
-echo Iniciando todos los servicios en esta unica ventana...
-npx concurrently -n "PYTHON,REACT,BIOMETRICO" -c "bgBlue.bold,bgGreen.bold,bgMagenta.bold" "cd backend && call venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8000" "cd frontend && npm run dev -- --host 0.0.0.0 --port 5173" "cd backend_node && node server.js"
+echo Iniciando el servidor principal de Python y el servicio Biometrico...
+npx concurrently -n "PYTHON,BIOMETRICO" -c "bgBlue.bold,bgMagenta.bold" "cd backend && call venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8000" "cd backend_node && node server.js"
 
 :: El script termina aquí.
 exit

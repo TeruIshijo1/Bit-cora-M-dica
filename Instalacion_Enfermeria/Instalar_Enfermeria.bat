@@ -26,7 +26,7 @@ echo.
 
 set /p ServerIP="Ingresa la Direccion IP del SERVIDOR PRINCIPAL (ej. 192.168.1.50): "
 
-set TargetURL=http://%ServerIP%:5173/
+set TargetURL=http://%ServerIP%:8000/
 
 if exist "%PUBLIC%\hes_logo.ico" (
     set "IconStr=%PUBLIC%\hes_logo.ico"

@@ -729,6 +729,7 @@ def get_stats(db: Session = Depends(get_db), current_user: models.Usuario = Depe
     }
 
 # === BACKUP ===
+# === BACKUP ===
 from fastapi.responses import FileResponse
 @app.get("/api/backup")
 def get_backup(current_user: models.Usuario = Depends(require_role(["admin", "sistemas"]))):
@@ -737,3 +738,25 @@ def get_backup(current_user: models.Usuario = Depends(require_role(["admin", "si
         raise HTTPException(status_code=404, detail="Base de datos no encontrada")
     hoy = datetime.date.today().strftime("%Y%m%d")
     return FileResponse(path=db_path, filename=f"backup_hes_{hoy}.db", media_type="application/octet-stream")
+
+# === FRONTEND (PRODUCCION) ===
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Ignorar si es una ruta de backend o estática principal
+        if full_path.startswith("api/") or full_path.startswith("static/") or full_path.startswith("generados/"):
+            raise HTTPException(status_code=404, detail="Not found")
+            
+        # Si el archivo existe físicamente en dist/, servirlo (ej. logo.png, websdk.client.min.js)
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # De lo contrario, devolver index.html para el React Router
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"message": "Frontend no construido. Por favor corre 'npm run build' en la carpeta frontend."}
