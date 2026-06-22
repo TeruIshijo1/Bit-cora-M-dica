@@ -352,12 +352,32 @@ export default function FirmaExpress() {
                           </div>
                       ))}
 
-                      <div 
-                        className={`w-full ${selectedFolio && isReady ? (fmdTemplate ? 'bg-hes-green' : 'bg-hes-blue-main') : 'bg-slate-400 cursor-not-allowed'} text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2 mt-8 relative cursor-default`}
+                      <button 
+                        disabled={selectedFolio && !isReady}
+                        onClick={() => {
+                          if (!selectedFolio && pendientes.length > 0) {
+                            setSelectedFolio(pendientes[0].folio);
+                            if (isReady && !isAcquiring) startCapture();
+                          } else if (selectedFolio && !fmdTemplate && isReady && !isAcquiring) {
+                            startCapture();
+                          } else if (selectedFolio && fmdTemplate) {
+                            handleFirmarUnica(fmdTemplate);
+                          }
+                        }}
+                        className={`w-full ${selectedFolio && isReady ? (fmdTemplate ? 'bg-green-600 hover:bg-green-700' : 'bg-hes-blue-main hover:bg-blue-800') : 'bg-slate-500 hover:bg-slate-600'} text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2 mt-8 relative ${(!isReady && selectedFolio) ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                       >
                           <MdFingerprint className={`text-3xl transition-all duration-300 ${selectedFolio && isReady && !fmdTemplate ? 'animate-pulse drop-shadow-md' : ''}`} /> 
-                          <span>{!selectedFolio ? 'Selecciona "Preparar Firma" en una atención para activar el lector' : (!isReady ? (error || 'Buscando lector...') : (fmdTemplate ? 'Huella lista. Presione "Confirmar Firma"' : `Coloque su huella para el folio ${selectedFolio}`)) }</span>
-                      </div>
+                          <span>
+                            {!selectedFolio 
+                              ? 'Preparar Firma Rápida (Siguiente Folio)' 
+                              : (!isReady 
+                                  ? (error || 'Buscando lector...') 
+                                  : (fmdTemplate 
+                                      ? 'Huella lista. Presione para Confirmar Firma' 
+                                      : (isAcquiring ? 'Coloque su huella en el lector...' : `Activar lector de huella para folio ${selectedFolio}`))) 
+                            }
+                          </span>
+                      </button>
                   </div>
               )}
             </>

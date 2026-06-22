@@ -7,7 +7,6 @@ from typing import List, Optional
 import datetime
 import hashlib
 import uuid
-from pyzbar.pyzbar import decode
 from PIL import Image
 import io
 import os
@@ -104,10 +103,17 @@ import requests
 
 @app.post("/api/auth/login/admin", response_model=schemas.Token)
 def login_admin(req: schemas.LoginAdminRequest, db: Session = Depends(get_db)):
+    print(f"Intento de login para usuario: '{req.username}'")
     user = db.query(models.Usuario).filter(models.Usuario.username == req.username).first()
-    if not user or not pwd_context.verify(req.password, user.password_hash):
+    if not user:
+        print("Error: Usuario no encontrado en DB.")
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+        
+    if not pwd_context.verify(req.password, user.password_hash):
+        print(f"Error: Contraseña incorrecta para el usuario '{req.username}'.")
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
     
+    print("Login exitoso.")
     access_token = create_access_token(data={"sub": user.username, "rol": user.rol})
     return {"access_token": access_token, "token_type": "bearer", "rol": user.rol}
 
@@ -359,7 +365,7 @@ def mis_registros(db: Session = Depends(get_db), current_user: models.Usuario = 
     ).order_by(models.AtencionMedica.fecha_registro.desc()).all()
 
 @app.get("/api/atenciones/todas", response_model=List[schemas.AtencionResponse])
-def get_todas_atenciones(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh"]))):
+def get_todas_atenciones(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))):
     return db.query(models.AtencionMedica).order_by(models.AtencionMedica.fecha_realizacion.desc()).all()
 
 @app.get("/api/atenciones/exportar")
@@ -563,7 +569,7 @@ def generar_comprobante_pdf(folio: str, db: Session = Depends(get_db)):
 
 # === ENDPOINTS RH ===
 @app.get("/api/usuarios", response_model=List[schemas.UsuarioResponse])
-def get_usuarios(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh"]))):
+def get_usuarios(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))):
     return db.query(models.Usuario).all()
 
 @app.post("/api/usuarios", response_model=schemas.UsuarioResponse)
@@ -580,6 +586,16 @@ def create_usuario(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(nuevo_usuario)
     return nuevo_usuario
+
+@app.put("/api/usuarios/{usuario_id}/password")
+def update_usuario_password(usuario_id: int, payload: schemas.UsuarioPasswordUpdate, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "sistemas"]))):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    usuario.password_hash = pwd_context.hash(payload.new_password)
+    db.commit()
+    return {"message": "Contraseña actualizada exitosamente"}
 
 @app.delete("/api/usuarios/{usuario_id}")
 def delete_usuario(usuario_id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas"]))):
@@ -636,7 +652,7 @@ ESCANEOS_DIR = "static/escaneos_rh"
 os.makedirs(ESCANEOS_DIR, exist_ok=True)
 
 @app.get("/api/escaneos", response_model=List[schemas.EscaneoRHResponse])
-def get_escaneos(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh"]))):
+def get_escaneos(db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))):
     return db.query(models.EscaneoRH).order_by(models.EscaneoRH.fecha_subida.desc()).all()
 
 @app.post("/api/escaneos", response_model=schemas.EscaneoRHResponse)

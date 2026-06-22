@@ -42,6 +42,9 @@ class UsuarioCreate(BaseModel):
     password: str
     rol: str
 
+class UsuarioPasswordUpdate(BaseModel):
+    new_password: str
+
 class UsuarioResponse(BaseModel):
     id: int
     username: str

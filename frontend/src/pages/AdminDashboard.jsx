@@ -233,6 +233,18 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleChangePassword = async (id, rolTarget) => {
+    const newPass = window.prompt("Introduce la nueva contraseña para este usuario:");
+    if (!newPass) return;
+    try {
+      await api.put(`/usuarios/${id}/password`, { new_password: newPass }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      alert("Contraseña actualizada exitosamente.");
+    } catch (e) {
+      if(e.response && e.response.data && e.response.data.detail) alert("Error: " + e.response.data.detail);
+      else alert("Error al cambiar la contraseña.");
+    }
+  };
+
   const handleDownloadBackup = async () => {
     try {
       const response = await api.get('/backup', { 
@@ -389,7 +401,7 @@ export default function AdminDashboard() {
   };
 
   const historialFiltrado = historialGlobal.filter(h => {
-    if (filterText && !h.folio.toLowerCase().includes(filterText.toLowerCase()) && !h.paciente.nombre_completo.toLowerCase().includes(filterText.toLowerCase()) && !(h.medico && h.medico.nombre_completo.toLowerCase().includes(filterText.toLowerCase()))) return false;
+    if (filterText && !h.folio.toLowerCase().includes(filterText.toLowerCase()) && !h.paciente.nombre_completo.toLowerCase().includes(filterText.toLowerCase()) && !(h.medico && h.medico.nombre_completo.toLowerCase().includes(filterText.toLowerCase())) && !(h.hash_seguridad && h.hash_seguridad.toLowerCase().includes(filterText.toLowerCase()))) return false;
     if (filterArea && h.area_hospitalaria !== filterArea) return false;
     if (filterDate && !h.fecha_realizacion.startsWith(filterDate)) return false;
     return true;
@@ -590,7 +602,7 @@ export default function AdminDashboard() {
               {/* Filtros */}
               <div className="p-4 bg-white border-b border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">Buscar Paciente / Folio / Médico</label>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">Buscar Paciente / Folio / Médico / Código</label>
                     <input type="text" placeholder="Escribe para buscar..." className="w-full border rounded p-2 text-sm" value={filterText} onChange={e => setFilterText(e.target.value)} />
                  </div>
                  <div>
@@ -615,6 +627,7 @@ export default function AdminDashboard() {
                       <th className="p-3 text-sm font-semibold text-slate-600">Procedimiento / Área</th>
                       <th className="p-3 text-sm font-semibold text-slate-600">Médico</th>
                       <th className="p-3 text-sm font-semibold text-slate-600">Estado</th>
+                      <th className="p-3 text-sm font-semibold text-slate-600">Auditoría (Cód. Firma)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -647,6 +660,11 @@ export default function AdminDashboard() {
                                   {h.estatus_pago}
                                 </span>
                             )}
+                          </div>
+                        </td>
+                        <td className="p-3 text-sm">
+                          <div className="text-[10px] text-slate-400 font-mono break-all max-w-[150px] bg-slate-50 p-1 rounded border">
+                            {h.hash_seguridad || 'No firmado'}
                           </div>
                         </td>
                       </tr>
@@ -892,6 +910,7 @@ export default function AdminDashboard() {
                         {(rolActual === 'admin' || rolActual === 'sistemas') && (
                           <div className="flex gap-4 items-center">
                             <button onClick={() => handleImpersonate(u.id, u.rol)} className="text-blue-500 hover:underline text-xs font-semibold">Entrar como...</button>
+                            <button onClick={() => handleChangePassword(u.id, u.rol)} className="text-orange-500 hover:underline text-xs font-semibold">Cambiar Contraseña</button>
                             {rolActual === 'sistemas' && (
                               <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:underline text-xs font-semibold">Eliminar</button>
                             )}

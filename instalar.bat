@@ -6,15 +6,19 @@ echo ===================================================
 echo.
 echo [1/3] Instalando dependencias del Backend (Python)...
 cd backend
+echo Configurando entorno virtual de Python (esto puede tardar un poco)...
+if exist venv rmdir /s /q venv
+python -m venv venv
 call venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install requests
 cd ..
 
 echo.
 echo [2/3] Instalando dependencias del Frontend (React)...
 cd frontend
 call npm install
+call npm run build
 cd ..
 
 echo.
