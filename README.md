@@ -1,6 +1,11 @@
 # Bitácora Médica HES
 
-Sistema de bitácora médica para el Hospital Escandón.
+El sistema **Bitácora Médica HES** es una plataforma interna desarrollada para el Hospital Escandón, diseñada para llevar un registro seguro y auditable de las actividades médicas y de enfermería. 
+
+Su principal propósito es garantizar la integridad y trazabilidad de los registros hospitalarios mediante:
+- **Autenticación Biométrica:** Integración con lectores de huellas dactilares (DigitalPersona) para asegurar que cada acción esté firmada criptográficamente o respaldada por el personal correcto.
+- **Gestión de Registros Médicos:** Captura ágil de datos de los pacientes y procedimientos desde las estaciones de enfermería.
+- **Trazabilidad:** Monitoreo en tiempo real para administradores y responsables médicos.
 
 ## Estructura del Proyecto
 
