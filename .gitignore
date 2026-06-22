@@ -1,0 +1,25 @@
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db3
+*.s3db
+
+# Specific files
+test_fmd.json
+
+# OS files
+.DS_Store
+Thumbs.db

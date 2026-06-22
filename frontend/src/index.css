@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+    --color-hes-blue-main: #004687;
+    --color-hes-blue-light: #0088c9;
+    --color-hes-blue-cross: #005fa9;
+    --color-hes-green: #00974a;
+
+    --animate-scan-line: scan-line 2s linear infinite;
+
+    @keyframes scan-line {
+        0% { transform: translateY(-100%); opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { transform: translateY(100%); opacity: 0; }
+    }
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #f8fafc;
+}
