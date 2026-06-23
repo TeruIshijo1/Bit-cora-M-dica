@@ -127,10 +127,10 @@ def generate_pdf(atencion, medico, paciente):
     
     context = {
         "folio": atencion.folio,
-        "medico_nombre": medico.nombre_completo,
-        "medico_especialidad": medico.especialidad,
-        "medico_cedula": medico.cedula,
-        "paciente_nombre": paciente.nombre_completo,
+        "medico_nombre": medico.nombre_completo if medico else "Sin asignar",
+        "medico_especialidad": medico.especialidad if medico else "",
+        "medico_cedula": medico.cedula if medico else "",
+        "paciente_nombre": paciente.nombre_completo if paciente else "Desconocido",
         "habitacion": atencion.habitacion_capturada,
         "tipo_servicio": tipos.get(atencion.tipo_atencion, atencion.tipo_atencion),
         "fecha_realizacion": atencion.fecha_realizacion.strftime("%Y-%m-%d %H:%M hrs"),

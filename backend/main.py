@@ -524,48 +524,18 @@ def generar_comprobante_pdf(folio: str, db: Session = Depends(get_db)):
     if not atencion:
         raise HTTPException(status_code=404, detail="Atención no encontrada")
         
-    template_path = os.path.join(PLANTILLAS_DIR, "comprobante_base.docx")
-    if not os.path.exists(template_path):
-        raise HTTPException(status_code=500, detail="Plantilla no encontrada")
-        
-    doc = DocxTemplate(template_path)
-    
-    context = {
-        "folio": atencion.folio,
-        "medico_nombre": atencion.medico.nombre_completo if atencion.medico else "",
-        "medico_especialidad": atencion.medico.especialidad if atencion.medico else "",
-        "medico_cedula": atencion.medico.cedula if atencion.medico else "",
-        "medico_num_empleado": atencion.medico.numero_empleado if atencion.medico else "",
-        "paciente_nombre": atencion.paciente.nombre_completo if atencion.paciente else "",
-        "paciente_habitacion": atencion.habitacion_capturada or (atencion.paciente.num_habitacion if atencion.paciente else ""),
-        "tipo_servicio": atencion.tipo_atencion,
-        "fecha_atencion": atencion.fecha_realizacion.strftime("%Y-%m-%d %H:%M") if atencion.fecha_realizacion else "",
-        "fecha_registro": (atencion.fecha_firma or atencion.fecha_realizacion or datetime.datetime.now()).strftime("%Y-%m-%d %H:%M"),
-        "procedimiento": atencion.nombre_procedimiento,
-        "detalle": atencion.procedimiento_detalle or "Sin notas clínicas",
-        "hash_seguridad": atencion.hash_seguridad or "Pendiente"
-    }
-    
-    doc.render(context)
-    
-    temp_docx = os.path.join(GENERADOS_DIR, f"{folio}.docx")
-    temp_pdf = os.path.join(GENERADOS_DIR, f"{folio}.pdf")
-    
-    doc.save(temp_docx)
-    
-    pythoncom.CoInitialize()
     try:
-        docx2pdf_convert(os.path.abspath(temp_docx), os.path.abspath(temp_pdf))
+        from pdf_generator import generate_pdf
+        pdf_rel_path = generate_pdf(atencion, atencion.medico, atencion.paciente)
+        pdf_abs_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", f"{folio}.pdf")
+        
+        if not os.path.exists(pdf_abs_path):
+            raise HTTPException(status_code=500, detail="PDF no se pudo generar")
+            
+        return FileResponse(pdf_abs_path, media_type="application/pdf", filename=f"Comprobante_{folio}.pdf")
     except Exception as e:
-        print(f"Error docx2pdf: {e}")
+        print(f"Error generando PDF: {e}")
         raise HTTPException(status_code=500, detail="Error generando PDF")
-    finally:
-        pythoncom.CoUninitialize()
-        
-    if not os.path.exists(temp_pdf):
-        raise HTTPException(status_code=500, detail="PDF no se pudo generar")
-        
-    return FileResponse(temp_pdf, media_type="application/pdf", filename=f"Comprobante_{folio}.pdf")
 
 # === ENDPOINTS RH ===
 @app.get("/api/usuarios", response_model=List[schemas.UsuarioResponse])
