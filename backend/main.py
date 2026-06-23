@@ -109,8 +109,12 @@ def login_admin(req: schemas.LoginAdminRequest, db: Session = Depends(get_db)):
         print("Error: Usuario no encontrado en DB.")
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
         
-    if not pwd_context.verify(req.password, user.password_hash):
-        print(f"Error: Contraseña incorrecta para el usuario '{req.username}'.")
+    try:
+        if not pwd_context.verify(req.password, user.password_hash):
+            print(f"Error: Contraseña incorrecta para el usuario '{req.username}'.")
+            raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    except Exception as e:
+        print(f"Error verificando hash (posible contraseña en texto plano en DB): {e}")
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
     
     print("Login exitoso.")
