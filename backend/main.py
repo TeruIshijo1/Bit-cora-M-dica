@@ -260,7 +260,7 @@ def create_paciente(paciente: schemas.PacienteCreate, db: Session = Depends(get_
     is_medico = getattr(current_user, "rol", "") in ("medico", "ayudante")
     registrado_por = None
     if is_medico:
-        medico_db = db.query(models.Medico).filter(models.Medico.id == current_user.medico_id).first()
+        medico_db = db.query(models.Medico).filter(models.Medico.id == current_user.id).first()
         if medico_db:
             if medico_db.es_ayudante:
                 med_titular = db.query(models.Medico).filter(models.Medico.id == medico_db.medico_asignado_id).first()
@@ -468,7 +468,7 @@ def pre_captura(req: schemas.PreCapturaRequest, db: Session = Depends(get_db), c
     
     registrado_por = None
     if is_medico:
-        medico_db = db.query(models.Medico).filter(models.Medico.id == current_user.medico_id).first()
+        medico_db = db.query(models.Medico).filter(models.Medico.id == current_user.id).first()
         if medico_db:
             if medico_db.es_ayudante:
                 med_titular = db.query(models.Medico).filter(models.Medico.id == medico_db.medico_asignado_id).first()
