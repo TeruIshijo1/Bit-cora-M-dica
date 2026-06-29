@@ -5,6 +5,7 @@ import { MdLogout, MdLocalHospital, MdFingerprint, MdSearch, MdBed } from 'react
 import { FiCheckCircle, FiClock, FiFileText, FiUser, FiActivity, FiMapPin, FiCalendar, FiEdit3 } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
+import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 
 const serverIP = window.location.hostname;
 const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
@@ -21,6 +22,10 @@ export default function FirmaExpress() {
   
   const [selectedFolio, setSelectedFolio] = useState(null);
   
+  // Modals state
+  const [trasladoModal, setTrasladoModal] = useState({ open: false, paciente: null });
+  const [journeyModal, setJourneyModal] = useState({ open: false, paciente: null });
+  
   // Captura Form State
   const [habitacion, setHabitacion] = useState('');
   const [pacienteSeleccionado, setPacienteSeleccionado] = useState(null);
@@ -36,6 +41,7 @@ export default function FirmaExpress() {
   const [fecha, setFecha] = useState(now.toISOString().slice(0, 10));
   const [hora, setHora] = useState(currentHora);
   const [procedimientoDetalle, setProcedimientoDetalle] = useState('');
+  const [rolActual] = useState(localStorage.getItem('rol'));
 
   const navigate = useNavigate();
   const { status, fmdTemplate, error, devices, resetFmd, isAcquiring, startCapture } = useDigitalPersona();
@@ -62,6 +68,13 @@ export default function FirmaExpress() {
     } catch(e) {
       console.error(e);
     }
+  };
+
+  const handleTrasladoSuccess = () => {
+    setTrasladoModal({ open: false, paciente: null });
+    fetchPendientes(medico.medico_id);
+    fetchHistorial(medico.medico_id);
+    fetchCatalogos();
   };
 
   const fetchHistorial = async (id) => {
@@ -158,7 +171,11 @@ export default function FirmaExpress() {
     }
 
     try {
-      const fechaRealizacionStr = `${fecha}T${hora}:00`;
+      let finalFecha = fecha;
+      if (rolActual !== 'admin' && rolActual !== 'sistemas') {
+        finalFecha = new Date().toISOString().split('T')[0];
+      }
+      const fechaRealizacionStr = `${finalFecha}T${hora}:00`;
       const token = localStorage.getItem('token');
       
       const res = await api.post('/atenciones/pre-captura', {
@@ -293,14 +310,26 @@ export default function FirmaExpress() {
                                       </select>
                                       <span className="text-slate-500 text-sm">Folio: {p.folio}</span>
                                   </div>
-                                  <h3 className="font-bold text-lg text-slate-800">{p.paciente.nombre_completo} <span className="text-slate-400 font-normal text-sm ml-2">Hab: {p.paciente.num_habitacion}</span></h3>
+                                  <h3 className="font-bold text-lg text-slate-800 cursor-pointer hover:text-blue-600 flex items-center gap-2" onClick={() => setJourneyModal({ open: true, paciente: p.paciente })}>
+                                    {p.paciente.nombre_completo} 
+                                    <span className="text-slate-400 font-normal text-sm">Hab: {p.paciente.num_habitacion}</span>
+                                  </h3>
                                   
                                   <div className="text-sm text-slate-600 mt-2">
                                     <span className="font-semibold text-slate-700">{p.nombre_procedimiento}</span> - {p.area_hospitalaria}
                                   </div>
                                   
                                   <div className="flex items-center gap-2 mt-3 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 w-fit">
-                                    <FiUser /> Capturado por: {p.creador ? p.creador.username : 'Ti mismo (Autocaptura)'}
+                                    <FiUser /> Capturado por: {p.registrado_por_nombre || (p.creador ? p.creador.username : 'Ti mismo (Autocaptura)')}
+                                  </div>
+                                  
+                                  <div className="flex gap-2 mt-4 pt-3 border-t border-slate-100 w-fit">
+                                    <button onClick={() => setJourneyModal({ open: true, paciente: p.paciente })} className="text-slate-500 hover:text-blue-600 font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-blue-50">
+                                      <FiActivity /> Ver Trayectoria
+                                    </button>
+                                    <button onClick={() => setTrasladoModal({ open: true, paciente: p.paciente })} className="text-indigo-600 hover:text-indigo-800 font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100">
+                                      <FiMapPin /> Trasladar
+                                    </button>
                                   </div>
                               </div>
                               <div className="text-right text-sm text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col items-end gap-2">
@@ -308,7 +337,15 @@ export default function FirmaExpress() {
                                     <p className="font-semibold text-slate-700 flex items-center gap-1 justify-end"><FiClock /> {new Date(p.fecha_realizacion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                     <p>{new Date(p.fecha_realizacion).toLocaleDateString()}</p>
                                   </div>
-                                  {selectedFolio === p.folio ? (
+                                  {p.is_caducado && !p.ruta_archivo_firmado ? (
+                                    <div className="mt-2 text-xs font-bold text-red-600 bg-red-50 p-2 rounded text-center">
+                                      Registro caducado. No puede firmarse.<br/><span className="font-normal">Contacte a Sistemas.</span>
+                                    </div>
+                                  ) : rolActual === 'ayudante' ? (
+                                    <div className="mt-2 text-xs font-bold text-purple-600 bg-purple-50 p-2 rounded text-center border border-purple-200">
+                                      Pendiente de firma<br/><span className="font-normal">Solo el médico titular puede firmar.</span>
+                                    </div>
+                                  ) : selectedFolio === p.folio ? (
                                     <div className="mt-2 flex flex-col gap-2">
                                       {fmdTemplate ? (
                                         <>
@@ -352,32 +389,34 @@ export default function FirmaExpress() {
                           </div>
                       ))}
 
-                      <button 
-                        disabled={selectedFolio && !isReady}
-                        onClick={() => {
-                          if (!selectedFolio && pendientes.length > 0) {
-                            setSelectedFolio(pendientes[0].folio);
-                            if (isReady && !isAcquiring) startCapture();
-                          } else if (selectedFolio && !fmdTemplate && isReady && !isAcquiring) {
-                            startCapture();
-                          } else if (selectedFolio && fmdTemplate) {
-                            handleFirmarUnica(fmdTemplate);
-                          }
-                        }}
-                        className={`w-full ${selectedFolio && isReady ? (fmdTemplate ? 'bg-green-600 hover:bg-green-700' : 'bg-hes-blue-main hover:bg-blue-800') : 'bg-slate-500 hover:bg-slate-600'} text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2 mt-8 relative ${(!isReady && selectedFolio) ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-                      >
-                          <MdFingerprint className={`text-3xl transition-all duration-300 ${selectedFolio && isReady && !fmdTemplate ? 'animate-pulse drop-shadow-md' : ''}`} /> 
-                          <span>
-                            {!selectedFolio 
-                              ? 'Preparar Firma Rápida (Siguiente Folio)' 
-                              : (!isReady 
-                                  ? (error || 'Buscando lector...') 
-                                  : (fmdTemplate 
-                                      ? 'Huella lista. Presione para Confirmar Firma' 
-                                      : (isAcquiring ? 'Coloque su huella en el lector...' : `Activar lector de huella para folio ${selectedFolio}`))) 
+                      {rolActual !== 'ayudante' && (
+                        <button 
+                          disabled={selectedFolio && !isReady}
+                          onClick={() => {
+                            if (!selectedFolio && pendientes.length > 0) {
+                              setSelectedFolio(pendientes[0].folio);
+                              if (isReady && !isAcquiring) startCapture();
+                            } else if (selectedFolio && !fmdTemplate && isReady && !isAcquiring) {
+                              startCapture();
+                            } else if (selectedFolio && fmdTemplate) {
+                              handleFirmarUnica(fmdTemplate);
                             }
-                          </span>
-                      </button>
+                          }}
+                          className={`w-full ${selectedFolio && isReady ? (fmdTemplate ? 'bg-green-600 hover:bg-green-700' : 'bg-hes-blue-main hover:bg-blue-800') : 'bg-slate-500 hover:bg-slate-600'} text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2 mt-8 relative ${(!isReady && selectedFolio) ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                        >
+                            <MdFingerprint className={`text-3xl transition-all duration-300 ${selectedFolio && isReady && !fmdTemplate ? 'animate-pulse drop-shadow-md' : ''}`} /> 
+                            <span>
+                              {!selectedFolio 
+                                ? 'Preparar Firma Rápida (Siguiente Folio)' 
+                                : (!isReady 
+                                    ? (error || 'Buscando lector...') 
+                                    : (fmdTemplate 
+                                        ? 'Huella lista. Presione para Confirmar Firma' 
+                                        : (isAcquiring ? 'Coloque su huella en el lector...' : `Activar lector de huella para folio ${selectedFolio}`))) 
+                              }
+                            </span>
+                        </button>
+                      )}
                   </div>
               )}
             </>
@@ -392,9 +431,11 @@ export default function FirmaExpress() {
                       {historial.map(h => (
                         <div key={h.folio} className="border p-4 rounded-lg flex justify-between items-center bg-slate-50">
                             <div>
-                                <p className="font-bold text-slate-800">{h.paciente.nombre_completo}</p>
+                                <p className="font-bold text-slate-800 cursor-pointer hover:text-blue-600 hover:underline flex items-center gap-1 w-fit" onClick={() => setJourneyModal({ open: true, paciente: h.paciente })}>
+                                  {h.paciente.nombre_completo}
+                                </p>
                                 <p className="text-sm text-slate-600">{h.nombre_procedimiento} - {h.tipo_atencion}</p>
-                                <p className="text-xs text-slate-500 mt-1">Folio: {h.folio} | Firmado: {new Date(h.fecha_firma).toLocaleString()}</p>
+                                <p className="text-xs text-slate-500 mt-1">Folio: {h.folio} | Firmado: {new Date(h.fecha_firma).toLocaleString()} | Capturado por: {h.registrado_por_nombre || (h.creador ? h.creador.username : 'Ti mismo')}</p>
                             </div>
                             <div>
                                     <button 
@@ -508,12 +549,18 @@ export default function FirmaExpress() {
                    <div className="grid grid-cols-2 gap-4 mb-6">
                      <div>
                        <label className="block text-sm font-semibold text-slate-700 mb-1"><FiCalendar className="inline mr-1"/> Fecha</label>
-                       <input 
-                          type="date" 
-                          className="w-full border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                          value={fecha}
-                          onChange={e => setFecha(e.target.value)}
-                        />
+                       {(rolActual === 'admin' || rolActual === 'sistemas') ? (
+                         <input 
+                            type="date" 
+                            className="w-full border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            value={fecha}
+                            onChange={e => setFecha(e.target.value)}
+                          />
+                       ) : (
+                         <div className="w-full border border-slate-200 bg-slate-50 text-slate-500 rounded-lg p-3 text-sm font-semibold cursor-not-allowed flex items-center h-[50px] shadow-inner">
+                           {new Date(fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                         </div>
+                       )}
                      </div>
                      <div>
                        <label className="block text-sm font-semibold text-slate-700 mb-1"><FiClock className="inline mr-1"/> Hora</label>
@@ -553,6 +600,9 @@ export default function FirmaExpress() {
           )}
         </div>
       </div>
+      
+      {trasladoModal.open && <TrasladoModal paciente={trasladoModal.paciente} areas={areas} onClose={() => setTrasladoModal({open: false, paciente: null})} onSuccess={handleTrasladoSuccess} />}
+      {journeyModal.open && <PatientJourneyModal paciente={journeyModal.paciente} onClose={() => setJourneyModal({open: false, paciente: null})} />}
     </div>
   );
 }

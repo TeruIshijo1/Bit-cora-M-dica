@@ -14,15 +14,17 @@ def seed_database():
     try:
         # Check and insert Usuarios
         usuarios_data = [
-            ("amendoza", "Teru1823-", "admin"),
-            ("rh_user", "rh123", "rh"),
-            ("enfermera1", "enf123", "enfermeria")
+            ("amendoza", "Alberto García Mendoza", "Teru1823-", "admin"),
+            ("rh_user", "Recursos Humanos 1", "rh123", "rh"),
+            ("enfermera1", "Enfermera Principal", "enf123", "enfermeria")
         ]
-        for uname, pwd, rol in usuarios_data:
+        for uname, nombre, pwd, rol in usuarios_data:
             user = db.query(models.Usuario).filter(models.Usuario.username == uname).first()
             if not user:
-                db.add(models.Usuario(username=uname, password_hash=get_password_hash(pwd), rol=rol))
+                db.add(models.Usuario(username=uname, nombre_completo=nombre, password_hash=get_password_hash(pwd), rol=rol))
             else:
+                if not user.nombre_completo:
+                    user.nombre_completo = nombre
                 # Si el password_hash no parece bcrypt, lo corregimos
                 if not user.password_hash.startswith("$2b$"):
                     user.password_hash = get_password_hash(pwd)
@@ -43,7 +45,15 @@ def seed_database():
 
         # Catalogos Tipo Atencion si no hay
         if db.query(models.CatalogoTipoAtencion).count() == 0:
-            tipos = ["Consulta Médica", "Jornada", "Interconsulta", "Servicio de Anestesia"]
+            tipos = [
+                "Visita Médica Quirúrgica (Interconsulta)", 
+                "Visita Médica Clínica (Jornada)", 
+                "Visita Médica Urgencias (Interconsulta)", 
+                "Servicio de Anestésia", 
+                "Cirugia", 
+                "Estudio", 
+                "Procedimiento"
+            ]
             for t in tipos:
                 db.add(models.CatalogoTipoAtencion(nombre=t))
 

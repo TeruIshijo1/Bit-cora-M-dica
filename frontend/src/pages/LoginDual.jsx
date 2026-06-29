@@ -31,7 +31,9 @@ export default function LoginDual() {
         navigate('/captura');
       }
     } catch (error) {
-      alert('Error de acceso administrativo o usuario/contraseña incorrectos.');
+      console.error(error);
+      const msg = error.response?.data?.detail || error.message;
+      alert(`Error de acceso: ${msg}`);
     }
   };
 

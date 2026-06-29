@@ -4,6 +4,7 @@ import axios from 'axios';
 import { MdSearch, MdBed } from 'react-icons/md';
 import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, FiMapPin, FiPlusCircle, FiCheckCircle } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
+import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 
 const serverIP = window.location.hostname;
 const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
@@ -31,16 +32,26 @@ export default function CapturaEnfermeria() {
   
   const [activeTab, setActiveTab] = useState('captura'); // captura, historial, pacientes
   const [historial, setHistorial] = useState([]);
-
+  const [pacientesAltas, setPacientesAltas] = useState([]);
+  const [codigoBarras, setCodigoBarras] = useState('');
+  const [notaModal, setNotaModal] = useState({ open: false, folio: '', text: '' });
+  const [rolActual] = useState(localStorage.getItem('rol'));
+  
   // Estados para nuevo paciente rápido
   const [isCreatingPaciente, setIsCreatingPaciente] = useState(false);
   const [newPacienteNombre, setNewPacienteNombre] = useState('');
   const [newPacienteAreaInline, setNewPacienteAreaInline] = useState('');
+  const [newPacienteCodigoInline, setNewPacienteCodigoInline] = useState('');
   
   // Estados para nuevo paciente en la pestaña Pacientes
   const [newPacienteNombreTab, setNewPacienteNombreTab] = useState('');
   const [newPacienteHabitacionTab, setNewPacienteHabitacionTab] = useState('');
   const [newPacienteAreaTab, setNewPacienteAreaTab] = useState('');
+  const [newPacienteCodigoTab, setNewPacienteCodigoTab] = useState('');
+
+  // Modals state
+  const [trasladoModal, setTrasladoModal] = useState({ open: false, paciente: null });
+  const [journeyModal, setJourneyModal] = useState({ open: false, paciente: null });
 
   // Estados para filtros de historial
   const [filterText, setFilterText] = useState('');
@@ -54,7 +65,8 @@ export default function CapturaEnfermeria() {
   }, [navigate]);
 
   useEffect(() => {
-    if (activeTab === 'historial') fetchHistorial();
+    if (activeTab === 'mis_registros') fetchMisRegistros();
+    if (activeTab === 'registros') fetchHistorialGlobal();
   }, [activeTab]);
 
   const getToken = () => localStorage.getItem('token');
@@ -69,18 +81,44 @@ export default function CapturaEnfermeria() {
       setAreas(resA.data);
       const resT = await api.get('/catalogos/tipos');
       setTiposAtencion(resT.data);
+      
+      const resAltas = await api.get('/pacientes/altas', { headers: { Authorization: `Bearer ${getToken()}` } });
+      setPacientesAltas(resAltas.data);
     } catch (e) {
       console.error(e);
     }
   };
 
-  const fetchHistorial = async () => {
+  const handleTrasladoSuccess = () => {
+    setTrasladoModal({ open: false, paciente: null });
+    fetchData(); // reload patients
+  };
+
+  const fetchMisRegistros = async () => {
     try {
-      const res = await api.get('/atenciones/mis-registros', {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const res = await api.get('/atenciones/mis-registros', { headers: { Authorization: `Bearer ${getToken()}` } });
       setHistorial(res.data);
     } catch (e) { console.error(e); }
+  };
+
+  const fetchHistorialGlobal = async () => {
+    try {
+      const res = await api.get('/atenciones/global', { headers: { Authorization: `Bearer ${getToken()}` } });
+      setHistorial(res.data);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleAddNota = async () => {
+    if(!notaModal.text.trim()) return;
+    try {
+      await api.post(`/atenciones/${notaModal.folio}/notas`, { nota: notaModal.text }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setNotaModal({ open: false, folio: '', text: '' });
+      if (activeTab === 'mis_registros') fetchMisRegistros();
+      if (activeTab === 'registros') fetchHistorialGlobal();
+    } catch(e) {
+      if (e.response && e.response.status === 400) alert(e.response.data.detail);
+      else alert("Error al añadir nota");
+    }
   };
 
   const handleHabitacionChange = (e) => {
@@ -91,6 +129,21 @@ export default function CapturaEnfermeria() {
     setIsCreatingPaciente(false); // Reset al cambiar
   };
 
+  const handleCodigoChange = (e) => {
+    const val = e.target.value;
+    setCodigoBarras(val);
+    const found = pacientes.find(p => p.codigo_barras && p.codigo_barras.toLowerCase() === val.toLowerCase());
+    if (found) {
+       setPacienteSeleccionado(found);
+       setHabitacion(found.num_habitacion);
+       setIsCreatingPaciente(false);
+    } else {
+       setPacienteSeleccionado(null);
+       setIsCreatingPaciente(true);
+       setNewPacienteCodigoInline(val);
+    }
+  };
+
   const handleCreatePaciente = async () => {
     if (!newPacienteNombre || !habitacion || !newPacienteAreaInline) {
       alert("Ingrese nombre, habitación y área hospitalaria"); return;
@@ -99,12 +152,14 @@ export default function CapturaEnfermeria() {
       const res = await api.post('/pacientes', {
         nombre_completo: newPacienteNombre,
         num_habitacion: habitacion,
-        area_hospitalaria: newPacienteAreaInline
+        area_hospitalaria: newPacienteAreaInline,
+        codigo_barras: newPacienteCodigoInline || null
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       
       alert("Paciente ingresado exitosamente");
       setNewPacienteNombre('');
       setNewPacienteAreaInline('');
+      setNewPacienteCodigoInline('');
       setIsCreatingPaciente(false);
       fetchData(); // Recargar lista de pacientes
       setPacienteSeleccionado(res.data);
@@ -121,13 +176,15 @@ export default function CapturaEnfermeria() {
       const res = await api.post('/pacientes', {
         nombre_completo: newPacienteNombreTab,
         num_habitacion: newPacienteHabitacionTab,
-        area_hospitalaria: newPacienteAreaTab
+        area_hospitalaria: newPacienteAreaTab,
+        codigo_barras: newPacienteCodigoTab || null
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       
       alert("Paciente registrado exitosamente");
       setNewPacienteNombreTab('');
       setNewPacienteHabitacionTab('');
       setNewPacienteAreaTab('');
+      setNewPacienteCodigoTab('');
       fetchData(); // Recargar lista de pacientes
     } catch(e) {
       alert("Error al registrar paciente");
@@ -152,7 +209,11 @@ export default function CapturaEnfermeria() {
     }
 
     try {
-      const fechaRealizacionStr = `${fecha}T${hora}:00`;
+      let finalFecha = fecha;
+      if (rolActual !== 'admin' && rolActual !== 'sistemas') {
+        finalFecha = new Date().toISOString().split('T')[0];
+      }
+      const fechaRealizacionStr = `${finalFecha}T${hora}:00`;
       
       const res = await api.post('/atenciones/pre-captura', {
         medico_id: medicoId,
@@ -199,10 +260,16 @@ export default function CapturaEnfermeria() {
           <div className="flex items-center gap-2"><FiFileText /> Nueva Captura</div>
         </button>
         <button 
-          onClick={() => setActiveTab('historial')}
-          className={`pb-3 px-4 font-semibold ${activeTab === 'historial' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setActiveTab('mis_registros')}
+          className={`pb-3 px-4 font-semibold ${activeTab === 'mis_registros' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
         >
           <div className="flex items-center gap-2"><FiList /> Mis Registros</div>
+        </button>
+        <button 
+          onClick={() => setActiveTab('registros')}
+          className={`pb-3 px-4 font-semibold ${activeTab === 'registros' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          <div className="flex items-center gap-2"><FiActivity /> Registros</div>
         </button>
         <button 
           onClick={() => setActiveTab('pacientes')}
@@ -217,7 +284,7 @@ export default function CapturaEnfermeria() {
           <section className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 flex gap-6">
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FiUser /> 1. Paciente y Área</h2>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 gap-4 mb-4">
                 <div className="relative">
                   <MdSearch className="absolute left-3 top-3.5 text-slate-400 text-xl" />
                   <input 
@@ -310,7 +377,13 @@ export default function CapturaEnfermeria() {
                <div className="grid grid-cols-2 gap-4 mb-6">
                  <div>
                    <label className="block text-sm font-semibold text-slate-700 mb-1"><FiCalendar className="inline mr-1"/> Fecha</label>
+                 {(rolActual === 'admin' || rolActual === 'sistemas') ? (
                    <input type="date" className="w-full border border-slate-300 rounded-lg p-3" value={fecha} onChange={e => setFecha(e.target.value)} />
+                 ) : (
+                   <div className="w-full border border-slate-200 bg-slate-50 text-slate-500 rounded-lg p-3 text-sm font-semibold cursor-not-allowed flex items-center h-[50px] shadow-inner">
+                     {new Date(fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                   </div>
+                 )}
                  </div>
                  <div>
                    <label className="block text-sm font-semibold text-slate-700 mb-1"><FiClock className="inline mr-1"/> Hora</label>
@@ -343,13 +416,13 @@ export default function CapturaEnfermeria() {
         </div>
       )}
 
-      {activeTab === 'historial' && (
+      {(activeTab === 'mis_registros' || activeTab === 'registros') && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-              <FiActivity className="text-hes-blue-main" /> Mis Registros Capturados
-            </h3>
-            <button onClick={fetchHistorial} className="text-sm font-medium text-hes-blue-main hover:underline">Refrescar</button>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <FiActivity className="text-hes-blue-main" /> {activeTab === 'mis_registros' ? 'Mis Registros' : 'Historial de Registros Global'}
+            </h2>
+            <button onClick={() => activeTab === 'mis_registros' ? fetchMisRegistros() : fetchHistorialGlobal()} className="text-sm font-medium text-hes-blue-main hover:underline">Refrescar</button>
           </div>
           
           {/* Filtros */}
@@ -384,19 +457,38 @@ export default function CapturaEnfermeria() {
                   </thead>
                   <tbody>
                     {historialFiltrado.map(h => (
-                      <tr key={h.folio} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="p-4 text-sm font-bold text-hes-blue-main">{h.folio}</td>
-                        <td className="p-4 text-sm text-slate-800">
-                          <div>{h.paciente.nombre_completo}</div>
+                      <tr key={h.folio} className={`border-b border-slate-100 transition-colors ${h.is_caducado && !h.ruta_archivo_firmado && h.estatus_pago === 'Pendiente de Firma' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
+                        <td className="p-4 text-sm font-bold text-hes-blue-main align-top">
+                          {h.folio}
+                          <div className="text-xs text-slate-500 mt-1 font-normal">Creado por:<br/>{h.registrado_por_nombre || (h.creador ? h.creador.nombre_completo || h.creador.username : 'N/A')}</div>
+                          {h.is_caducado && !h.ruta_archivo_firmado && h.estatus_pago === 'Pendiente de Firma' && <div className="text-xs text-red-600 font-bold mt-2">Fuera de tiempo permitido para captura</div>}
+                        </td>
+                        <td className="p-4 text-sm text-slate-800 align-top">
+                          <div className="font-semibold cursor-pointer hover:text-blue-600 hover:underline w-fit" onClick={() => setJourneyModal({ open: true, paciente: h.paciente })}>{h.paciente?.nombre_completo}</div>
                           <div className="text-xs text-slate-500">Hab: {h.habitacion_capturada}</div>
                         </td>
-                        <td className="p-4 text-sm text-slate-600">{h.medico ? h.medico.nombre_completo : 'N/A'}</td>
-                        <td className="p-4 text-sm text-slate-600">
-                          <div>{h.nombre_procedimiento} ({h.tipo_atencion})</div>
-                          <div className="text-xs text-slate-500">{h.area_hospitalaria}</div>
+                        <td className="p-4 text-sm text-slate-600 align-top">{h.medico ? h.medico.nombre_completo : 'N/A'}</td>
+                        <td className="p-4 text-sm text-slate-600 align-top">
+                          <div className="font-semibold">{h.nombre_procedimiento} <span className="font-normal">({h.tipo_atencion})</span></div>
+                          <div className="text-xs text-slate-500 mb-2">{h.area_hospitalaria}</div>
+                          {h.notas && h.notas.length > 0 && (
+                            <div className="mt-2 pl-3 border-l-2 border-blue-200 bg-white p-2 rounded shadow-sm">
+                              <h4 className="text-xs font-bold text-blue-800 mb-1">Notas de Enfermería:</h4>
+                              {h.notas.map(n => (
+                                <div key={n.id} className="text-xs mb-1">
+                                  <span className="font-semibold text-slate-700">{n.creador?.nombre_completo || n.creador?.username}:</span> {n.nota} <span className="text-slate-400">({new Date(n.fecha_creacion).toLocaleDateString()})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {!(h.is_caducado && !h.ruta_archivo_firmado && h.estatus_pago === 'Pendiente de Firma') && (
+                            <button onClick={() => setNotaModal({ open: true, folio: h.folio, text: '' })} className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                              <FiPlusCircle /> Añadir Nota
+                            </button>
+                          )}
                         </td>
-                        <td className="p-4 text-sm text-slate-600">{new Date(h.fecha_realizacion).toLocaleDateString()}</td>
-                        <td className="p-4 text-sm">
+                        <td className="p-4 text-sm text-slate-600 align-top">{new Date(h.fecha_realizacion).toLocaleDateString()}</td>
+                        <td className="p-4 text-sm align-top">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                             h.estatus_pago === 'Pendiente de Firma' ? 'bg-orange-100 text-orange-700' : 
                             h.estatus_pago === 'Validado para Pago' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
@@ -421,70 +513,139 @@ export default function CapturaEnfermeria() {
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden p-6 space-y-6">
 
               <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                <h3 className="text-lg font-bold text-slate-700 mb-4">Ingresar Nuevo Paciente</h3>
-                <div className="flex gap-4 items-end">
-                  <div className="flex-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre Completo</label>
-                    <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. Juan Pérez" value={newPacienteNombreTab} onChange={e => setNewPacienteNombreTab(e.target.value)} />
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-slate-700">Ingresar Nuevo Paciente</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre Completo</label>
+                      <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. Juan Pérez" value={newPacienteNombreTab} onChange={e => setNewPacienteNombreTab(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">Cama / Habitación</label>
+                      <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. 101" value={newPacienteHabitacionTab} onChange={e => setNewPacienteHabitacionTab(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">Área Hospitalaria</label>
+                      <select className="w-full border rounded-lg p-2 bg-white" value={newPacienteAreaTab} onChange={e => setNewPacienteAreaTab(e.target.value)}>
+                        <option value="">Seleccione el Área...</option>
+                        {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div className="w-48">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Habitación</label>
-                    <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. 101" value={newPacienteHabitacionTab} onChange={e => setNewPacienteHabitacionTab(e.target.value)} />
-                  </div>
-                  <div className="w-64">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Área Hospitalaria</label>
-                    <select className="w-full border rounded-lg p-2 bg-white" value={newPacienteAreaTab} onChange={e => setNewPacienteAreaTab(e.target.value)}>
-                      <option value="">Selecciona el Área...</option>
-                      {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-                    </select>
-                  </div>
-                  <button onClick={handleCreatePacienteTab} className="bg-hes-blue-main text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-800 transition-colors h-[42px]">
+                  <button onClick={handleCreatePacienteTab} className="bg-hes-blue-main text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-800 transition-colors h-[42px] mt-4">
                     Ingresar
                   </button>
-                </div>
               </div>
 
               <div>
-                <h3 className="text-lg font-bold text-slate-700 mb-4">Gestión de Pacientes Activos (Camas Ocupadas)</h3>
-                <div className="overflow-x-auto">
+                <h3 className="text-lg font-bold text-slate-700 mb-4">Pacientes Activos (Camas Ocupadas)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                  {pacientes.map(p => (
+                    <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-md border border-slate-200 p-5 transition-shadow relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -z-10 group-hover:scale-125 transition-transform"></div>
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                          #{p.id}
+                        </span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setJourneyModal({ open: true, paciente: p })} className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Ver Trayectoria">
+                            <FiActivity size={18} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <h4 className="text-lg font-bold text-slate-800 mb-1 leading-tight cursor-pointer hover:text-blue-600 hover:underline w-fit" onClick={() => setJourneyModal({ open: true, paciente: p })}>{p.nombre_completo}</h4>
+                      {p.registrado_por_nombre && <div className="text-xs font-normal text-slate-500 mb-1">Reg. por: {p.registrado_por_nombre}</div>}
+                      
+                      <div className="flex items-center text-sm text-slate-600 mb-4 gap-4 mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <MdBed className="text-slate-400 text-lg" />
+                          {p.num_habitacion}
+                        </div>
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <FiMapPin className="text-slate-400 text-lg" />
+                          {p.area_hospitalaria || 'Sin área'}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+                        <button onClick={() => setTrasladoModal({ open: true, paciente: p })} className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 border border-indigo-100">
+                          <FiMapPin /> Mover
+                        </button>
+                        <button onClick={() => handleAltaPaciente(p.id)} className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-semibold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 border border-red-100">
+                          <FiCheckCircle /> Alta
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {pacientes.length === 0 && (
+                    <div className="col-span-full p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl text-slate-500">
+                      No hay pacientes activos actualmente.
+                    </div>
+                  )}
+                </div>
+              
+              <h3 className="text-lg font-bold text-slate-700 mb-4">Historial de Pacientes Dados de Alta</h3>
+                <div className="overflow-x-auto border rounded-xl">
                   <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="p-3 text-sm font-semibold text-slate-600">ID</th>
                       <th className="p-3 text-sm font-semibold text-slate-600">Nombre del Paciente</th>
-                      <th className="p-3 text-sm font-semibold text-slate-600">Habitación</th>
-                      <th className="p-3 text-sm font-semibold text-slate-600">Acciones</th>
+                      <th className="p-3 text-sm font-semibold text-slate-600">Última Habitación</th>
+                      <th className="p-3 text-sm font-semibold text-slate-600">Alta por</th>
+                      <th className="p-3 text-sm font-semibold text-slate-600">Fecha Alta</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pacientes.map(p => (
+                    {pacientesAltas.map(p => (
                       <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="p-3 text-sm font-semibold text-blue-700">{p.id}</td>
-                        <td className="p-3 text-sm font-medium text-slate-800">{p.nombre_completo}</td>
-                        <td className="p-3 text-sm text-slate-600">{p.num_habitacion}</td>
-                        <td className="p-3 text-sm flex gap-3">
-                          <button 
-                            onClick={() => handleAltaPaciente(p.id)}
-                            className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 rounded font-semibold text-xs border border-red-200"
-                          >
-                            Dar de Alta
-                          </button>
-                        </td>
+                        <td className="p-3 text-sm font-semibold text-slate-500">{p.id}</td>
+                        <td className="p-3 text-sm font-medium text-slate-600">{p.nombre_completo}</td>
+                        <td className="p-3 text-sm text-slate-500">{p.num_habitacion}</td>
+                        <td className="p-3 text-sm text-slate-500">{p.dado_de_alta_por?.nombre_completo || p.dado_de_alta_por?.username || 'N/A'}</td>
+                        <td className="p-3 text-sm text-slate-500">{p.fecha_alta ? new Date(p.fecha_alta).toLocaleString() : 'N/A'}</td>
                       </tr>
                     ))}
-                    {pacientes.length === 0 && (
+                    {pacientesAltas.length === 0 && (
                       <tr>
-                        <td colSpan="4" className="p-6 text-center text-slate-500">No hay pacientes activos actualmente.</td>
+                        <td colSpan="5" className="p-6 text-center text-slate-500">No hay pacientes dados de alta.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+
             </div>
             </div>
           )}
 
       </div>
+      
+      {/* Modal Añadir Nota */}
+      {notaModal.open && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-96 max-w-full">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><FiEdit3 /> Añadir Nota de Enfermería</h3>
+            <p className="text-sm text-slate-600 mb-2">Para el folio: <strong>{notaModal.folio}</strong></p>
+            <textarea 
+              className="w-full h-32 border border-slate-300 rounded-lg p-3 resize-none focus:ring-2 focus:ring-blue-500 mb-4"
+              placeholder="Escribe la nota..."
+              value={notaModal.text}
+              onChange={e => setNotaModal({...notaModal, text: e.target.value})}
+            ></textarea>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setNotaModal({ open: false, folio: '', text: '' })} className="px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200">Cancelar</button>
+              <button onClick={handleAddNota} className="px-4 py-2 text-sm font-bold text-white bg-hes-blue-main rounded hover:bg-blue-800">Guardar Nota</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trasladoModal.open && <TrasladoModal paciente={trasladoModal.paciente} areas={areas} onClose={() => setTrasladoModal({open: false, paciente: null})} onSuccess={handleTrasladoSuccess} />}
+      {journeyModal.open && <PatientJourneyModal paciente={journeyModal.paciente} onClose={() => setJourneyModal({open: false, paciente: null})} />}
+
     </div>
   );
 }
