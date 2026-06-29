@@ -23,7 +23,7 @@ export default function LoginDual() {
       const res = await api.post('/auth/login/admin', { username, password });
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('rol', res.data.rol);
-      if (res.data.rol === 'admin') {
+      if (res.data.rol === 'admin' || res.data.rol === 'sistemas') {
         navigate('/admin');
       } else if (res.data.rol === 'rh') {
         navigate('/rh');

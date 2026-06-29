@@ -17,16 +17,16 @@ function AppContent() {
       
       {/* Protected Routes wrapped in Layout */}
       <Route element={<Layout />}>
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'rh']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'rh', 'sistemas']} />}>
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/rh" element={<AdminDashboard />} />
         </Route>
         
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'enfermeria']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'enfermeria', 'sistemas']} />}>
           <Route path="/captura" element={<CapturaEnfermeria />} />
         </Route>
         
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'medico']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'ayudante']} />}>
           <Route path="/firma-express" element={<FirmaExpress />} />
         </Route>
       </Route>

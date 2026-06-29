@@ -288,17 +288,20 @@ def create_paciente(paciente: schemas.PacienteCreate, db: Session = Depends(get_
     return nuevo_paciente
 
 @app.put("/api/pacientes/{paciente_id}", response_model=schemas.PacienteResponse)
-def update_paciente(paciente_id: int, req: schemas.PacienteUpdate, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def update_paciente(paciente_id: int, req: schemas.PacienteUpdate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     paciente = db.query(models.Paciente).filter(models.Paciente.id == paciente_id).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        
+    is_medico = getattr(current_user, "rol", "") in ("medico", "ayudante")
+    usuario_id_log = None if is_medico else current_user.id
         
     area_ant = paciente.area_hospitalaria
     hab_ant = paciente.num_habitacion
     cambio_traslado = False
     
     if req.nombre_completo != paciente.nombre_completo:
-        log_auditoria(db, current_user.id, "Nombre Paciente Editado", f"De {paciente.nombre_completo} a {req.nombre_completo}")
+        log_auditoria(db, usuario_id_log, "Nombre Paciente Editado", f"De {paciente.nombre_completo} a {req.nombre_completo}")
         paciente.nombre_completo = req.nombre_completo
         
     if req.num_habitacion != paciente.num_habitacion:
@@ -317,10 +320,10 @@ def update_paciente(paciente_id: int, req: schemas.PacienteUpdate, db: Session =
             origen_habitacion=hab_ant,
             destino_area=paciente.area_hospitalaria,
             destino_habitacion=paciente.num_habitacion,
-            usuario_id=current_user.id
+            usuario_id=usuario_id_log
         )
         db.add(traslado)
-        log_auditoria(db, current_user.id, "Traslado de Paciente", f"Paciente {paciente.nombre_completo} movido de {area_ant}({hab_ant}) a {paciente.area_hospitalaria}({paciente.num_habitacion})")
+        log_auditoria(db, usuario_id_log, "Traslado de Paciente", f"Paciente {paciente.nombre_completo} movido de {area_ant}({hab_ant}) a {paciente.area_hospitalaria}({paciente.num_habitacion})")
         
     db.commit()
     db.refresh(paciente)

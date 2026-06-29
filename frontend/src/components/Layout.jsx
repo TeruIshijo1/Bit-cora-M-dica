@@ -26,9 +26,9 @@ export default function Layout() {
 
   const menuItems = [
     { path: '/admin', label: 'Dashboard Global', icon: <FiActivity />, roles: ['admin', 'sistemas'] },
-    { path: '/rh', label: 'Recursos Humanos', icon: <FiUsers />, roles: ['admin', 'rh'] },
-    { path: '/captura', label: 'Captura (Enfermería)', icon: <FiClipboard />, roles: ['admin', 'enfermeria'] },
-    { path: '/firma-express', label: 'Firma Express (Médico)', icon: <FiEdit3 />, roles: ['admin', 'medico'] }
+    { path: '/rh', label: 'Recursos Humanos', icon: <FiUsers />, roles: ['admin', 'rh', 'sistemas'] },
+    { path: '/captura', label: 'Captura (Enfermería)', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
+    { path: '/firma-express', label: 'Firma Express (Médico)', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] }
   ];
 
   const visibleItems = menuItems.filter(item => item.roles.includes(rol));
