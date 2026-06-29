@@ -1080,7 +1080,7 @@ def get_pacientes_altas(db: Session = Depends(get_db), current_user: models.Usua
     return db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Alta").order_by(models.Paciente.fecha_alta.desc()).all()
 
 @app.post("/api/admin/clean_records")
-def clean_records(req: schemas.CleanRecordsRequest, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas"]))):
+def clean_records(req: schemas.CleanRecordsRequest, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas", "admin"]))):
     try:
         if req.clean_notas:
             db.query(models.NotaEnfermeria).delete()

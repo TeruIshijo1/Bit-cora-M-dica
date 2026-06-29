@@ -1287,7 +1287,7 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {rolActual === 'sistemas' && (
+                {(rolActual === 'admin' || rolActual === 'sistemas') && (
                   <div className="bg-red-50 rounded-xl shadow-sm border border-red-200 p-6 mt-4">
                     <h3 className="text-lg font-bold text-red-700 mb-2 flex items-center gap-2"><FiAlertCircle /> Limpieza de Base de Datos</h3>
                     <p className="text-sm text-red-600 mb-4">Elimina permanentemente registros operativos sin afectar usuarios ni catálogos.</p>
