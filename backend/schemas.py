@@ -226,3 +226,9 @@ class AnalyticsDashboardResponse(BaseModel):
     actividad_reciente: List[ActivityStat]
     total_pacientes_activos: int
     total_atenciones_mes: int
+
+class CleanRecordsRequest(BaseModel):
+    clean_atenciones: bool = False
+    clean_notas: bool = False
+    clean_traslados: bool = False
+    clean_pacientes: bool = False

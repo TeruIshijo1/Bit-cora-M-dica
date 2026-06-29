@@ -1079,6 +1079,33 @@ def reaperturar_registro(folio: str, db: Session = Depends(get_db), current_user
 def get_pacientes_altas(db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
     return db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Alta").order_by(models.Paciente.fecha_alta.desc()).all()
 
+@app.post("/api/admin/clean_records")
+def clean_records(req: schemas.CleanRecordsRequest, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas"]))):
+    try:
+        if req.clean_notas:
+            db.query(models.NotaEnfermeria).delete()
+        if req.clean_traslados:
+            db.query(models.TrasladoPaciente).delete()
+        if req.clean_atenciones:
+            # First fetch to potentially delete PDFs later if needed, but for now just DB records
+            db.query(models.AtencionMedica).delete()
+            # Físicamente limpiar carpeta pdfs/ y generados/ (opcional, pero se pide)
+            import glob
+            for f in glob.glob(os.path.join(os.path.dirname(__file__), "static", "pdfs", "*.pdf")):
+                try: os.remove(f)
+                except: pass
+            for f in glob.glob(os.path.join(os.path.dirname(__file__), "generados", "*.pdf")):
+                try: os.remove(f)
+                except: pass
+        if req.clean_pacientes:
+            db.query(models.Paciente).delete()
+            
+        db.commit()
+        return {"message": "Registros limpiados exitosamente"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error limpiando la base de datos: {e}")
+
 # === FRONTEND (PRODUCCION) ===
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):

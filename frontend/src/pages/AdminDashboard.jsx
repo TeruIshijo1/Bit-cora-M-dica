@@ -98,6 +98,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [pacientes, setPacientes] = useState([]);
   const [auditoriaLogs, setAuditoriaLogs] = useState([]);
+  const [cleanModal, setCleanModal] = useState({ open: false, atenciones: true, notas: true, traslados: true, pacientes: true });
   const [newPacienteNombre, setNewPacienteNombre] = useState('');
   const [newPacienteHabitacion, setNewPacienteHabitacion] = useState('');
   const [newPacienteArea, setNewPacienteArea] = useState('');
@@ -388,6 +389,24 @@ export default function AdminDashboard() {
       document.body.appendChild(link);
       link.click();
     } catch(e) { alert("Error al descargar respaldo"); }
+  };
+
+  const handleCleanDatabase = async () => {
+    try {
+      const response = await api.post('/admin/clean_records', {
+        clean_atenciones: cleanModal.atenciones,
+        clean_notas: cleanModal.notas,
+        clean_traslados: cleanModal.traslados,
+        clean_pacientes: cleanModal.pacientes
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      alert(response.data.message);
+      setCleanModal({ ...cleanModal, open: false });
+      window.location.reload();
+    } catch(e) {
+      alert("Error limpiando la base de datos: " + (e.response?.data?.detail || e.message));
+    }
   };
 
   const handleFotoChange = (e) => {
@@ -1267,8 +1286,18 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                 )}
+
+                {rolActual === 'sistemas' && (
+                  <div className="bg-red-50 rounded-xl shadow-sm border border-red-200 p-6 mt-4">
+                    <h3 className="text-lg font-bold text-red-700 mb-2 flex items-center gap-2"><FiAlertCircle /> Limpieza de Base de Datos</h3>
+                    <p className="text-sm text-red-600 mb-4">Elimina permanentemente registros operativos sin afectar usuarios ni catálogos.</p>
+                    <button onClick={() => setCleanModal({...cleanModal, open: true})} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded flex justify-center items-center gap-2">
+                      <FiTrash2 /> Iniciar Limpieza de Registros
+                    </button>
+                  </div>
+                )}
                 
-                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex-1">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex-1 mt-4">
                   <h3 className="text-lg font-bold text-slate-700 mb-4">Lista de Usuarios</h3>
                   <ul className="space-y-2">
                     {usuarios.map(u => (
@@ -1494,6 +1523,59 @@ export default function AdminDashboard() {
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button onClick={() => setTrasladosModal({ open: false, paciente: null, traslados: [] })} className="px-6 py-2 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:bg-slate-100">
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+      )}
+
+      {/* Clean DB Modal */}
+      {cleanModal.open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="p-6 bg-red-600 text-white flex items-center gap-3">
+              <FiAlertCircle className="text-3xl" />
+              <div>
+                <h2 className="text-xl font-bold">Limpiar Registros de Operación</h2>
+                <p className="text-sm text-red-100">Esta acción no se puede deshacer.</p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-slate-700 font-semibold mb-4">Selecciona qué información deseas eliminar permanentemente de la base de datos:</p>
+              
+              <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                <input type="checkbox" checked={cleanModal.atenciones} onChange={(e) => setCleanModal({...cleanModal, atenciones: e.target.checked})} className="w-5 h-5 rounded text-red-600 focus:ring-red-500" />
+                <span className="text-slate-800 font-medium">Atenciones Médicas y Archivos PDF</span>
+              </label>
+              
+              <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                <input type="checkbox" checked={cleanModal.notas} onChange={(e) => setCleanModal({...cleanModal, notas: e.target.checked})} className="w-5 h-5 rounded text-red-600 focus:ring-red-500" />
+                <span className="text-slate-800 font-medium">Notas de Enfermería</span>
+              </label>
+              
+              <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                <input type="checkbox" checked={cleanModal.traslados} onChange={(e) => setCleanModal({...cleanModal, traslados: e.target.checked})} className="w-5 h-5 rounded text-red-600 focus:ring-red-500" />
+                <span className="text-slate-800 font-medium">Historial de Traslados (Trayectorias)</span>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                <input type="checkbox" checked={cleanModal.pacientes} onChange={(e) => setCleanModal({...cleanModal, pacientes: e.target.checked})} className="w-5 h-5 rounded text-red-600 focus:ring-red-500" />
+                <span className="text-slate-800 font-medium">Pacientes Actuales (Liberar todas las camas)</span>
+              </label>
+              
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                <p className="text-sm text-blue-800 flex items-start gap-2">
+                  <FiLock className="mt-1 flex-shrink-0" />
+                  <span><strong>Nota:</strong> Los usuarios, médicos, huellas y catálogos de áreas/procedimientos NUNCA serán borrados por esta herramienta.</span>
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setCleanModal({...cleanModal, open: false})} className="px-6 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-200 transition-colors">Cancelar</button>
+              <button onClick={handleCleanDatabase} disabled={!cleanModal.atenciones && !cleanModal.notas && !cleanModal.traslados && !cleanModal.pacientes} className="px-6 py-2 rounded-lg font-bold text-white bg-red-600 hover:bg-red-700 shadow-md transition-colors disabled:bg-slate-400">
+                Confirmar Limpieza
               </button>
             </div>
           </div>
