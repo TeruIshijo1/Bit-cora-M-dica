@@ -327,15 +327,19 @@ def update_paciente(paciente_id: int, req: schemas.PacienteUpdate, db: Session =
     return paciente
 
 @app.put("/api/pacientes/{paciente_id}/alta")
-def alta_paciente(paciente_id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def alta_paciente(paciente_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     paciente = db.query(models.Paciente).filter(models.Paciente.id == paciente_id).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
     paciente.status_ingreso = "Alta"
-    paciente.dado_de_alta_por_id = current_user.id
+    # Medico objects don't have an id usable for dado_de_alta_por_id (FK → usuarios)
+    is_medico = getattr(current_user, "rol", "") in ("medico", "ayudante")
+    if not is_medico:
+        paciente.dado_de_alta_por_id = current_user.id
     paciente.fecha_alta = datetime.datetime.utcnow()
     
-    log_auditoria(db, current_user.id, "Alta de Paciente", f"Paciente {paciente.nombre_completo} (ID: {paciente.id}) fue dado de alta")
+    usuario_id_log = None if is_medico else current_user.id
+    log_auditoria(db, usuario_id_log, "Alta de Paciente", f"Paciente {paciente.nombre_completo} (ID: {paciente.id}) fue dado de alta")
     
     db.commit()
     return {"message": "Paciente dado de alta"}
@@ -460,9 +464,12 @@ def pre_captura(req: schemas.PreCapturaRequest, db: Session = Depends(get_db), c
     if exact_match:
         raise HTTPException(status_code=400, detail=f"El médico ya tiene un registro de atención el día de hoy para este paciente (Folio: {exact_match.folio}).")
     
-    count = db.query(models.AtencionMedica).count() + 1
+    # Use max folio number instead of count to avoid collisions after cleanup
+    from sqlalchemy import text
+    max_row = db.execute(text("SELECT MAX(CAST(SUBSTR(folio, 10) AS INTEGER)) FROM atenciones_medicas")).fetchone()
+    next_num = (max_row[0] or 0) + 1
     year = datetime.date.today().year
-    folio = f"HES-{year}-{count:05d}"
+    folio = f"HES-{year}-{next_num:05d}"
     
     is_medico = getattr(current_user, "rol", "") in ("medico", "ayudante")
     
@@ -1038,8 +1045,6 @@ def get_paciente_journey(paciente_id: int, db: Session = Depends(get_db), curren
     return eventos
 
 # === BACKUP ===
-# === BACKUP ===
-from fastapi.responses import FileResponse
 @app.get("/api/backup")
 def get_backup(current_user: models.Usuario = Depends(require_role(["admin", "sistemas"]))):
     db_path = "hospital_escandon.db"
@@ -1049,17 +1054,19 @@ def get_backup(current_user: models.Usuario = Depends(require_role(["admin", "si
     return FileResponse(path=db_path, filename=f"backup_hes_{hoy}.db", media_type="application/octet-stream")
 
 @app.post("/api/atenciones/{folio}/notas", response_model=schemas.NotaResponse)
-def agregar_nota(folio: str, req: schemas.NotaCreate, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def agregar_nota(folio: str, req: schemas.NotaCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     atencion = db.query(models.AtencionMedica).filter(models.AtencionMedica.folio == folio).first()
     if not atencion:
         raise HTTPException(status_code=404, detail="Atención no encontrada")
     if atencion.is_caducado and getattr(current_user, "rol", "") != "sistemas":
         raise HTTPException(status_code=400, detail="Fuera de tiempo permitido para captura (registro caducado)")
     
+    # Medico objects don't map to usuarios table; only store id for Usuario rows
+    is_medico = getattr(current_user, "rol", "") in ("medico", "ayudante")
     nueva_nota = models.NotaEnfermeria(
         atencion_folio=folio,
         nota=req.nota,
-        creada_por_id=current_user.id
+        creada_por_id=None if is_medico else current_user.id
     )
     db.add(nueva_nota)
     db.commit()
@@ -1076,32 +1083,47 @@ def reaperturar_registro(folio: str, db: Session = Depends(get_db), current_user
     return {"message": "Registro reaperturado exitosamente"}
 
 @app.get("/api/pacientes/altas", response_model=List[schemas.PacienteResponse])
-def get_pacientes_altas(db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def get_pacientes_altas(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     return db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Alta").order_by(models.Paciente.fecha_alta.desc()).all()
 
 @app.post("/api/admin/clean_records")
 def clean_records(req: schemas.CleanRecordsRequest, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas", "admin"]))):
     try:
+        import glob
+        # Order matters: delete child rows before parent rows to avoid FK constraint errors
         if req.clean_notas:
             db.query(models.NotaEnfermeria).delete()
         if req.clean_traslados:
             db.query(models.TrasladoPaciente).delete()
         if req.clean_atenciones:
-            # First fetch to potentially delete PDFs later if needed, but for now just DB records
             db.query(models.AtencionMedica).delete()
-            # Físicamente limpiar carpeta pdfs/ y generados/ (opcional, pero se pide)
-            import glob
+            # Clean generated PDFs from disk
             for f in glob.glob(os.path.join(os.path.dirname(__file__), "static", "pdfs", "*.pdf")):
                 try: os.remove(f)
                 except: pass
             for f in glob.glob(os.path.join(os.path.dirname(__file__), "generados", "*.pdf")):
                 try: os.remove(f)
                 except: pass
+            for f in glob.glob(os.path.join(os.path.dirname(__file__), "generados", "*.docx")):
+                try: os.remove(f)
+                except: pass
         if req.clean_pacientes:
-            db.query(models.Paciente).delete()
+            # Can't delete patients while atenciones still reference them
+            if not req.clean_atenciones:
+                # Delete only patients with no atenciones linked
+                db.execute(__import__('sqlalchemy').text(
+                    "DELETE FROM pacientes WHERE id NOT IN (SELECT DISTINCT paciente_id FROM atenciones_medicas WHERE paciente_id IS NOT NULL)"
+                ))
+            else:
+                db.query(models.Paciente).delete()
             
         db.commit()
-        return {"message": "Registros limpiados exitosamente"}
+        partes = []
+        if req.clean_notas: partes.append("notas")
+        if req.clean_traslados: partes.append("traslados")
+        if req.clean_atenciones: partes.append("atenciones y PDFs")
+        if req.clean_pacientes: partes.append("pacientes")
+        return {"message": f"Limpieza completada: {', '.join(partes)}"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error limpiando la base de datos: {e}")
