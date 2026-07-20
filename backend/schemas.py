@@ -77,6 +77,24 @@ class PacienteResponse(PacienteBase):
     class Config:
         from_attributes = True
 
+# --- Camas ---
+class CamaResponse(BaseModel):
+    id: int
+    numero_cama: str
+    area: str
+    estado: str
+    activo: bool
+    class Config:
+        from_attributes = True
+
+class OcupacionArea(BaseModel):
+    area: str
+    total_camas: int
+    camas_ocupadas: int
+    camas_disponibles: int
+    camas_mantenimiento: int
+    porcentaje_ocupacion: float
+
 # --- Médicos ---
 class MedicoCreate(BaseModel):
     nombre_completo: str

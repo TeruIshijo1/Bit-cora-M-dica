@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -15,6 +15,10 @@ import os
 import shutil
 import csv
 from fastapi.responses import StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from database import engine, SessionLocal, get_db, Base
 from pydantic import BaseModel
@@ -31,7 +35,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.drawing.image import Image as ExcelImage
 from fastapi.responses import FileResponse
-
+import kh_database
 # Config
 SECRET_KEY = "hospital_escandon_super_secret"
 ALGORITHM = "HS256"
@@ -45,13 +49,27 @@ os.makedirs(PLANTILLAS_DIR, exist_ok=True)
 
 app = FastAPI(title="MediReg API - Hospital Escandón")
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Quitamos Strict-Transport-Security hasta que haya HTTPS real
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Servir estaticos para fotos de medicos
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://192.168.254.249:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,7 +132,8 @@ def require_role(allowed_roles: List[str]):
 import requests
 
 @app.post("/api/auth/login/admin", response_model=schemas.Token)
-def login_admin(req: schemas.LoginAdminRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login_admin(request: Request, req: schemas.LoginAdminRequest, db: Session = Depends(get_db)):
     print(f"Intento de login para usuario: '{req.username}'")
     user = db.query(models.Usuario).filter(models.Usuario.username == req.username).first()
     if not user:
@@ -134,7 +153,8 @@ def login_admin(req: schemas.LoginAdminRequest, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer", "rol": user.rol}
 
 @app.post("/api/auth/login/biometric", response_model=schemas.Token)
-def login_biometric(req: schemas.LoginBiometricRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login_biometric(request: Request, req: schemas.LoginBiometricRequest, db: Session = Depends(get_db)):
     if not req.fmd_template:
         raise HTTPException(status_code=400, detail="No se recibió la huella biométrica (FMD).")
     
@@ -253,6 +273,123 @@ def delete_tipo(id: int, db: Session = Depends(get_db), current_user: models.Usu
 # --- Pacientes ---
 @app.get("/api/pacientes", response_model=List[schemas.PacienteResponse])
 def get_pacientes(db: Session = Depends(get_db)):
+    try:
+        # Sincronizar pacientes desde KH_HE
+        camas = kh_database.fetch_camas()
+        
+        # Ignorar si falla la conexión
+        if isinstance(camas, list) and len(camas) > 0 and "Error" not in camas[0] and "Mensaje" not in camas[0]:
+            # === SINCRONIZAR CAMAS ===
+            processed_rooms = set()
+            for cama in camas:
+                room_name = cama.get("RoomName")
+                
+                # Evitar procesar duplicados en la misma consulta (común en camas virtuales)
+                if room_name in processed_rooms:
+                    continue
+                processed_rooms.add(room_name)
+                
+                # Buscar si ya existe la cama en local
+                cama_db = db.query(models.Cama).filter(models.Cama.numero_cama == room_name).first()
+                
+                # Determinar área básica para la cama
+                area = "Otras Áreas"
+                name_upper = room_name.upper()
+                if "PB" in name_upper or "10" in name_upper: area = "PPB (Planta Baja)"
+                elif "PA" in name_upper or "20" in name_upper: area = "PPA (Planta Alta)"
+                elif "URGENCIA" in name_upper or "URG" in name_upper: area = "Urgencias"
+                elif "QUIR" in name_upper: area = "Quirófano"
+
+                if not cama_db:
+                    cama_db = models.Cama(
+                        numero_cama=room_name,
+                        area=area,
+                        estado="OCUPADA" if cama.get("Estatus") == "Ocupada" else "DISPONIBLE",
+                        activo=True
+                    )
+                    db.add(cama_db)
+                    db.flush() # Guardar de inmediato para evitar colisiones
+                else:
+                    # Actualizar estado si la cama está activa y no bloqueada/mantenimiento
+                    if cama_db.activo and cama_db.estado not in ["MANTENIMIENTO", "BLOQUEADA"]:
+                        cama_db.estado = "OCUPADA" if cama.get("Estatus") == "Ocupada" else "DISPONIBLE"
+                        
+            db.flush()
+            
+            # === SINCRONIZAR PACIENTES ===
+            active_patient_names = [c.get("PatientName") for c in camas if c.get("Estatus") == "Ocupada"]
+            
+            # Dar de alta a los que ya no están ocupando cama en KH_HE
+            local_active_patients = db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Ingresado").all()
+            for lp in local_active_patients:
+                if lp.nombre_completo not in active_patient_names:
+                    lp.status_ingreso = "Alta"
+                    lp.fecha_alta = datetime.datetime.utcnow()
+                    lp.dado_de_alta_por_id = None # Sistema
+                    
+                    nuevo_log = models.AuditoriaLog(
+                        usuario_id=None,
+                        accion="Alta de Paciente",
+                        detalles_json=f"Paciente {lp.nombre_completo} (ID: {lp.id}) fue dado de alta automáticamente por el sistema."
+                    )
+                    db.add(nuevo_log)
+            
+            # Agregar o actualizar pacientes ocupados
+            for cama in camas:
+                if cama.get("Estatus") == "Ocupada":
+                    patient_name = cama.get("PatientName")
+                    room_name = cama.get("RoomName")
+                    pt_date_str = cama.get("pt_date")
+                    
+                    paciente_db = db.query(models.Paciente).filter(
+                        models.Paciente.nombre_completo == patient_name,
+                        models.Paciente.status_ingreso == "Ingresado"
+                    ).first()
+                    
+                    # Determinar área básica
+                    area = "Otras Áreas"
+                    name_upper = room_name.upper()
+                    if "PB" in name_upper or "10" in name_upper: area = "PPB (Planta Baja)"
+                    elif "PA" in name_upper or "20" in name_upper: area = "PPA (Planta Alta)"
+                    elif "URGENCIA" in name_upper or "URG" in name_upper: area = "Urgencias"
+                    elif "QUIR" in name_upper: area = "Quirófano"
+                    
+                    if not paciente_db:
+                        nuevo_paciente = models.Paciente(
+                            nombre_completo=patient_name,
+                            num_habitacion=room_name,
+                            area_hospitalaria=area,
+                            status_ingreso="Ingresado",
+                            registrado_por_nombre="Sincronización KH_HE"
+                        )
+                        db.add(nuevo_paciente)
+                        db.flush() # Evitar duplicados en el mismo bucle
+                    else:
+                        if paciente_db.num_habitacion != room_name:
+                            dt_traslado = datetime.datetime.utcnow()
+                            if pt_date_str and pt_date_str != "None":
+                                try:
+                                    dt_traslado = datetime.datetime.fromisoformat(pt_date_str.split(".")[0].replace(" ", "T"))
+                                except:
+                                    pass
+
+                            nuevo_traslado = models.TrasladoPaciente(
+                                paciente_id=paciente_db.id,
+                                origen_area=paciente_db.area_hospitalaria,
+                                origen_habitacion=paciente_db.num_habitacion,
+                                destino_area=area,
+                                destino_habitacion=room_name,
+                                fecha_traslado=dt_traslado,
+                                usuario_id=None # Sistema
+                            )
+                            db.add(nuevo_traslado)
+                            paciente_db.num_habitacion = room_name
+                            paciente_db.area_hospitalaria = area
+            db.commit()
+    except Exception as e:
+        print(f"Error en sincronización de pacientes KH_HE: {e}")
+        db.rollback()
+
     return db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Ingresado").all()
 
 @app.post("/api/pacientes", response_model=schemas.PacienteResponse)
@@ -508,9 +645,35 @@ def pre_captura(req: schemas.PreCapturaRequest, db: Session = Depends(get_db), c
     )
     
     db.add(nueva_atencion)
+    
+    # Update frequent procedures
+    proc_frec = db.query(models.ProcedimientoFrecuente).filter(
+        models.ProcedimientoFrecuente.medico_id == req.medico_id,
+        func.lower(models.ProcedimientoFrecuente.nombre_procedimiento) == req.nombre_procedimiento.lower().strip()
+    ).first()
+    
+    if proc_frec:
+        proc_frec.frecuencia += 1
+    else:
+        nuevo_proc = models.ProcedimientoFrecuente(
+            medico_id=req.medico_id,
+            nombre_procedimiento=req.nombre_procedimiento.strip(),
+            frecuencia=1
+        )
+        db.add(nuevo_proc)
+        
     db.commit()
     db.refresh(nueva_atencion)
     return nueva_atencion
+
+@app.get("/api/medicos/{medico_id}/procedimientos_frecuentes")
+def get_procedimientos_frecuentes(medico_id: int, db: Session = Depends(get_db)):
+    """Obtiene el top 5 de procedimientos más usados por este médico"""
+    procs = db.query(models.ProcedimientoFrecuente).filter(
+        models.ProcedimientoFrecuente.medico_id == medico_id
+    ).order_by(models.ProcedimientoFrecuente.frecuencia.desc()).limit(5).all()
+    
+    return [{"nombre": p.nombre_procedimiento, "frecuencia": p.frecuencia} for p in procs]
 
 @app.get("/api/atenciones/pendientes/{medico_id}", response_model=List[schemas.AtencionResponse])
 def pendientes_medico(medico_id: int, db: Session = Depends(get_db)):
@@ -947,7 +1110,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: models.Usuario = 
     actividad_db = db.query(
         func.date(models.AtencionMedica.fecha_realizacion).label("fecha"), func.count(models.AtencionMedica.folio).label("total")
     ).filter(func.date(models.AtencionMedica.fecha_realizacion) >= hace_7_dias).group_by(func.date(models.AtencionMedica.fecha_realizacion)).order_by("fecha").all()
-    actividad = [{"fecha": a[0], "cantidad": a[1]} for a in actividad_db]
+    actividad = [{"fecha": str(a[0]), "cantidad": a[1]} for a in actividad_db]
     
     # SLA Médico (tiempo entre fecha_registro y fecha_firma)
     atenciones_firmadas = db.query(models.AtencionMedica).filter(models.AtencionMedica.fecha_firma.isnot(None), models.AtencionMedica.medico_id.isnot(None)).all()
@@ -1130,6 +1293,88 @@ def clean_records(req: schemas.CleanRecordsRequest, db: Session = Depends(get_db
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error limpiando la base de datos: {e}")
+
+# === MÓDULO CAMAS ===
+@app.get("/api/camas")
+def get_camas(db: Session = Depends(get_db)):
+    """Obtiene el listado de camas desde el hospital cruzado con el estado de limpieza local."""
+    kh_camas = kh_database.fetch_camas()
+    if not isinstance(kh_camas, list) or len(kh_camas) == 0 or "Error" in kh_camas[0] or "Mensaje" in kh_camas[0]:
+        return kh_camas
+        
+    local_camas = {c.numero_cama: c for c in db.query(models.Cama).all()}
+    
+    for cama in kh_camas:
+        room_name = cama.get("RoomName")
+        if room_name in local_camas:
+            c = local_camas[room_name]
+            cama["estado_limpieza"] = c.estado_limpieza or "Disponible"
+            cama["notas_limpieza"] = c.notas_limpieza
+        else:
+            cama["estado_limpieza"] = "Disponible"
+            cama["notas_limpieza"] = None
+            
+    return kh_camas
+
+@app.put("/api/camas/{numero_cama}/limpieza")
+def update_cama_limpieza(numero_cama: str, payload: dict, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["Mantenimiento/Limpieza", "limpieza", "admin", "sistemas"]))):
+    cama_db = db.query(models.Cama).filter(models.Cama.numero_cama == numero_cama).first()
+    if not cama_db:
+        cama_db = models.Cama(numero_cama=numero_cama, area="Otras Áreas")
+        db.add(cama_db)
+    
+    cama_db.estado_limpieza = payload.get("estado_limpieza", "Disponible")
+    cama_db.notas_limpieza = payload.get("notas_limpieza", None)
+    db.commit()
+    
+    log_auditoria(db, current_user.id, "Actualización Limpieza Cama", f"Cama {numero_cama} -> {cama_db.estado_limpieza}")
+    
+    return {"status": "ok", "message": "Estado de limpieza actualizado"}
+
+@app.get("/api/camas/paciente/{pt_num}")
+def get_patient_timeline(pt_num: str):
+    """Obtiene la Ficha Rápida (demográficos) y la Línea de Tiempo del paciente."""
+    return kh_database.fetch_patient_info_and_timeline(pt_num)
+
+@app.get("/api/camas/ocupacion", response_model=List[schemas.OcupacionArea])
+def get_ocupacion_camas(db: Session = Depends(get_db)):
+    """Calcula y devuelve la ocupación de camas por área siguiendo la lógica del Dashboard Directivo."""
+    camas_activas = db.query(models.Cama).filter(models.Cama.activo == True).all()
+    
+    areas = {}
+    for cama in camas_activas:
+        if cama.area not in areas:
+            areas[cama.area] = {
+                "total": 0,
+                "ocupadas": 0,
+                "disponibles": 0,
+                "mantenimiento": 0
+            }
+        
+        areas[cama.area]["total"] += 1
+        if cama.estado == "OCUPADA":
+            areas[cama.area]["ocupadas"] += 1
+        elif cama.estado == "DISPONIBLE":
+            areas[cama.area]["disponibles"] += 1
+        elif cama.estado == "MANTENIMIENTO":
+            areas[cama.area]["mantenimiento"] += 1
+            
+    resultado = []
+    for area, stats in areas.items():
+        total = stats["total"]
+        ocupadas = stats["ocupadas"]
+        porcentaje = round((ocupadas * 100.0) / total, 2) if total > 0 else 0.0
+        
+        resultado.append({
+            "area": area,
+            "total_camas": total,
+            "camas_ocupadas": ocupadas,
+            "camas_disponibles": stats["disponibles"],
+            "camas_mantenimiento": stats["mantenimiento"],
+            "porcentaje_ocupacion": porcentaje
+        })
+        
+    return resultado
 
 # === FRONTEND (PRODUCCION) ===
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")

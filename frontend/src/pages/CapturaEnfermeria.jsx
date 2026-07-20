@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { MdSearch, MdBed } from 'react-icons/md';
 import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, FiMapPin, FiPlusCircle, FiCheckCircle } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 
-const serverIP = window.location.hostname;
-const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
+const api = axios.create({ baseURL: '/api' });
 
 export default function CapturaEnfermeria() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   const [pacientes, setPacientes] = useState([]);
+  const [camas, setCamas] = useState([]);
   const [medicos, setMedicos] = useState([]);
   const [areas, setAreas] = useState([]);
   const [tiposAtencion, setTiposAtencion] = useState([]);
@@ -22,6 +25,7 @@ export default function CapturaEnfermeria() {
   const [areaHospitalaria, setAreaHospitalaria] = useState('');
   const [nombreProcedimiento, setNombreProcedimiento] = useState('');
   const [medicoId, setMedicoId] = useState('');
+  const [procedimientosFrecuentes, setProcedimientosFrecuentes] = useState([]);
   
   const now = new Date();
   const currentHora = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -48,6 +52,7 @@ export default function CapturaEnfermeria() {
   const [newPacienteHabitacionTab, setNewPacienteHabitacionTab] = useState('');
   const [newPacienteAreaTab, setNewPacienteAreaTab] = useState('');
   const [newPacienteCodigoTab, setNewPacienteCodigoTab] = useState('');
+  const [filterPacientesTab, setFilterPacientesTab] = useState('');
 
   // Modals state
   const [trasladoModal, setTrasladoModal] = useState({ open: false, paciente: null });
@@ -58,16 +63,43 @@ export default function CapturaEnfermeria() {
   const [filterArea, setFilterArea] = useState('');
   const [filterDate, setFilterDate] = useState('');
 
-  const navigate = useNavigate();
-
   useEffect(() => {
     fetchData();
   }, [navigate]);
 
   useEffect(() => {
+    if (location.state && location.state.habitacion && pacientes.length > 0) {
+      const { habitacion, pacienteNombre } = location.state;
+      setHabitacion(habitacion);
+      const found = pacientes.find(p => p.num_habitacion.toLowerCase() === habitacion.toLowerCase() || (pacienteNombre && p.nombre_completo.toLowerCase() === pacienteNombre.toLowerCase()));
+      if (found) {
+        setPacienteSeleccionado(found);
+        setIsCreatingPaciente(false);
+      } else if (pacienteNombre) {
+        setPacienteSeleccionado(null);
+        setNewPacienteNombre(pacienteNombre);
+        setIsCreatingPaciente(true);
+      }
+      // Limpiar state para evitar auto-completado continuo en recargas
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, pacientes]);
+
+  useEffect(() => {
     if (activeTab === 'mis_registros') fetchMisRegistros();
     if (activeTab === 'registros') fetchHistorialGlobal();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (medicoId) {
+      api.get(`/medicos/${medicoId}/procedimientos_frecuentes`)
+        .then(res => setProcedimientosFrecuentes(res.data))
+        .catch(err => console.error('Error loading frequent procedures:', err));
+    } else {
+      setProcedimientosFrecuentes([]);
+    }
+  }, [medicoId]);
+
 
   const getToken = () => localStorage.getItem('token');
 
@@ -84,6 +116,13 @@ export default function CapturaEnfermeria() {
       
       const resAltas = await api.get('/pacientes/altas', { headers: { Authorization: `Bearer ${getToken()}` } });
       setPacientesAltas(resAltas.data);
+
+      try {
+        const resCamas = await api.get('/camas', { headers: { Authorization: `Bearer ${getToken()}` } });
+        setCamas(Array.isArray(resCamas.data) ? resCamas.data : []);
+      } catch (e) {
+        console.error("Error fetching camas in captura:", e);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -125,8 +164,32 @@ export default function CapturaEnfermeria() {
     const val = e.target.value;
     setHabitacion(val);
     const found = pacientes.find(p => p.num_habitacion.toLowerCase() === val.toLowerCase() || p.nombre_completo.toLowerCase().includes(val.toLowerCase()));
-    setPacienteSeleccionado(found || null);
-    setIsCreatingPaciente(false); // Reset al cambiar
+    if (found) {
+      setPacienteSeleccionado(found);
+      setIsCreatingPaciente(false);
+    } else {
+      setPacienteSeleccionado(null);
+      // Buscar en camas ignorando la palabra 'cama'
+      const normalizeVal = val.toLowerCase().replace(/cama/g, '').trim();
+      const foundCama = camas.find(c => {
+        const name = (c.RoomName || '').toLowerCase().replace(/cama/g, '').trim();
+        const code = (c.RoomCode || '').toLowerCase().replace(/cama/g, '').trim();
+        return name === normalizeVal || code === normalizeVal;
+      });
+      
+      if (foundCama && foundCama.Estatus === 'Ocupada' && foundCama.PatientName) {
+        // Auto-seleccionar silenciosamente
+        setPacienteSeleccionado({
+          isTemp: true,
+          nombre_completo: foundCama.PatientName,
+          num_habitacion: val,
+        });
+        setIsCreatingPaciente(false);
+      } else {
+        setNewPacienteNombre('');
+        setIsCreatingPaciente(false);
+      }
+    }
   };
 
   const handleCodigoChange = (e) => {
@@ -209,6 +272,26 @@ export default function CapturaEnfermeria() {
     }
 
     try {
+      let finalPacienteId = pacienteSeleccionado.id;
+      
+      // Si el paciente fue auto-detectado del tablero de camas (isTemp), lo creamos primero
+      if (pacienteSeleccionado.isTemp) {
+        let areaDefecto = "Hospitalización";
+        if (areas.length > 0) {
+            const hosp = areas.find(a => a.nombre.toLowerCase().includes('hosp'));
+            areaDefecto = hosp ? hosp.nombre : areas[0].nombre;
+        }
+        const resP = await api.post('/pacientes', {
+          nombre_completo: pacienteSeleccionado.nombre_completo,
+          num_habitacion: habitacion,
+          area_hospitalaria: areaDefecto,
+          codigo_barras: null
+        }, { headers: { Authorization: `Bearer ${getToken()}` } });
+        
+        finalPacienteId = resP.data.id;
+        fetchData(); // Refrescar pacientes de fondo
+      }
+
       let finalFecha = fecha;
       if (rolActual !== 'admin' && rolActual !== 'sistemas') {
         finalFecha = new Date().toISOString().split('T')[0];
@@ -217,7 +300,7 @@ export default function CapturaEnfermeria() {
       
       const res = await api.post('/atenciones/pre-captura', {
         medico_id: medicoId,
-        paciente_id: pacienteSeleccionado.id,
+        paciente_id: finalPacienteId,
         habitacion_capturada: habitacion,
         tipo_atencion: tipoAtencion,
         nombre_procedimiento: nombreProcedimiento,
@@ -239,8 +322,9 @@ export default function CapturaEnfermeria() {
   const historialFiltrado = historial.filter(h => {
     if (filterText && 
         !h.folio.toLowerCase().includes(filterText.toLowerCase()) && 
-        !h.paciente.nombre_completo.toLowerCase().includes(filterText.toLowerCase()) &&
-        !(h.medico && h.medico.nombre_completo.toLowerCase().includes(filterText.toLowerCase()))
+        !h.paciente?.nombre_completo?.toLowerCase().includes(filterText.toLowerCase()) &&
+        !(h.medico && h.medico.nombre_completo.toLowerCase().includes(filterText.toLowerCase())) &&
+        !(h.habitacion_capturada && h.habitacion_capturada.toLowerCase().includes(filterText.toLowerCase()))
     ) return false;
     if (filterArea && h.area_hospitalaria !== filterArea) return false;
     if (filterDate && !h.fecha_realizacion.startsWith(filterDate)) return false;
@@ -289,7 +373,7 @@ export default function CapturaEnfermeria() {
                   <MdSearch className="absolute left-3 top-3.5 text-slate-400 text-xl" />
                   <input 
                     type="text" 
-                    placeholder="Buscar habitación (ej. 101) o nombre..." 
+                    placeholder="Buscar cama (ej. 101) o nombre..." 
                     className="w-full border border-slate-300 rounded-lg pl-10 p-3 focus:outline-none focus:ring-2 focus:ring-blue-600"
                     value={habitacion}
                     onChange={handleHabitacionChange}
@@ -299,7 +383,7 @@ export default function CapturaEnfermeria() {
               
               {pacienteSeleccionado ? (
                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 font-medium text-blue-900 flex justify-between items-center">
-                  <span>Paciente Actual: {pacienteSeleccionado.nombre_completo} (Hab: {pacienteSeleccionado.num_habitacion})</span>
+                  <span>Paciente Actual: {pacienteSeleccionado.nombre_completo} (Cama: {pacienteSeleccionado.num_habitacion})</span>
                   <span className="text-xs text-blue-500 font-bold bg-blue-100 px-2 py-1 rounded">Ingresado</span>
                 </div>
               ) : habitacion.length > 0 ? (
@@ -308,7 +392,7 @@ export default function CapturaEnfermeria() {
                      <div className="flex flex-col gap-2">
                         <span className="text-orange-800 font-medium">No se encontró paciente con ese dato.</span>
                         <button onClick={() => setIsCreatingPaciente(true)} className="flex items-center gap-1 text-sm font-bold text-orange-700 hover:text-orange-900 w-max">
-                           <FiPlusCircle /> Ingresar paciente nuevo a esta habitación
+                           <FiPlusCircle /> Ingresar paciente nuevo a esta cama
                         </button>
                      </div>
                   ) : (
@@ -331,13 +415,13 @@ export default function CapturaEnfermeria() {
                 </div>
               ) : (
                 <div className="text-sm text-slate-500 bg-slate-50 p-4 border rounded-lg">
-                  Ingrese el número de habitación (ej. 101) o nombre para encontrar al paciente o agregarlo.
+                  Ingrese el número de cama (ej. 101) o nombre para encontrar al paciente o agregarlo.
                 </div>
               )}
             </div>
             <div className="w-48 bg-slate-50 rounded-xl border flex flex-col items-center justify-center p-6">
               <MdBed className="text-blue-600 text-3xl mb-2" />
-              <p className="text-slate-500 text-sm">Habitación</p>
+              <p className="text-slate-500 text-sm">Cama</p>
               <p className="text-4xl font-bold text-[#1a2f4c]">{habitacion || '---'}</p>
             </div>
           </section>
@@ -366,6 +450,20 @@ export default function CapturaEnfermeria() {
                   value={nombreProcedimiento}
                   onChange={e => setNombreProcedimiento(e.target.value)}
                 />
+                {procedimientosFrecuentes.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {procedimientosFrecuentes.map((proc, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setNombreProcedimiento(proc.nombre)}
+                        className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-xs px-3 py-1 rounded-full transition-colors font-medium shadow-sm flex items-center gap-1"
+                      >
+                        <FiActivity size={12} /> {proc.nombre}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -522,7 +620,7 @@ export default function CapturaEnfermeria() {
                       <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. Juan Pérez" value={newPacienteNombreTab} onChange={e => setNewPacienteNombreTab(e.target.value)} />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-500 mb-1">Cama / Habitación</label>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">Cama</label>
                       <input type="text" className="w-full border rounded-lg p-2" placeholder="Ej. 101" value={newPacienteHabitacionTab} onChange={e => setNewPacienteHabitacionTab(e.target.value)} />
                     </div>
                     <div>
@@ -539,9 +637,24 @@ export default function CapturaEnfermeria() {
               </div>
 
               <div>
-                <h3 className="text-lg font-bold text-slate-700 mb-4">Pacientes Activos (Camas Ocupadas)</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-slate-700">Pacientes Activos (Camas Ocupadas)</h3>
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <MdSearch className="absolute left-3 top-2.5 text-slate-400 text-lg" />
+                      <input 
+                        type="text" 
+                        placeholder="Buscar paciente o cama..." 
+                        className="border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={filterPacientesTab}
+                        onChange={e => setFilterPacientesTab(e.target.value)}
+                      />
+                    </div>
+                    <button onClick={fetchData} className="text-sm font-medium text-hes-blue-main hover:underline whitespace-nowrap">Sincronizar Camas</button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                  {pacientes.map(p => (
+                  {pacientes.filter(p => p.nombre_completo?.toLowerCase().includes(filterPacientesTab.toLowerCase()) || p.num_habitacion?.toLowerCase().includes(filterPacientesTab.toLowerCase())).map(p => (
                     <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-md border border-slate-200 p-5 transition-shadow relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -z-10 group-hover:scale-125 transition-transform"></div>
                       <div className="flex justify-between items-start mb-3">
@@ -579,9 +692,9 @@ export default function CapturaEnfermeria() {
                       </div>
                     </div>
                   ))}
-                  {pacientes.length === 0 && (
+                  {pacientes.filter(p => p.nombre_completo?.toLowerCase().includes(filterPacientesTab.toLowerCase()) || p.num_habitacion?.toLowerCase().includes(filterPacientesTab.toLowerCase())).length === 0 && (
                     <div className="col-span-full p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl text-slate-500">
-                      No hay pacientes activos actualmente.
+                      No se encontraron pacientes activos que coincidan con la búsqueda.
                     </div>
                   )}
                 </div>

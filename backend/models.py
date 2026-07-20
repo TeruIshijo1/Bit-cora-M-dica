@@ -16,6 +16,16 @@ class CatalogoTipoAtencion(Base):
     nombre = Column(String, unique=True, index=True)
     activo = Column(Boolean, default=True)
 
+class Cama(Base):
+    __tablename__ = "camas"
+    id = Column(Integer, primary_key=True, index=True)
+    numero_cama = Column(String, unique=True, index=True)
+    area = Column(String, index=True)
+    estado = Column(String, default="DISPONIBLE") # OCUPADA, DISPONIBLE, MANTENIMIENTO, BLOQUEADA
+    estado_limpieza = Column(String, default="Limpia")
+    notas_limpieza = Column(String, nullable=True)
+    activo = Column(Boolean, default=True)
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
@@ -159,3 +169,13 @@ class AuditoriaLog(Base):
     ip_origen = Column(String, nullable=True)
 
     usuario = relationship("Usuario")
+
+class ProcedimientoFrecuente(Base):
+    __tablename__ = "procedimientos_frecuentes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    medico_id = Column(Integer, ForeignKey("medicos.id"), index=True)
+    nombre_procedimiento = Column(String)
+    frecuencia = Column(Integer, default=1)
+
+    medico = relationship("Medico")

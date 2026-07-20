@@ -4,8 +4,7 @@ import { FiClock, FiMapPin, FiActivity, FiCheckCircle, FiUser, FiX } from 'react
 import { MdBed } from 'react-icons/md';
 import { FaStethoscope } from 'react-icons/fa';
 
-const serverIP = window.location.hostname;
-const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
+const api = axios.create({ baseURL: '/api' });
 
 // Helper to get token
 const getToken = () => localStorage.getItem('token');

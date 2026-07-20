@@ -23,3 +23,11 @@ test_fmd.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Ignorar archivos generados de pacientes
+backend/generados/
+backend/static/pdfs/
+backend/static/qr/
+backend/pruebas/
+git_log.txt
+pase_a_produccion/

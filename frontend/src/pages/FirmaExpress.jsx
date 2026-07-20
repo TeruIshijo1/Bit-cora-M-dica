@@ -7,8 +7,7 @@ import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 
-const serverIP = window.location.hostname;
-const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
+const api = axios.create({ baseURL: '/api' });
 
 export default function FirmaExpress() {
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial
@@ -232,7 +231,7 @@ export default function FirmaExpress() {
         <div className="p-6 border-b border-slate-100 flex flex-col items-center text-center bg-white">
           <div className="w-28 h-28 rounded-full overflow-hidden mb-4 border-4 border-white shadow-lg bg-slate-100 flex items-center justify-center">
              {medico.foto_url ? (
-               <img src={`http://${serverIP}:8000${medico.foto_url}`} alt="Perfil Médico" className="w-full h-full object-cover" />
+               <img src={`${medico.foto_url}`} alt="Perfil Médico" className="w-full h-full object-cover" />
              ) : (
                <FaStethoscope className="text-4xl text-slate-300" />
              )}
@@ -439,7 +438,7 @@ export default function FirmaExpress() {
                             </div>
                             <div>
                                     <button 
-                                      onClick={() => window.open(`http://${serverIP}:8000/api/atenciones/${h.folio}/pdf`, '_blank')}
+                                      onClick={() => window.open(`/api/atenciones/${h.folio}/pdf`, '_blank')}
                                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow-sm flex items-center gap-2 transition"
                                     >
                                       <FiFileText /> Imprimir Comprobante

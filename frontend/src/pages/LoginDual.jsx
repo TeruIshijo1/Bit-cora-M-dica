@@ -5,8 +5,7 @@ import { FiLock, FiUser, FiEye, FiEyeOff, FiAlertCircle } from 'react-icons/fi';
 import { MdLocalHospital, MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 
-const serverIP = window.location.hostname;
-const api = axios.create({ baseURL: `http://${serverIP}:8000/api` });
+const api = axios.create({ baseURL: '/api' });
 
 export default function LoginDual() {
   const [username, setUsername] = useState('');
@@ -23,10 +22,13 @@ export default function LoginDual() {
       const res = await api.post('/auth/login/admin', { username, password });
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('rol', res.data.rol);
-      if (res.data.rol === 'admin' || res.data.rol === 'sistemas') {
+      const role = res.data.rol;
+      if (role === 'admin' || role === 'sistemas') {
         navigate('/admin');
-      } else if (res.data.rol === 'rh') {
+      } else if (role === 'rh') {
         navigate('/rh');
+      } else if (role === 'limpieza' || role === 'Mantenimiento/Limpieza') {
+        navigate('/camas');
       } else {
         navigate('/captura');
       }

@@ -15,3 +15,7 @@ requests
 qrcode
 xhtml2pdf
 jinja2
+pyodbc
+psycopg2-binary
+python-dotenv
+slowapi

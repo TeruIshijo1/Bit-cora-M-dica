@@ -3,6 +3,7 @@ import LoginDual from './pages/LoginDual';
 import CapturaEnfermeria from './pages/CapturaEnfermeria';
 import FirmaExpress from './pages/FirmaExpress';
 import AdminDashboard from './pages/AdminDashboard';
+import CamasDashboard from './pages/CamasDashboard';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import useAutoLogout from './hooks/useAutoLogout';
@@ -20,6 +21,10 @@ function AppContent() {
         <Route element={<ProtectedRoute allowedRoles={['admin', 'rh', 'sistemas']} />}>
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/rh" element={<AdminDashboard />} />
+        </Route>
+
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'sistemas', 'enfermeria', 'medico', 'rh', 'Mantenimiento/Limpieza', 'limpieza']} />}>
+          <Route path="/camas" element={<CamasDashboard />} />
         </Route>
         
         <Route element={<ProtectedRoute allowedRoles={['admin', 'enfermeria', 'sistemas']} />}>
