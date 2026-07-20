@@ -1,19 +1,28 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LoginDual from './pages/LoginDual';
 import CapturaEnfermeria from './pages/CapturaEnfermeria';
 import FirmaExpress from './pages/FirmaExpress';
 import AdminDashboard from './pages/AdminDashboard';
 import CamasDashboard from './pages/CamasDashboard';
+import ServerConfig from './pages/ServerConfig';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import useAutoLogout from './hooks/useAutoLogout';
 
 function AppContent() {
   useAutoLogout();
+  const location = useLocation();
+  const serverUrl = localStorage.getItem('server_url');
+
+  // Si no hay servidor configurado y no estamos en la página de configuración, redirigir
+  if (serverUrl === null && location.pathname !== '/config-servidor') {
+    return <Navigate to="/config-servidor" replace />;
+  }
 
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/config-servidor" element={<ServerConfig />} />
       <Route path="/login" element={<LoginDual />} />
       
       {/* Protected Routes wrapped in Layout */}

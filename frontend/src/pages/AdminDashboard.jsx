@@ -1,15 +1,13 @@
 // Imports and basic setup...
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import { api } from '../api';
 import { FiUserPlus, FiAlertCircle, FiCheckCircle, FiUsers, FiTrash2, FiLock, FiCamera, FiBarChart2, FiDatabase, FiList, FiUser, FiActivity, FiFileText, FiFolder, FiUpload, FiSearch, FiEdit, FiPlusCircle } from 'react-icons/fi';
 import { MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { PatientJourneyModal } from '../components/PatientModals';
 
-const api = axios.create({ baseURL: '/api' });
-
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+const COLORS = ['#004687', '#0088c9', '#005fa9', '#00974a', '#FFBB28'];
 
 const initialSchedule = {
   lunes: { activo: false, inicio: '', fin: '' },
@@ -642,15 +640,15 @@ export default function AdminDashboard() {
         <div className="hidden md:block p-4 border-b border-slate-100 bg-slate-50/50">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Menú Principal</h2>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto flex-1">
           <ul className="flex md:flex-col py-2 md:py-4 px-2 md:px-0 gap-2 md:gap-0 min-w-max md:min-w-0">
             {sidebarItems.map(item => (
               <li key={item.id} className="flex-none">
                 <button
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 md:py-3 text-sm md:text-base text-left transition-colors font-medium rounded-full md:rounded-none md:border-l-4 ${
+                  className={`w-full flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 md:py-3 text-sm md:text-base text-left transition-all duration-200 font-medium rounded-full md:rounded-none md:border-l-4 ${
                     activeTab === item.id 
-                      ? 'bg-hes-blue-main text-white md:border-hes-blue-main md:bg-blue-50/50 md:text-hes-blue-main' 
+                      ? 'bg-hes-blue-main text-white md:border-hes-blue-main md:bg-hes-blue-light/10 md:text-hes-blue-main shadow-inner' 
                       : 'border-transparent text-slate-600 bg-slate-100 md:bg-transparent hover:bg-slate-200 md:hover:bg-slate-50 md:hover:text-hes-blue-main'
                   }`}
                 >
@@ -660,6 +658,18 @@ export default function AdminDashboard() {
               </li>
             ))}
           </ul>
+        </div>
+
+        {/* Acerca de */}
+        <div className="hidden md:block p-4 border-t border-slate-200 mt-auto bg-slate-50">
+          <div className="text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">Acerca de</p>
+            <p className="mt-1">Desarrollado por:</p>
+            <p className="font-medium text-hes-blue-main">Ing. Alberto García Mendoza</p>
+            <a href="https://github.com/TeruIshijo1" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mt-1 inline-block break-all">
+              github.com/TeruIshijo1
+            </a>
+          </div>
         </div>
       </div>
 
@@ -679,13 +689,19 @@ export default function AdminDashboard() {
                  </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                  <h3 className="text-slate-500 font-semibold mb-2">Pacientes Ingresados Activos</h3>
-                  <p className="text-5xl font-bold text-hes-blue-main">{stats.total_pacientes_activos}</p>
+                <div className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-slate-100 flex flex-col items-center justify-center relative overflow-hidden group">
+                  <div className="absolute -right-6 -top-6 text-hes-blue-light/5 group-hover:text-hes-blue-light/10 transition-colors">
+                    <FiUsers className="w-32 h-32" />
+                  </div>
+                  <h3 className="text-slate-500 font-semibold mb-2 relative z-10">Pacientes Ingresados Activos</h3>
+                  <p className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-hes-blue-main to-hes-blue-light relative z-10">{stats.total_pacientes_activos}</p>
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                  <h3 className="text-slate-500 font-semibold mb-2">Atenciones del Mes</h3>
-                  <p className="text-5xl font-bold text-orange-500">{stats.total_atenciones_mes}</p>
+                <div className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-slate-100 flex flex-col items-center justify-center relative overflow-hidden group">
+                  <div className="absolute -right-6 -top-6 text-orange-500/5 group-hover:text-orange-500/10 transition-colors">
+                    <FiActivity className="w-32 h-32" />
+                  </div>
+                  <h3 className="text-slate-500 font-semibold mb-2 relative z-10">Atenciones del Mes</h3>
+                  <p className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-600 relative z-10">{stats.total_atenciones_mes}</p>
                 </div>
               </div>
               
@@ -715,9 +731,9 @@ export default function AdminDashboard() {
                         <XAxis type="number" unit=" min" />
                         <YAxis dataKey="medico" type="category" width={150} tick={{fontSize: 12}} />
                         <Tooltip formatter={(value) => [`${value} min`, 'Promedio']} />
-                        <Bar dataKey="tiempo_promedio_minutos" fill="#003870">
+                        <Bar dataKey="tiempo_promedio_minutos" fill="var(--color-hes-blue-main)">
                           {stats.sla_por_medico.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.tiempo_promedio_minutos > 120 ? '#EF4444' : '#00C49F'} />
+                            <Cell key={`cell-${index}`} fill={entry.tiempo_promedio_minutos > 120 ? '#EF4444' : 'var(--color-hes-green)'} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -726,7 +742,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
               
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                   <h3 className="text-slate-700 font-bold mb-4">Actividad de Atenciones (Últimos 7 Días)</h3>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
@@ -734,7 +750,7 @@ export default function AdminDashboard() {
                         <XAxis dataKey="fecha" />
                         <YAxis />
                         <Tooltip />
-                        <Bar dataKey="cantidad" fill="#8884d8" />
+                        <Bar dataKey="cantidad" fill="var(--color-hes-blue-light)" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -773,7 +789,7 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-400 mt-1">Máximo 5MB</p>
                   </div>
                   
-                  <button type="submit" className="w-full bg-hes-blue-main hover:bg-[#003870] text-white font-bold py-2 rounded-lg flex justify-center items-center gap-2">
+                  <button type="submit" className="w-full bg-hes-blue-main hover:bg-hes-blue-cross text-white font-bold py-2 rounded-lg flex justify-center items-center gap-2 transition-colors">
                     <FiUpload /> Guardar Escaneo
                   </button>
                 </form>

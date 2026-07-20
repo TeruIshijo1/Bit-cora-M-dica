@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../api';
 import { FiClock, FiMapPin, FiActivity, FiCheckCircle, FiUser, FiX } from 'react-icons/fi';
 import { MdBed } from 'react-icons/md';
 import { FaStethoscope } from 'react-icons/fa';
-
-const api = axios.create({ baseURL: '/api' });
 
 // Helper to get token
 const getToken = () => localStorage.getItem('token');

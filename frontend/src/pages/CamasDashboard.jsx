@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaUserMd, FaUserAlt } from 'react-icons/fa';
+import { getApiUrl } from '../api';
 
 const CamasDashboard = () => {
   const [camas, setCamas] = useState([]);
@@ -37,7 +38,7 @@ const CamasDashboard = () => {
   const fetchCamas = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/camas', {
+      const response = await fetch(`${getApiUrl()}/camas`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -68,7 +69,7 @@ const CamasDashboard = () => {
       setLoadingTimeline(true);
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch(`/api/camas/paciente/${cama.PTNum}`, {
+        const res = await fetch(`${getApiUrl()}/camas/paciente/${cama.PTNum}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -91,7 +92,7 @@ const CamasDashboard = () => {
     setSavingLimpieza(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/camas/${selectedCama.RoomName}/limpieza`, {
+      const res = await fetch(`${getApiUrl()}/camas/${selectedCama.RoomName}/limpieza`, {
         method: 'PUT',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -270,7 +271,27 @@ const CamasDashboard = () => {
                 const isCleanState = cama.estado_limpieza === 'Disponible' || cama.estado_limpieza?.toLowerCase() === 'limpia';
                 
                 let showBadge = false;
+                let cardBg = 'bg-white';
+                let cleaningBadgeColor = '';
+
                 if (cama.estado_limpieza) {
+                  const estadoLower = cama.estado_limpieza.toLowerCase();
+                  if (estadoLower === 'sucia') {
+                    cardBg = 'bg-orange-50';
+                    cleaningBadgeColor = 'bg-orange-200 text-orange-800 border-orange-300';
+                  } else if (estadoLower === 'en mantenimiento') {
+                    cardBg = 'bg-yellow-50';
+                    cleaningBadgeColor = 'bg-yellow-200 text-yellow-800 border-yellow-300';
+                  } else if (estadoLower === 'fuera de servicio') {
+                    cardBg = 'bg-gray-100 opacity-80';
+                    cleaningBadgeColor = 'bg-gray-300 text-gray-800 border-gray-400';
+                  } else if (estadoLower === 'disponible' || estadoLower === 'limpia') {
+                    cleaningBadgeColor = 'bg-green-50 text-green-700 border-green-200';
+                  } else {
+                    cardBg = 'bg-yellow-50/50';
+                    cleaningBadgeColor = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                  }
+
                   if (isCleanState) {
                     // Solo Enfermeria y Limpieza ven "Limpia/Disponible" si la cama NO está ocupada
                     if (!isOcupada && (isLimpiezaRole || isEnfermeriaRole)) {
@@ -286,7 +307,7 @@ const CamasDashboard = () => {
                   <div 
                     key={index} 
                     onClick={() => handleCamaClick(cama)}
-                    className={`bg-white rounded-lg shadow-sm border-t-4 ${borderColor} p-4 hover:shadow-md transition-all cursor-pointer flex flex-col h-full relative`}
+                    className={`${cardBg} rounded-lg shadow-sm border-t-4 ${borderColor} p-4 hover:shadow-md transition-all cursor-pointer flex flex-col h-full relative`}
                   >
                     <div className="flex justify-between items-start mb-3">
                       <h3 className="text-sm font-bold text-gray-800 truncate pr-2">
@@ -297,11 +318,7 @@ const CamasDashboard = () => {
                           {cama.Estatus}
                         </span>
                         {showBadge && (
-                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border shadow-sm text-center ${
-                             cama.estado_limpieza === 'Disponible' 
-                               ? 'bg-green-50 text-green-700 border-green-200' 
-                               : 'bg-yellow-200 text-yellow-800 border-yellow-300'
-                           }`}>
+                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border shadow-sm text-center ${cleaningBadgeColor}`}>
                              {cama.estado_limpieza}
                            </span>
                         )}

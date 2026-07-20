@@ -39,7 +39,10 @@ def fetch_camas():
         WITH MasterCamas AS (
             SELECT MIN(RoomCode) AS RoomCode, RoomName 
             FROM V_MRPT 
-            WHERE RoomName LIKE '%CAMA%' OR RoomName LIKE '%QUIR%'
+            WHERE (RoomName LIKE '%CAMA%' OR RoomName LIKE '%QUIR%')
+              AND RoomName NOT LIKE '%VIRTUAL%'
+              AND RoomName NOT LIKE '%VIRT%'
+              AND RoomName NOT LIKE '%CV%'
             GROUP BY RoomName
         ),
         ActiveBeds AS (

@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../api';
+import useFingerprint from '../hooks/useFingerprint';
 import { MdSearch, MdBed } from 'react-icons/md';
 import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, FiMapPin, FiPlusCircle, FiCheckCircle } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
-
-const api = axios.create({ baseURL: '/api' });
 
 export default function CapturaEnfermeria() {
   const navigate = useNavigate();

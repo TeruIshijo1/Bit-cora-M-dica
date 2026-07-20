@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../api';
 import { MdLogout, MdLocalHospital, MdFingerprint, MdSearch, MdBed } from 'react-icons/md';
 import { FiCheckCircle, FiClock, FiFileText, FiUser, FiActivity, FiMapPin, FiCalendar, FiEdit3 } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
-
-const api = axios.create({ baseURL: '/api' });
 
 export default function FirmaExpress() {
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial

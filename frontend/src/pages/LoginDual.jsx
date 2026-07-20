@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../api';
 import { FiLock, FiUser, FiEye, FiEyeOff, FiAlertCircle } from 'react-icons/fi';
 import { MdLocalHospital, MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
-
-const api = axios.create({ baseURL: '/api' });
 
 export default function LoginDual() {
   const [username, setUsername] = useState('');
