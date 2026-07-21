@@ -5,7 +5,13 @@ echo ===================================================
 echo ===================================================
 echo Para usar el sistema, abre tu navegador en:
 echo - http://localhost:8000  (Si estas en esta misma PC)
-echo - http://192.168.254.249:8000 (Desde cualquier otra PC en la red)
+echo - http://192.168.254.150:8000 (Desde cualquier otra PC o Tablet en la red)
+echo ===================================================
+
+echo ===================================================
+echo Abriendo tunel seguro con Ngrok para las tablets...
+start "Ngrok Tunnel" "D:\Escritorio\escandon-bi\ngrok.exe" http 8000
+echo Copia el enlace HTTPS que aparezca en la ventana negra de Ngrok.
 echo ===================================================
 
 echo Iniciando el servidor principal de Python y el servicio Biometrico...

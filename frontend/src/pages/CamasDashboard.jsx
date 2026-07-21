@@ -8,6 +8,8 @@ const CamasDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  
   
   // Timeline Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -176,7 +178,18 @@ const CamasDashboard = () => {
     );
   }
 
-  const groupedCamas = groupCamas(camas);
+  const filteredCamas = camas.filter(c => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      (c.RoomName && c.RoomName.toLowerCase().includes(term)) ||
+      (c.RoomCode && c.RoomCode.toLowerCase().includes(term)) ||
+      (c.PatientName && c.PatientName.toLowerCase().includes(term)) ||
+      (c.PTNum && c.PTNum.toLowerCase().includes(term))
+    );
+  });
+
+  const groupedCamas = groupCamas(filteredCamas);
   const totalCamas = camas.length;
   const libres = camas.filter(c => c.Estatus === 'Libre').length;
   const ocupadas = camas.filter(c => c.Estatus === 'Ocupada').length;
@@ -205,7 +218,23 @@ const CamasDashboard = () => {
           </p>
         </div>
         
-        <div className="flex gap-3 mt-4 md:mt-0 font-medium">
+        <div className="flex flex-col md:flex-row items-end gap-4">
+          <div className="relative w-full md:w-64">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar cama, paciente..."
+              className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-full leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm transition-shadow shadow-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-3 font-medium">
           <div className="bg-gray-200 text-gray-700 px-4 py-2 rounded-full shadow-sm">
             Total: {totalCamas}
           </div>
@@ -220,6 +249,7 @@ const CamasDashboard = () => {
               Inhabilitadas: {inhabilitadas}
             </div>
           )}
+          </div>
         </div>
       </div>
       

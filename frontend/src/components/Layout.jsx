@@ -47,8 +47,10 @@ export default function Layout() {
             >
               {mobileMenuOpen ? <FiX className="text-2xl" /> : <FiMenu className="text-2xl" />}
             </button>
-            <img src="/logo.png" alt="Hospital Escandón" className="h-10 md:h-14 object-contain bg-white rounded p-1" />
-            <span className="font-bold text-lg md:text-xl tracking-wide hidden sm:block">Bitácora HES</span>
+            <div className="flex items-center justify-center h-10 md:h-12 bg-white rounded-lg shadow-sm px-2 py-1">
+              <img src="/logo.png?v=6" alt="Hospital Escandón" className="h-full w-auto object-contain" />
+            </div>
+            <span className="font-bold text-lg md:text-xl tracking-wide hidden sm:block">Bitácora HE</span>
           </div>
 
           {/* Desktop Navigation */}

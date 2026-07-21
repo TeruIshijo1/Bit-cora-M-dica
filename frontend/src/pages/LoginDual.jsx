@@ -71,11 +71,11 @@ export default function LoginDual() {
         <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-cyan-400 opacity-10 rounded-full blur-3xl pointer-events-none"></div>
         
         <div className="z-10 flex flex-col items-center px-12 text-center">
-          <div className="bg-white p-6 rounded-3xl shadow-xl mb-8 border-4 border-white/10 backdrop-blur-sm">
-            <img src="/logo.png" alt="Hospital Escandón" className="h-32 object-contain drop-shadow-sm" />
+          <div className="mb-8 bg-white p-3 rounded-2xl shadow-xl inline-block border-2 border-white/20">
+            <img src="/logo.png?v=6" alt="Hospital Escandón" className="h-32 object-contain" />
           </div>
           <h1 className="text-4xl font-bold tracking-wide mb-4 text-white drop-shadow-lg">
-            Bitácora Médica HES
+            Bitácora Médica HE
           </h1>
           <p className="text-blue-100/90 text-lg max-w-md font-light leading-relaxed">
             Plataforma centralizada para el registro de atenciones, firmas biométricas y administración hospitalaria.
@@ -92,8 +92,10 @@ export default function LoginDual() {
         <div className="w-full max-w-md">
           
           <div className="text-center mb-10 lg:hidden">
-            <img src="/logo.png" alt="Hospital Escandón" className="h-32 mx-auto mb-4 drop-shadow-sm" />
-            <h1 className="text-2xl font-bold text-hes-blue-main">Bitácora Médica HES</h1>
+            <div className="bg-white p-3 rounded-2xl shadow-lg inline-block mb-4">
+               <img src="/logo.png?v=6" alt="Hospital Escandón" className="h-24 object-contain" />
+            </div>
+            <h1 className="text-2xl font-bold text-hes-blue-main">Bitácora Médica HE</h1>
           </div>
 
           <div className="mb-8">
