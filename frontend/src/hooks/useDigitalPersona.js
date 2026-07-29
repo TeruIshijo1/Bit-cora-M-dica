@@ -109,6 +109,9 @@ export const useDigitalPersona = () => {
             }
         };
 
+        // Guardamos la función init en el reader para poder llamarla desde fuera si se necesita reconectar
+        fpReader._reconnect = init;
+
         init();
 
         return () => {
@@ -132,6 +135,14 @@ export const useDigitalPersona = () => {
             const errorMsg = err instanceof Error ? err.message : (err.Message || JSON.stringify(err));
             if (errorMsg.toLowerCase().includes('already') || errorMsg.includes('0x80040001')) {
                 setStatus('Lector ya está activo...');
+                // Intentar detener y reiniciar si se quedó trabado
+                try {
+                    await reader.stopAcquisition();
+                    await reader.startAcquisition(SampleFormat.Raw);
+                    setStatus('Esperando huella...');
+                    setIsAcquiring(true);
+                    return;
+                } catch(e) { console.warn("Reintento fallido", e); }
             } else {
                 setError(`Error al iniciar captura: ${errorMsg}`);
                 setIsAcquiring(false);
@@ -143,7 +154,10 @@ export const useDigitalPersona = () => {
         setFmdTemplate(null);
         setStatus(devices.length > 0 ? 'Lector detectado, presione Capturar' : 'Sin lector conectado');
         setIsAcquiring(false);
-    }, [devices]);
+        if (reader && reader._reconnect) {
+            reader._reconnect(); // Forzar re-enumeración por si Windows lo desconectó
+        }
+    }, [devices, reader]);
 
     return { status, fmdTemplate, error, devices, resetFmd, startCapture, isAcquiring };
 };
