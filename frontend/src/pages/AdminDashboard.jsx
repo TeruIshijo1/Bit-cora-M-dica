@@ -263,6 +263,16 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAutorizar = async (folio, aceptado) => {
+    try {
+      await api.put(`/atenciones/${folio}/autorizar`, { aceptado }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      fetchHistorialGlobal();
+      alert(`Registro ${aceptado ? 'autorizado' : 'denegado'} con éxito.`);
+    } catch(e) {
+      alert("Error al procesar la autorización");
+    }
+  };
+
   const handleAddNota = async () => {
     if(!notaModal.text.trim()) return;
     try {
@@ -926,10 +936,22 @@ export default function AdminDashboard() {
                                 <div className="flex flex-col gap-2">
                                   <span className={`px-3 py-1 rounded-full text-xs font-bold w-max ${
                                     h.estatus_pago === 'Pendiente de Firma' ? 'bg-orange-100 text-orange-700' : 
+                                    h.estatus_pago === 'Pendiente Autorización' ? 'bg-purple-100 text-purple-700' : 
+                                    h.estatus_pago === 'Denegado' ? 'bg-red-100 text-red-700' : 
                                     h.estatus_pago === 'Validado para Pago' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
                                   }`}>
                                     {h.estatus_pago}
                                   </span>
+                                  {h.estatus_pago === 'Pendiente Autorización' && rolActual === 'sistemas' && (
+                                    <div className="flex gap-2 mt-2">
+                                      <button onClick={() => handleAutorizar(h.folio, true)} className="bg-green-600 text-white text-xs px-2 py-1 rounded hover:bg-green-700 shadow-sm w-full">
+                                        Aceptar
+                                      </button>
+                                      <button onClick={() => handleAutorizar(h.folio, false)} className="bg-red-600 text-white text-xs px-2 py-1 rounded hover:bg-red-700 shadow-sm w-full">
+                                        Denegar
+                                      </button>
+                                    </div>
+                                  )}
                                   {h.is_caducado && !h.ruta_archivo_firmado && h.estatus_pago === 'Pendiente de Firma' && (
                                     <div className="text-xs text-red-600 font-bold">Caducado</div>
                                   )}

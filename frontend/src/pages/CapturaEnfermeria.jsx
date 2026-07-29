@@ -308,7 +308,11 @@ export default function CapturaEnfermeria() {
       }, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
-      alert(`Registro creado con éxito. Folio: ${res.data.folio}`);
+      if (res.data.estatus_pago === 'Pendiente Autorización') {
+        alert(`El médico ya tiene un registro de atención el día de hoy para este paciente. La solicitud se creó pero requiere autorización de Sistemas (Folio: ${res.data.folio}).`);
+      } else {
+        alert(`Registro creado con éxito. Folio: ${res.data.folio}`);
+      }
       setHabitacion(''); setPacienteSeleccionado(null); setTipoAtencion(''); setNombreProcedimiento('');
       setProcedimientoDetalle(''); setMedicoId('');
     } catch (error) {
@@ -588,6 +592,8 @@ export default function CapturaEnfermeria() {
                         <td className="p-4 text-sm align-top">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                             h.estatus_pago === 'Pendiente de Firma' ? 'bg-orange-100 text-orange-700' : 
+                            h.estatus_pago === 'Pendiente Autorización' ? 'bg-purple-100 text-purple-700' : 
+                            h.estatus_pago === 'Denegado' ? 'bg-red-100 text-red-700' : 
                             h.estatus_pago === 'Validado para Pago' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
                           }`}>
                             {h.estatus_pago}

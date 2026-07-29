@@ -187,7 +187,11 @@ export default function FirmaExpress() {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Registro creado con éxito. Ya puedes firmarlo en la pestaña de Pendientes.`);
+      if (res.data.estatus_pago === 'Pendiente Autorización') {
+        alert(`Ya tienes un registro el día de hoy para este paciente. La solicitud se creó pero requiere autorización de Sistemas.`);
+      } else {
+        alert(`Registro creado con éxito. Ya puedes firmarlo en la pestaña de Pendientes.`);
+      }
       
       // Reset form
       setHabitacion('');
@@ -434,16 +438,19 @@ export default function FirmaExpress() {
                                   {h.paciente.nombre_completo}
                                 </p>
                                 <p className="text-sm text-slate-600">{h.nombre_procedimiento} - {h.tipo_atencion}</p>
-                                <p className="text-xs text-slate-500 mt-1">Folio: {h.folio} | Firmado: {new Date(h.fecha_firma).toLocaleString()} | Capturado por: {h.registrado_por_nombre || (h.creador ? h.creador.username : 'Ti mismo')}</p>
+                                <p className="text-xs text-slate-500 mt-1">Folio: {h.folio} | {h.fecha_firma ? `Firmado: ${new Date(h.fecha_firma).toLocaleString()}` : `Estado: ${h.estatus_pago}`} | Capturado por: {h.registrado_por_nombre || (h.creador ? h.creador.username : 'Ti mismo')}</p>
                             </div>
-                            <div>
+                            <div className="flex flex-col items-end gap-2">
+                                {h.estatus_pago === 'Pendiente Autorización' && <span className="bg-purple-100 text-purple-700 font-bold px-3 py-1 rounded-full text-xs text-center">Pendiente Autorización</span>}
+                                {h.estatus_pago === 'Denegado' && <span className="bg-red-100 text-red-700 font-bold px-3 py-1 rounded-full text-xs text-center">Denegado por Sistemas</span>}
+                                {h.estatus_pago !== 'Pendiente Autorización' && h.estatus_pago !== 'Denegado' && (
                                     <button 
                                       onClick={() => window.open(`/api/atenciones/${h.folio}/pdf`, '_blank')}
                                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow-sm flex items-center gap-2 transition"
                                     >
                                       <FiFileText /> Imprimir Comprobante
                                     </button>
-                                
+                                )}
                             </div>
                         </div>
                       ))}

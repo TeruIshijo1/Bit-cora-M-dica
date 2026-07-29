@@ -414,6 +414,7 @@ def create_paciente(paciente: schemas.PacienteCreate, db: Session = Depends(get_
         nombre_completo=paciente.nombre_completo,
         num_habitacion=paciente.num_habitacion,
         area_hospitalaria=paciente.area_hospitalaria,
+        codigo_barras=paciente.codigo_barras,
         status_ingreso="Ingresado",
         creado_por_id=None if is_medico else current_user.id,
         registrado_por_nombre=registrado_por
@@ -451,6 +452,8 @@ def update_paciente(paciente_id: int, req: schemas.PacienteUpdate, db: Session =
     paciente.num_habitacion = req.num_habitacion
     if req.area_hospitalaria is not None:
         paciente.area_hospitalaria = req.area_hospitalaria
+    if req.codigo_barras is not None:
+        paciente.codigo_barras = req.codigo_barras
         
     if cambio_traslado:
         traslado = models.TrasladoPaciente(
@@ -608,8 +611,9 @@ def pre_captura(req: schemas.PreCapturaRequest, db: Session = Depends(get_db), c
         func.date(models.AtencionMedica.fecha_realizacion) == (req.fecha_realizacion.date() if req.fecha_realizacion else hoy)
     ).first()
     
+    nuevo_estatus_pago = "Pendiente de Firma"
     if exact_match:
-        raise HTTPException(status_code=400, detail=f"El médico ya tiene un registro de atención el día de hoy para este paciente (Folio: {exact_match.folio}).")
+        nuevo_estatus_pago = "Pendiente Autorización"
     
     # Use max folio number instead of count to avoid collisions after cleanup
     from sqlalchemy import text
@@ -647,7 +651,7 @@ def pre_captura(req: schemas.PreCapturaRequest, db: Session = Depends(get_db), c
         habitacion_capturada=req.habitacion_capturada,
         procedimiento_detalle=req.procedimiento_detalle,
         creado_por_id=None if is_medico else current_user.id,
-        estatus_pago="Pendiente de Firma",
+        estatus_pago=nuevo_estatus_pago,
         registrado_por_nombre=registrado_por
     )
     
@@ -1256,6 +1260,21 @@ def reaperturar_registro(folio: str, db: Session = Depends(get_db), current_user
     atencion.reaperturado = True
     db.commit()
     return {"message": "Registro reaperturado exitosamente"}
+
+@app.put("/api/atenciones/{folio}/autorizar")
+def autorizar_registro(folio: str, req: schemas.AutorizarRequest, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["sistemas"]))):
+    atencion = db.query(models.AtencionMedica).filter(models.AtencionMedica.folio == folio).first()
+    if not atencion:
+        raise HTTPException(status_code=404, detail="Atención no encontrada")
+    if atencion.estatus_pago != "Pendiente Autorización":
+        raise HTTPException(status_code=400, detail="El registro no está pendiente de autorización.")
+        
+    if req.aceptado:
+        atencion.estatus_pago = "Pendiente de Firma"
+    else:
+        atencion.estatus_pago = "Denegado"
+    db.commit()
+    return {"message": f"Registro {'autorizado' if req.aceptado else 'denegado'} exitosamente"}
 
 @app.get("/api/pacientes/altas", response_model=List[schemas.PacienteResponse])
 def get_pacientes_altas(db: Session = Depends(get_db), current_user = Depends(get_current_user)):

@@ -251,3 +251,6 @@ class CleanRecordsRequest(BaseModel):
     clean_notas: bool = False
     clean_traslados: bool = False
     clean_pacientes: bool = False
+
+class AutorizarRequest(BaseModel):
+    aceptado: bool
