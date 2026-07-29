@@ -59,6 +59,7 @@ class PacienteBase(BaseModel):
     nombre_completo: str
     num_habitacion: str
     area_hospitalaria: Optional[str] = None
+    codigo_barras: Optional[str] = None
 
 class PacienteCreate(PacienteBase):
     pass

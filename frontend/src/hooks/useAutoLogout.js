@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos
+const TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 horas
 
 export default function useAutoLogout() {
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ export default function useAutoLogout() {
         localStorage.removeItem('rol');
         localStorage.removeItem('medico_id');
         localStorage.removeItem('nombre_completo');
-        alert("Tu sesión ha expirado por inactividad (15 minutos). Por favor, ingresa de nuevo.");
+        alert("Tu sesión ha expirado por inactividad. Por favor, ingresa de nuevo.");
         navigate('/login');
       }, TIMEOUT_MS);
     }

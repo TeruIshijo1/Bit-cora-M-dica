@@ -100,6 +100,7 @@ export default function AdminDashboard() {
   const [newPacienteNombre, setNewPacienteNombre] = useState('');
   const [newPacienteHabitacion, setNewPacienteHabitacion] = useState('');
   const [newPacienteArea, setNewPacienteArea] = useState('');
+  const [newPacienteCodigo, setNewPacienteCodigo] = useState('');
   
   const [trasladosModal, setTrasladosModal] = useState({ open: false, paciente: null, traslados: [] });
   const [journeyModal, setJourneyModal] = useState({ open: false, paciente: null });
@@ -435,7 +436,7 @@ export default function AdminDashboard() {
         formDataToSend.append('medico_asignado_id', medicoAsignadoId);
       }
 
-      await api.post('/medicos', formDataToSend, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await api.post('/medicos', formDataToSend, { headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${getToken()}` } });
       setStatus({ type: 'success', text: 'Médico registrado exitosamente.' });
       setFormData({ numero_empleado: '', nombre_completo: '', especialidad: '', cedula: '' });
       setBajoContrato(false);

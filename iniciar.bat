@@ -9,13 +9,8 @@ echo - http://192.168.254.150:8000 (Desde cualquier otra PC o Tablet en la red)
 echo ===================================================
 
 echo ===================================================
-echo Abriendo tunel seguro con Ngrok para las tablets...
-start "Ngrok Tunnel" "D:\Escritorio\escandon-bi\ngrok.exe" http 8000
-echo Copia el enlace HTTPS que aparezca en la ventana negra de Ngrok.
-echo ===================================================
-
-echo Iniciando el servidor principal de Python y el servicio Biometrico...
-npx concurrently -n "PYTHON,BIOMETRICO" -c "bgBlue.bold,bgMagenta.bold" "cd backend && python seed.py && python -m uvicorn main:app --host 0.0.0.0 --port 8000" "cd backend_node && node server.js"
+echo Iniciando el servidor principal de Python, el servicio Biometrico y Ngrok...
+npx concurrently -n "PYTHON,BIOMETRICO,NGROK" -c "bgBlue.bold,bgMagenta.bold,bgGreen.bold" "cd backend && python seed.py && python -m uvicorn main:app --host 0.0.0.0 --port 8000" "cd backend_node && node server.js" "ngrok http 8000 --log=stdout"
 
 :: El script termina aquí.
 exit

@@ -2,16 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { MdLogout, MdLocalHospital, MdFingerprint, MdSearch, MdBed } from 'react-icons/md';
-import { FiCheckCircle, FiClock, FiFileText, FiUser, FiActivity, FiMapPin, FiCalendar, FiEdit3 } from 'react-icons/fi';
+import { FiCheckCircle, FiClock, FiFileText, FiUser, FiUsers, FiActivity, FiMapPin, FiCalendar, FiEdit3 } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 
 export default function FirmaExpress() {
-  const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial
+  const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial, pacientes
 
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
+  const [filterPacientesTab, setFilterPacientesTab] = useState('');
   const [tiposAtencion, setTiposAtencion] = useState([]);
   const [areas, setAreas] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -75,7 +76,7 @@ export default function FirmaExpress() {
   };
 
   const fetchHistorial = async (id) => {
-    if(!medico) return;
+    if(!id) return;
     try {
       const token = localStorage.getItem('token');
       const res = await api.get(`/atenciones/historial/${id}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -214,7 +215,8 @@ export default function FirmaExpress() {
   const sidebarItems = [
     { id: 'pendientes', label: 'Atenciones Pendientes', icon: <FiActivity /> },
     { id: 'captura', label: 'Nueva Captura Manual', icon: <FiFileText /> },
-    { id: 'historial', label: 'Historial de Firmadas', icon: <FiClock /> }
+    { id: 'historial', label: 'Historial de Firmadas', icon: <FiClock /> },
+    { id: 'pacientes', label: 'Directorio de Pacientes', icon: <FiUsers /> }
   ];
 
   return (
@@ -447,6 +449,73 @@ export default function FirmaExpress() {
                       ))}
                    </div>
                )}
+            </div>
+           )}
+
+          {activeTab === 'pacientes' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <FiUsers className="text-hes-blue-main" /> Pacientes Activos
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <MdSearch className="absolute left-3 top-2.5 text-slate-400 text-lg" />
+                      <input 
+                        type="text" 
+                        placeholder="Buscar paciente o cama..." 
+                        className="border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={filterPacientesTab}
+                        onChange={e => setFilterPacientesTab(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {pacientes
+                    .filter(p => !p.fecha_alta && (p.nombre_completo?.toLowerCase().includes(filterPacientesTab.toLowerCase()) || p.num_habitacion?.toLowerCase().includes(filterPacientesTab.toLowerCase())))
+                    .map(p => (
+                    <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-md border border-slate-200 p-5 transition-shadow relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -z-10 group-hover:scale-125 transition-transform"></div>
+                      
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                          #{p.id}
+                        </span>
+                      </div>
+                      
+                      <h4 className="text-lg font-bold text-slate-800 mb-1 leading-tight cursor-pointer hover:text-blue-600 hover:underline w-fit" onClick={() => setJourneyModal({ open: true, paciente: p })}>
+                        {p.nombre_completo}
+                      </h4>
+                      
+                      <div className="flex items-center text-sm text-slate-600 mb-4 gap-4 mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <MdBed className="text-slate-400 text-lg" />
+                          {p.num_habitacion}
+                        </div>
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <FiMapPin className="text-slate-400 text-lg" />
+                          {p.area_hospitalaria || 'Sin área'}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+                        <button onClick={() => setJourneyModal({ open: true, paciente: p })} className="flex-1 text-slate-500 hover:text-blue-600 font-semibold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-blue-50">
+                          <FiActivity /> Ver Trayectoria
+                        </button>
+                        <button onClick={() => setTrasladoModal({ open: true, paciente: p })} className="flex-1 text-indigo-600 hover:text-indigo-800 font-semibold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100">
+                          <FiMapPin /> Trasladar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {pacientes.filter(p => !p.fecha_alta && (p.nombre_completo?.toLowerCase().includes(filterPacientesTab.toLowerCase()) || p.num_habitacion?.toLowerCase().includes(filterPacientesTab.toLowerCase()))).length === 0 && (
+                    <div className="col-span-full p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl text-slate-500">
+                      No se encontraron pacientes activos que coincidan con la búsqueda.
+                    </div>
+                  )}
+                </div>
             </div>
           )}
 

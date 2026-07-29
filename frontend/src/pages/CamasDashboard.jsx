@@ -136,6 +136,7 @@ const CamasDashboard = () => {
       'PPA (Planta Alta)': [],
       'Urgencias': [],
       'Quirófanos': [],
+      'Terapia Intensiva': [],
       'Corta Estancia': [],
       'Otras Áreas': [],
       'Camas Virtuales': []
@@ -147,10 +148,12 @@ const CamasDashboard = () => {
       
       if (name.includes('VIRTUAL')) {
         groups['Camas Virtuales'].push(cama);
-      } else if (name.includes('URGENCIA') || code.includes('URG')) {
+      } else if (name.includes('URGENCIA') || code.includes('URG') || code.includes('CONSCUR')) {
         groups['Urgencias'].push(cama);
       } else if (name.includes('QUIR')) {
         groups['Quirófanos'].push(cama);
+      } else if (name.includes('TERAPIA') || code.includes('UTI') || name.includes('CUBICULO')) {
+        groups['Terapia Intensiva'].push(cama);
       } else if (name.includes('CORTA ESTANCIA') || name.includes('CE')) {
         groups['Corta Estancia'].push(cama);
       } else if (name.includes(' 10') || code.includes('PB') || code.includes('10')) {

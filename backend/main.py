@@ -93,11 +93,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if username is None or rol is None:
             raise HTTPException(status_code=401, detail="Credenciales invalidas")
         
-        if rol == "medico":
+        if rol in ["medico", "ayudante"]:
             user = db.query(models.Medico).filter(models.Medico.cedula == username).first()
             if user:
                 # Add a temporary attribute so require_role works
-                setattr(user, "rol", "medico")
+                setattr(user, "rol", rol)
         else:
             user = db.query(models.Usuario).filter(models.Usuario.username == username).first()
             
@@ -299,6 +299,7 @@ def get_pacientes(db: Session = Depends(get_db)):
                 elif "PA" in name_upper or "20" in name_upper: area = "PPA (Planta Alta)"
                 elif "URGENCIA" in name_upper or "URG" in name_upper: area = "Urgencias"
                 elif "QUIR" in name_upper: area = "Quirófano"
+                elif "UTI" in name_upper or "TERAPIA" in name_upper or "CUBICULO" in name_upper: area = "Terapia Intensiva"
 
                 if not cama_db:
                     cama_db = models.Cama(
@@ -322,7 +323,7 @@ def get_pacientes(db: Session = Depends(get_db)):
             # Dar de alta a los que ya no están ocupando cama en KH_HE
             local_active_patients = db.query(models.Paciente).filter(models.Paciente.status_ingreso == "Ingresado").all()
             for lp in local_active_patients:
-                if lp.nombre_completo not in active_patient_names:
+                if lp.nombre_completo not in active_patient_names and lp.registrado_por_nombre == "Sincronización KH_HE":
                     lp.status_ingreso = "Alta"
                     lp.fecha_alta = datetime.datetime.utcnow()
                     lp.dado_de_alta_por_id = None # Sistema
@@ -353,6 +354,7 @@ def get_pacientes(db: Session = Depends(get_db)):
                     elif "PA" in name_upper or "20" in name_upper: area = "PPA (Planta Alta)"
                     elif "URGENCIA" in name_upper or "URG" in name_upper: area = "Urgencias"
                     elif "QUIR" in name_upper: area = "Quirófano"
+                    elif "UTI" in name_upper or "TERAPIA" in name_upper or "CUBICULO" in name_upper: area = "Terapia Intensiva"
                     
                     if not paciente_db:
                         nuevo_paciente = models.Paciente(
@@ -501,9 +503,14 @@ async def create_medico(
     horario_laboral: Optional[str] = Form(None),
     es_ayudante: bool = Form(False),
     medico_asignado_id: Optional[int] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))
 ):
     # Ya no se genera numero empleado automáticamente
+    if db.query(models.Medico).filter(models.Medico.numero_empleado == numero_empleado).first():
+        raise HTTPException(status_code=400, detail="Ya existe un médico con ese número de empleado.")
+    if db.query(models.Medico).filter(models.Medico.cedula == cedula).first():
+        raise HTTPException(status_code=400, detail="Ya existe un médico con esa cédula.")
     
     huella_token_unique = str(uuid.uuid4())
     
@@ -721,7 +728,9 @@ def exportar_atenciones(
     ws.title = "Atenciones"
     
     # Insertar Logo
-    logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "public", "logo.png")
+    logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist", "logo.png")
+    if not os.path.exists(logo_path):
+        logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "public", "logo.png")
     if os.path.exists(logo_path):
         img = ExcelImage(logo_path)
         img.width = 100

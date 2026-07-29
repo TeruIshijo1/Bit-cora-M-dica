@@ -4,7 +4,7 @@
     "slug": "bitacora-hes",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/adaptive-icon.png",
     "scheme": "mobileapp",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -12,7 +12,11 @@
     },
     "android": {
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.mobile_app"
+      "package": "com.anonymous.mobile_app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
     },
     "web": {
       "output": "static",

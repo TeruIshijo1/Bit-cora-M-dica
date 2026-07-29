@@ -12,11 +12,11 @@ import useAutoLogout from './hooks/useAutoLogout';
 function AppContent() {
   useAutoLogout();
   const location = useLocation();
-  const serverUrl = localStorage.getItem('server_url');
+  let serverUrl = localStorage.getItem('server_url');
 
-  // Si no hay servidor configurado y no estamos en la página de configuración, redirigir
-  if (serverUrl === null && location.pathname !== '/config-servidor') {
-    return <Navigate to="/config-servidor" replace />;
+  if (serverUrl === null || serverUrl !== 'default') {
+    localStorage.setItem('server_url', 'default');
+    serverUrl = 'default';
   }
 
   return (

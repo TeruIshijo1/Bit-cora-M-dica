@@ -16,10 +16,14 @@ cd ..
 
 echo.
 echo [2/3] Instalando dependencias del Frontend (React)...
-cd frontend
-call npm install
-call npm run build
-cd ..
+if exist frontend\package.json (
+    cd frontend
+    call npm install
+    call npm run build
+    cd ..
+) else (
+    echo Frontend ya esta compilado (pase a produccion), omitiendo instalacion.
+)
 
 echo.
 echo [3/3] Instalando dependencias del Microservicio (Node.js)...

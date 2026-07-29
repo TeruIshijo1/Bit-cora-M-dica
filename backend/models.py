@@ -70,6 +70,7 @@ class Paciente(Base):
     nombre_completo = Column(String, index=True)
     num_habitacion = Column(String, index=True)
     area_hospitalaria = Column(String, nullable=True)
+    codigo_barras = Column(String, index=True, nullable=True)
     status_ingreso = Column(String, default="Ingresado")
     fecha_registro = Column(DateTime, default=datetime.datetime.utcnow)
     creado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
