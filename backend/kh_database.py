@@ -91,7 +91,7 @@ def fetch_patient_info_and_timeline(pt_num: str):
     """
     Fetches the patient's demographic information and their movement timeline.
     """
-    conn = get_hospital_connection()
+    conn = get_kh_connection()
     if not conn:
         return {"error": "No connection to hospital DB"}
     try:
