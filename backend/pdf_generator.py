@@ -16,7 +16,7 @@ html_template = """
     <title>Comprobante de Atención - {{ folio }}</title>
     <style>
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 20px; color: #333; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #1a56db; padding-bottom: 10px; margin-bottom: 20px; }
+        .header-table { width: 100%; border-bottom: 4px solid #1a56db; padding-bottom: 10px; margin-bottom: 20px; }
         .logo { width: 250px; }
         .folio-container { text-align: right; }
         .folio-title { color: #d93025; font-weight: bold; font-size: 14px; margin: 0; }
@@ -32,23 +32,26 @@ html_template = """
         .sig-col { display: table-cell; width: 50%; padding: 0 20px; }
         .line { border-top: 1px solid #94a3b8; margin-bottom: 5px; }
         .auth-box { text-align: center; color: #64748b; font-size: 10px; font-family: monospace; margin-bottom: 40px; }
-        .qr-code { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); width: 80px; }
+        .qr-code { width: 80px; }
         .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 50px; border-top: 1px dashed #cbd5e1; padding-top: 20px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <!-- We assume the logo is available or we use a text placeholder if not -->
-            <h1 style="color:#1a56db; margin:0;">Hospital<span style="color:#4ade80;">Escandón</span></h1>
-            <p style="color:#64748b; font-style:italic; margin:0; font-size:12px;">calidad médica a tu alcance</p>
-        </div>
-        <img src="{{ qr_img_path }}" class="qr-code" />
-        <div class="folio-container">
-            <p class="folio-title">COMPROBANTE DE ATENCIÓN</p>
-            <p class="folio-number">{{ folio }}</p>
-        </div>
-    </div>
+    <table class="header-table">
+        <tr>
+            <td style="width: 33%; vertical-align: middle;">
+                <h1 style="color:#1a56db; margin:0;">Hospital<span style="color:#4ade80;">Escandón</span></h1>
+                <p style="color:#64748b; font-style:italic; margin:0; font-size:12px;">calidad médica a tu alcance</p>
+            </td>
+            <td style="width: 34%; text-align: center; vertical-align: middle;">
+                <img src="{{ qr_img_path }}" class="qr-code" />
+            </td>
+            <td style="width: 33%; text-align: right; vertical-align: middle;">
+                <p class="folio-title">COMPROBANTE DE ATENCIÓN</p>
+                <p class="folio-number">{{ folio }}</p>
+            </td>
+        </tr>
+    </table>
 
     <div class="title-bar">
         REGISTRO OFICIAL DE PROCEDIMIENTO Y ATENCIÓN MÉDICA
