@@ -100,7 +100,7 @@ def fetch_patient_info_and_timeline(pt_num: str):
         # 1. Fetch Demographics
         demo_query = """
         SELECT TOP 1 
-            Paciente, BirthDate, Gender, BloodType, MaritalStatus, Religion
+            FullName, BirthDate, Gender, BloodType, MaritalStatus, Religion
         FROM V_MRPT
         WHERE PTNum = ?
         """

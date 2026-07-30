@@ -125,6 +125,12 @@ def generate_pdf(atencion, medico, paciente):
     # Preparar datos
     tipos = {"CON": "CONSULTA MÉDICA", "JOR": "JORNADA", "INT": "INTERCONSULTA MÉDICA"}
     
+    # Convertir QR a base64 para embeber directamente en el HTML y evitar problemas de rutas en xhtml2pdf
+    import base64
+    with open(qr_img_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+    qr_b64 = f"data:image/png;base64,{encoded_string}"
+    
     context = {
         "folio": atencion.folio,
         "medico_nombre": medico.nombre_completo,
@@ -137,7 +143,7 @@ def generate_pdf(atencion, medico, paciente):
         "fecha_registro": atencion.fecha_registro.strftime("%Y-%m-%d %H:%M hrs"),
         "notas": atencion.procedimiento_detalle,
         "hash_seguridad": atencion.hash_seguridad,
-        "qr_img_path": f"file://{os.path.abspath(qr_img_path)}"
+        "qr_img_path": qr_b64
     }
     
     template = template_env.get_template("comprobante.html")
