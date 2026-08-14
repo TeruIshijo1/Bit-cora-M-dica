@@ -5,6 +5,7 @@ import FirmaExpress from './pages/FirmaExpress';
 import AdminDashboard from './pages/AdminDashboard';
 import CamasDashboard from './pages/CamasDashboard';
 import ServerConfig from './pages/ServerConfig';
+import PatientDashboard from './pages/PatientDashboard';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import useAutoLogout from './hooks/useAutoLogout';
@@ -42,6 +43,10 @@ function AppContent() {
         
         <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'ayudante']} />}>
           <Route path="/firma-express" element={<FirmaExpress />} />
+        </Route>
+        
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'enfermeria']} />}>
+          <Route path="/ehr" element={<PatientDashboard />} />
         </Route>
       </Route>
     </Routes>
