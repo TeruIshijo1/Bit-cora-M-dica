@@ -36,7 +36,7 @@ function AppContent() {
           <Route path="/camas" element={<CamasDashboard />} />
         </Route>
         
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'enfermeria', 'sistemas']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'enfermeria', 'sistemas', 'medico']} />}>
           <Route path="/captura" element={<CapturaEnfermeria />} />
         </Route>
         

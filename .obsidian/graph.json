@@ -1,0 +1,58 @@
+{
+  "collapse-filter": true,
+  "search": "",
+  "showTags": false,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": false,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {
+      "query": "path:docs/Frontend.md",
+      "color": {
+        "a": 1,
+        "rgb": 5807359
+      }
+    },
+    {
+      "query": "path:docs/Backend.md",
+      "color": {
+        "a": 1,
+        "rgb": 14701138
+      }
+    },
+    {
+      "query": "path:docs/Database.md",
+      "color": {
+        "a": 1,
+        "rgb": 16753920
+      }
+    },
+    {
+      "query": "path:docs/Pase_a_Produccion.md",
+      "color": {
+        "a": 1,
+        "rgb": 11029193
+      }
+    },
+    {
+      "query": "path:docs/Mapa_Proyecto.md",
+      "color": {
+        "a": 1,
+        "rgb": 16777215
+      }
+    }
+  ],
+  "collapse-display": false,
+  "showArrow": true,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1.5,
+  "lineSizeMultiplier": 1.5,
+  "collapse-forces": false,
+  "centerStrength": 0.5,
+  "repelStrength": 15,
+  "linkStrength": 1,
+  "linkDistance": 200,
+  "scale": 0.22920135941749087,
+  "close": false
+}

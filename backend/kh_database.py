@@ -4,28 +4,66 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Usamos prefijo KH_ para evitar chocar con variables de Windows (como USERNAME)
-SERVER = os.getenv('KH_SERVER')
-DATABASE = os.getenv('KH_DATABASE')
-USERNAME = os.getenv('KH_USERNAME')
-PASSWORD = os.getenv('KH_PASSWORD')
-
 def get_kh_connection():
     """Establece una conexión directa de solo lectura con SQL Server (KH_HE)."""
-    connection_string = (
-        # Cambiamos a {SQL Server} que viene instalado por defecto en todos los Windows
-        'DRIVER={SQL Server};'
-        f'SERVER={SERVER};'
-        f'DATABASE={DATABASE};'
-        f'UID={USERNAME};'
-        f'PWD={PASSWORD};'
-    )
-    try:
-        conn = pyodbc.connect(connection_string, timeout=10)
-        return conn
-    except Exception as e:
-        print(f"Error conectando a KH_HE: {e}")
+    load_dotenv()
+    server = os.getenv('KH_SERVER')
+    database = os.getenv('KH_DATABASE', 'KH_HE')
+    username = os.getenv('KH_USERNAME')
+    password = os.getenv('KH_PASSWORD')
+
+    if not server:
+        print("Error conectando a KH_HE: La variable de entorno 'KH_SERVER' no está definida en .env")
         return None
+
+    # Limpiar espacios o comillas en el servidor
+    server = server.strip().strip('"').strip("'")
+
+    installed_drivers = pyodbc.drivers()
+    drivers_to_try = []
+    
+    if os.getenv('KH_ODBC_DRIVER'):
+        drivers_to_try.append(os.getenv('KH_ODBC_DRIVER'))
+    
+    preferred_drivers = [
+        'ODBC Driver 18 for SQL Server',
+        'ODBC Driver 17 for SQL Server',
+        'SQL Server Native Client 11.0',
+        'SQL Server'
+    ]
+    for d in preferred_drivers:
+        if d in installed_drivers and d not in drivers_to_try:
+            drivers_to_try.append(d)
+    
+    for d in installed_drivers:
+        if 'SQL' in d and d not in drivers_to_try:
+            drivers_to_try.append(d)
+
+    if not drivers_to_try:
+        drivers_to_try = ['SQL Server']
+
+    last_error = None
+    for drv in drivers_to_try:
+        driver_str = drv if (drv.startswith('{') and drv.endswith('}')) else f'{{{drv}}}'
+        
+        # Probar con Network=DBMSSOCN (fuerza uso de TCP/IP Sockets en el driver legacy de Windows)
+        conn_strings = [
+            f'DRIVER={driver_str};SERVER={server};DATABASE={database};UID={username};PWD={password};Network=DBMSSOCN;TrustServerCertificate=yes;Encrypt=no;',
+            f'DRIVER={driver_str};SERVER={server};DATABASE={database};UID={username};PWD={password};Network=DBMSSOCN;',
+            f'DRIVER={driver_str};SERVER={server};DATABASE={database};UID={username};PWD={password};TrustServerCertificate=yes;Encrypt=no;',
+            f'DRIVER={driver_str};SERVER={server};DATABASE={database};UID={username};PWD={password};'
+        ]
+        
+        for cs in conn_strings:
+            try:
+                conn = pyodbc.connect(cs, timeout=10)
+                return conn
+            except Exception as e:
+                last_error = e
+                continue
+
+    print(f"Error conectando a KH_HE (Servidor intentado: '{server}'): {last_error}")
+    return None
 
 def fetch_camas():
     """Obtiene el estatus actual de las camas desde KH_HE cruzando V_MRPT, PC y PR."""
@@ -120,7 +158,7 @@ def fetch_patient_info_and_timeline(pt_num: str):
             
         # 2. Fetch Timeline
         timeline_query = """
-        SELECT FRName as RoomName, EntryDate, ExitDate
+        SELECT FRName as RoomName, EntryDate, ClosedOn as ExitDate
         FROM UDR_RPT_HABITACION
         WHERE PTNum = ?
         ORDER BY EntryDate ASC

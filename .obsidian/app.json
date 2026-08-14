@@ -1,0 +1,10 @@
+{
+  "userIgnoreFilters": [
+    "node_modules/",
+    "venv/",
+    "__pycache__/",
+    ".git/",
+    "dist/",
+    "*.db"
+  ]
+}
