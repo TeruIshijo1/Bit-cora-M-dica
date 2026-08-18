@@ -82,7 +82,8 @@ Bitacora_HES/
 ├── instalar server.bat             # Script para instalar dependencias completas
 ├── preparar_produccion.py          # Script de empaquetado seguro para despliegue
 ├── README.md                       # Documentación principal del repositorio
-└── README_FORMATOS.md              # Documentación de diseño y geometría de formatos
+├── README_FORMATOS.md              # Documentación de diseño y geometría de formatos
+└── README_PRUEBAS_SQL.md           # Guía de pruebas e inyección de datos en SQL Server (Vertical)
 ```
 
 ---
