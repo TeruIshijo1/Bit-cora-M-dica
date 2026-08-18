@@ -19,3 +19,5 @@ pyodbc
 psycopg2-binary
 python-dotenv
 slowapi
+reportlab
+pypdf

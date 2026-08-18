@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Nota de Evolución de Urgencias</title>
+  <style>
+    @page {
+      size: letter portrait;
+      margin: 0;
+    }
+    
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: #1a1a1a;
+      background-color: #fff;
+      font-size: 11px;
+    }
+
+    .page-container {
+      width: 215.9mm;
+      min-height: 279.4mm;
+      padding: 12mm 18mm 16mm 14mm;
+      position: relative;
+      background: #ffffff;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* RIGHT VERTICAL TEXT */
+    .vertical-watermark {
+      position: absolute;
+      right: 3.5mm;
+      top: 50%;
+      transform: translateY(-50%) rotate(90deg);
+      transform-origin: center center;
+      white-space: nowrap;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 5px;
+      color: #9aa0a6;
+      font-family: 'Arial', sans-serif;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* HEADER */
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 2mm;
+    }
+
+    .doc-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0056b3;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    .doc-code {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #333333;
+      display: inline-block;
+      border-bottom: 1.5px solid #222222;
+      padding-bottom: 1px;
+      margin-top: 5px;
+    }
+
+    .logo-container {
+      text-align: right;
+      vertical-align: top;
+    }
+
+    .logo-img {
+      height: 38px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .header-blue-bar {
+      width: 100%;
+      height: 3.5px;
+      background: linear-gradient(90deg, #0056b3 0%, #007bff 100%);
+      margin-top: 3px;
+      margin-bottom: 3mm;
+      border-radius: 2px;
+    }
+
+    /* PATIENT METADATA */
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 2.5mm;
+      font-size: 10.5px;
+    }
+
+    .meta-table td {
+      padding: 2.5px 3px;
+      vertical-align: bottom;
+    }
+
+    .lbl {
+      color: #444444;
+      font-weight: 700;
+      font-size: 9.5px;
+      white-space: nowrap;
+    }
+
+    .val {
+      border-bottom: 1px solid #777777;
+      color: #111111;
+      font-weight: 600;
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+
+    .val-center {
+      text-align: center;
+    }
+
+    .sub-lbl {
+      font-size: 7.5px;
+      color: #666666;
+      text-align: center;
+      line-height: 1;
+    }
+
+    .allergies-highlight {
+      color: #d93025;
+      font-weight: 800;
+      font-size: 10px;
+    }
+
+    /* EVOLUTION BAR */
+    .evolution-banner {
+      background-color: #e8f4fc;
+      border: 1px solid #cce5ff;
+      border-radius: 4px;
+      text-align: center;
+      padding: 3px 0;
+      margin: 3mm 0 2mm 0;
+      font-size: 13px;
+      font-weight: 800;
+      font-style: italic;
+      color: #0056b3;
+      letter-spacing: 0.5px;
+    }
+
+    /* VITALS BAR */
+    .vitals-box {
+      width: 100%;
+      border-bottom: 1px solid #aaaaaa;
+      padding-bottom: 3px;
+      margin-bottom: 3mm;
+      font-size: 10px;
+    }
+
+    .vitals-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .vitals-table td {
+      padding: 2px;
+      vertical-align: middle;
+    }
+
+    .vital-item {
+      font-weight: 700;
+      color: #333333;
+    }
+
+    .vital-val {
+      font-weight: 600;
+      color: #000000;
+      border-bottom: 1px solid #555555;
+      padding: 0 4px;
+    }
+
+    /* SOAP SECTIONS */
+    .soap-block {
+      margin-bottom: 3mm;
+      text-align: justify;
+    }
+
+    .soap-title {
+      font-weight: 800;
+      font-size: 11px;
+      color: #111111;
+      margin-bottom: 2px;
+    }
+
+    .soap-title span {
+      font-weight: 400;
+      font-size: 9.5px;
+      color: #555555;
+    }
+
+    .soap-body {
+      font-size: 10.5px;
+      line-height: 1.45;
+      color: #222222;
+      padding-left: 2px;
+    }
+
+    /* CHECKBOX */
+    .chk {
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      border: 1.2px solid #222222;
+      text-align: center;
+      line-height: 10px;
+      font-size: 9px;
+      font-weight: 800;
+      color: #0056b3;
+      margin-left: 3px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    /* SIGNATURES */
+    .signatures-container {
+      width: 100%;
+      margin-top: 6mm;
+      margin-bottom: 4mm;
+    }
+
+    .sig-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .sig-cell {
+      width: 50%;
+      text-align: center;
+      padding: 0 15mm;
+      vertical-align: top;
+    }
+
+    .sig-line {
+      border-top: 1.2px solid #222222;
+      width: 100%;
+      margin-bottom: 3px;
+    }
+
+    .sig-name {
+      font-weight: 700;
+      font-size: 10px;
+      color: #111111;
+    }
+
+    .sig-cedula {
+      font-size: 9px;
+      color: #444444;
+      margin-bottom: 2px;
+    }
+
+    .sig-role {
+      font-size: 9px;
+      color: #555555;
+      font-style: italic;
+    }
+
+    /* FOOTER */
+    .footer-bar {
+      width: 100%;
+      border-top: 2px solid #0056b3;
+      padding-top: 3px;
+      font-size: 8px;
+      color: #444444;
+    }
+
+    .footer-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .footer-table td {
+      vertical-align: middle;
+    }
+
+    .page-number {
+      text-align: right;
+      font-weight: 700;
+      color: #0056b3;
+      font-size: 8.5px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-container">
+    <!-- LATERAL WATERMARK -->
+    <div class="vertical-watermark">
+      FUNDACIÓN MARÍA ANA MIER DE ESCANDÓN, I.A.P.
+    </div>
+
+    <!-- TOP SECTION -->
+    <div>
+      <!-- HEADER -->
+      <table class="header-table">
+        <tr>
+          <td style="width: 58%; vertical-align: top;">
+            <div class="doc-title">NOTA DE EVOLUCIÓN DE URGENCIAS</div>
+            <div class="doc-code">HE-DIRMED-SINPRO-PLT-87/01</div>
+          </td>
+          <td class="logo-container" style="width: 42%;">
+            <img src="{{ logo_path }}" class="logo-img" alt="Hospital Escandón" />
+          </td>
+        </tr>
+      </table>
+      <div class="header-blue-bar"></div>
+
+      <!-- INGRESO ROW -->
+      <table class="meta-table">
+        <tr>
+          <td style="width: 45%;"></td>
+          <td class="lbl" style="width: 15%; text-align: right;">Fecha de Ingreso:</td>
+          <td class="val val-center" style="width: 16%;">{{ paciente.fecha_ingreso }}</td>
+          <td class="lbl" style="width: 8%; text-align: right;">Hora:</td>
+          <td class="val val-center" style="width: 16%;">{{ paciente.hora_ingreso }}</td>
+        </tr>
+      </table>
+
+      <!-- PATIENT DEMOGRAPHICS -->
+      <table class="meta-table">
+        <tr>
+          <td class="lbl" style="width: 17%;">Nombre del Paciente:</td>
+          <td class="val" style="width: 48%;">{{ paciente.nombre }}</td>
+          <td class="lbl" style="width: 15%; text-align: right;">Fecha de Nac.:</td>
+          <td class="val val-center" style="width: 20%;">{{ paciente.dob }}</td>
+        </tr>
+      </table>
+
+      <table class="meta-table">
+        <tr>
+          <td class="lbl" style="width: 10%;">Expediente:</td>
+          <td class="val val-center" style="width: 13%;">{{ paciente.mrn }}</td>
+          <td class="lbl" style="width: 6%; text-align: right;">Cama:</td>
+          <td class="val val-center" style="width: 11%;">{{ paciente.cama }}</td>
+          <td class="lbl" style="width: 5%; text-align: right;">Edad:</td>
+          <td class="val val-center" style="width: 9%;">{{ paciente.edad }}</td>
+          <td class="lbl" style="width: 5%; text-align: right;">Sexo:</td>
+          <td class="val val-center" style="width: 6%;">{{ paciente.sexo }}</td>
+          <td class="lbl" style="width: 11%; text-align: right;">Grupo y RH:</td>
+          <td class="val val-center" style="width: 7%;">{{ paciente.grupo_rh }}</td>
+          <td class="lbl" style="width: 7%; text-align: right;">Alergias:</td>
+          <td class="val val-center allergies-highlight" style="width: 10%;">{{ paciente.alergias }}</td>
+        </tr>
+      </table>
+
+      <table class="meta-table">
+        <tr>
+          <td class="lbl" style="width: 12%;">Diagnóstico(s):</td>
+          <td class="val" style="width: 88%;">{{ nota.diagnostico }}</td>
+        </tr>
+      </table>
+
+      <table class="meta-table">
+        <tr>
+          <td class="lbl" style="width: 8%;">Destino:</td>
+          <td class="val" style="width: 42%;">{{ nota.destino }}</td>
+          <td class="lbl" style="width: 15%; text-align: right;">Fecha de egreso:</td>
+          <td class="val val-center" style="width: 15%;">{{ nota.fecha_egreso }}</td>
+          <td class="lbl" style="width: 10%; text-align: right;">Hora de egreso:</td>
+          <td class="val val-center" style="width: 10%;">{{ nota.hora_egreso }}</td>
+        </tr>
+      </table>
+
+      <!-- NOTE TIMING -->
+      <table class="meta-table" style="margin-top: 2mm;">
+        <tr>
+          <td class="lbl" style="width: 14%;">Fecha de nota:</td>
+          <td class="val val-center" style="width: 16%;">{{ nota.fecha }}</td>
+          <td class="lbl" style="width: 7%; text-align: right;">Hora:</td>
+          <td class="val val-center" style="width: 12%;">{{ nota.hora }}</td>
+          <td style="width: 51%; text-align: right; font-weight: 700; font-size: 9.5px; color: #444;">
+            Turno:
+            Matutino <span class="chk">{% if nota.turno == 'Matutino' %}X{% else %}&nbsp;{% endif %}</span>
+            Vespertino <span class="chk">{% if nota.turno == 'Vespertino' %}X{% else %}&nbsp;{% endif %}</span>
+            Nocturno <span class="chk">{% if nota.turno == 'Nocturno' %}X{% else %}&nbsp;{% endif %}</span>
+          </td>
+        </tr>
+      </table>
+
+      <!-- SECTION TITLE -->
+      <div class="evolution-banner">
+        Evolución y observaciones
+      </div>
+
+      <!-- VITALS -->
+      <div class="vitals-box">
+        <table class="vitals-table">
+          <tr>
+            <td class="vital-item" style="width: 14%;">Signos vitales</td>
+            <td class="vital-item">TA: <span class="vital-val">{{ nota.vitals_ta }}</span></td>
+            <td class="vital-item">FC: <span class="vital-val">{{ nota.vitals_fc }}</span></td>
+            <td class="vital-item">FR: <span class="vital-val">{{ nota.vitals_fr }}</span></td>
+            <td class="vital-item">SATO2: <span class="vital-val">{{ nota.vitals_sato2 }}</span></td>
+            <td class="vital-item">PESO: <span class="vital-val">{{ nota.vitals_peso }}</span></td>
+            <td class="vital-item">TALLA: <span class="vital-val">{{ nota.vitals_talla }}</span></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- SOAP CONTENT -->
+      <div class="soap-block">
+        <div class="soap-title">(S) Subjetivo:</div>
+        <div class="soap-body">{{ nota.subjetivo | replace('\n', '<br>') }}</div>
+      </div>
+
+      <div class="soap-block">
+        <div class="soap-title">(O) Objetivo:</div>
+        <div class="soap-body">{{ nota.objetivo | replace('\n', '<br>') }}</div>
+      </div>
+
+      <div class="soap-block">
+        <div class="soap-title">(A) Análisis:</div>
+        <div class="soap-body">{{ nota.analisis | replace('\n', '<br>') }}</div>
+      </div>
+
+      <div class="soap-block">
+        <div class="soap-title">(P) Plan <span>(laboratorios solicitados y tratamientos a establecer)</span>:</div>
+        <div class="soap-body">{{ nota.plan | replace('\n', '<br>') }}</div>
+      </div>
+    </div>
+
+    <!-- BOTTOM SECTION (SIGNATURES + FOOTER) -->
+    <div>
+      <!-- SIGNATURES -->
+      <div class="signatures-container">
+        <table class="sig-table">
+          <tr>
+            <td class="sig-cell">
+              <div class="sig-line"></div>
+              <div class="sig-name">{{ medico.nombre }}</div>
+              <div class="sig-cedula">Cédula Profesional: {{ medico.cedula }}</div>
+              <div class="sig-role">Nombre Completo, Firma y Cédulas del Médico</div>
+            </td>
+            <td class="sig-cell">
+              <div class="sig-line"></div>
+              <div class="sig-name">&nbsp;</div>
+              <div class="sig-cedula">&nbsp;</div>
+              <div class="sig-role">Nombre Completo y Firma del MIP</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="footer-bar">
+        <table class="footer-table">
+          <tr>
+            <td style="width: 40%;">
+              <strong>Gaviota No. 27, Col. Tacubaya, CP: 11870</strong><br>
+              Alcaldía Miguel Hidalgo. CDMX | Tel: 55-55-16-85-10
+            </td>
+            <td style="width: 40%; text-align: center;">
+              <strong>LICENCIA SANITARIA No. 07 AM 09 011 163</strong>
+            </td>
+            <td class="page-number" style="width: 20%;">
+              Página 1 de 1
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

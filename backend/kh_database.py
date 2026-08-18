@@ -183,3 +183,116 @@ def fetch_patient_info_and_timeline(pt_num: str):
         return {"error": str(e)}
     finally:
         conn.close()
+
+def fetch_full_ehr_dashboard(pt_num: str):
+    """
+    Obtiene toda la información necesaria para llenar el Expediente Electrónico (Dashboard).
+    Cruza información de V_MRPT (demográficos), MR_NE_URG (notas, signos, alergias) y UDR_RPT_HABITACION (línea de tiempo).
+    """
+    conn = get_kh_connection()
+    if not conn:
+        return {"error": "No connection to hospital DB"}
+        
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Datos Demográficos (V_MRPT)
+        cursor.execute("""
+            SELECT TOP 1 
+                FullName, BirthDate, Gender, BloodType, MaritalStatus, Religion, Age
+            FROM V_MRPT
+            WHERE PTNum = ?
+        """, (pt_num,))
+        demo_row = cursor.fetchone()
+        
+        # 2. Última Nota de Urgencias (para obtener Signos Vitales, Alergias y Diagnóstico actual)
+        cursor.execute("""
+            SELECT TOP 1
+                ALERGIAS, DIAGNOSTICO, TA1, FC1, FR1, SAT_O2_1, PESO1, TALLA, NOTAS as TEMP,
+                S_SUBJETIVO1, O_OBJETIVO, A_ANALISIS1, P_PLAN1, CreatedOn, N_MEDICO
+            FROM MR_NE_URG
+            WHERE PTNum = ?
+            ORDER BY CreatedOn DESC
+        """, (pt_num,))
+        nota_row = cursor.fetchone()
+        
+        # 3. Línea de Tiempo (Habitaciones)
+        cursor.execute("""
+            SELECT FRName, EntryDate, ClosedOn
+            FROM UDR_RPT_HABITACION
+            WHERE PTNum = ?
+            ORDER BY EntryDate DESC
+        """, (pt_num,))
+        timeline_rows = cursor.fetchall()
+        
+        # Construir objeto de respuesta
+        dashboard_data = {
+            "patient": {
+                "name": str(demo_row[0]) if demo_row and demo_row[0] else "Desconocido",
+                "age": f"{demo_row[6]} años" if demo_row and len(demo_row)>6 and demo_row[6] else "",
+                "gender": "Masculino" if demo_row and demo_row[2] == 'M' else "Femenino" if demo_row and demo_row[2] == 'F' else "",
+                "mrn": f"PT-{pt_num}",
+                "dob": demo_row[1].strftime('%d %b %Y') if demo_row and demo_row[1] else "",
+                "phone": "N/D",
+                "email": "N/D",
+                "allergies": str(nota_row[0]) if nota_row and nota_row[0] else "Sin alergias reportadas"
+            },
+            "vitals": [],
+            "timelineEvents": [],
+            "clinicalNotes": [],
+            "medications": [] # Pendiente de cruzar con otra tabla
+        }
+        
+        if nota_row:
+            # Mapear signos vitales
+            dashboard_data["vitals"] = [
+                {"label": "Presión Arterial", "value": str(nota_row[2] or "--"), "unit": "mmHg", "status": "Revisado"},
+                {"label": "Frec. Cardíaca", "value": str(nota_row[3] or "--"), "unit": "lpm", "status": "Revisado"},
+                {"label": "Frec. Respiratoria", "value": str(nota_row[4] or "--"), "unit": "rpm", "status": "Revisado"},
+                {"label": "Saturación O2", "value": str(nota_row[5] or "--"), "unit": "%", "status": "Revisado"},
+                {"label": "Temperatura", "value": str(nota_row[8] or "--").replace("FEBRIL ", ""), "unit": "°C", "status": "Revisado"},
+                {"label": "Peso", "value": str(nota_row[6] or "--"), "unit": "kg", "status": "Revisado"}
+            ]
+            
+            # Mapear nota como el evento clínico principal
+            fecha_nota = nota_row[13]
+            dashboard_data["clinicalNotes"].append({
+                "date": fecha_nota.strftime('%d/%m/%Y') if fecha_nota else "",
+                "doctor": str(nota_row[14] or ""),
+                "diagnosis": str(nota_row[1] or ""),
+                "soap": {
+                    "s": str(nota_row[9] or ""),
+                    "o": str(nota_row[10] or ""),
+                    "a": str(nota_row[11] or ""),
+                    "p": str(nota_row[12] or "")
+                }
+            })
+            
+            # Agregar la nota a la línea de tiempo
+            if fecha_nota:
+                dashboard_data["timelineEvents"].append({
+                    "date": fecha_nota.strftime('%d %b %Y'),
+                    "time": fecha_nota.strftime('%H:%M'),
+                    "type": "Nota de Evolución",
+                    "desc": f"El Dr(a). {str(nota_row[14] or '')} agregó una nota de urgencias."
+                })
+                
+        # Agregar movimientos de cama a la línea de tiempo
+        for r in timeline_rows:
+            if r[1]: # EntryDate
+                dashboard_data["timelineEvents"].append({
+                    "date": r[1].strftime('%d %b %Y'),
+                    "time": r[1].strftime('%H:%M'),
+                    "type": "Asignación de Cama",
+                    "desc": f"Paciente ingresado a {str(r[0] or '')}"
+                })
+                
+        # Ordenar timeline (simplificado asumiendo que ya vienen más o menos ordenados o se ordenan en frontend)
+        
+        return dashboard_data
+        
+    except Exception as e:
+        print(f"Error fetching full EHR data: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()

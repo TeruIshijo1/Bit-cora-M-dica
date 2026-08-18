@@ -1368,6 +1368,79 @@ def get_patient_timeline(pt_num: str):
     """Obtiene la Ficha Rápida (demográficos) y la Línea de Tiempo del paciente."""
     return kh_database.fetch_patient_info_and_timeline(pt_num)
 
+@app.get("/api/ehr/paciente/{pt_num}")
+def get_full_ehr_dashboard(pt_num: str):
+    """Obtiene el dashboard completo del expediente (Fase 1)."""
+    return kh_database.fetch_full_ehr_dashboard(pt_num)
+
+@app.get("/api/ehr/paciente/{pt_num}/pdf-nota-urgencias")
+def get_pdf_nota_urgencias(pt_num: str):
+    """Genera y descarga el PDF dinámico de la Nota de Evolución de Urgencias."""
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    
+    if "error" in dashboard_data:
+        raise HTTPException(status_code=404, detail=dashboard_data["error"])
+        
+    patient_info = dashboard_data.get("patient", {})
+    notes = dashboard_data.get("clinicalNotes", [])
+    
+    if not notes:
+        raise HTTPException(status_code=404, detail="No hay notas clínicas para generar PDF")
+        
+    latest_note = notes[0]
+    
+    # Extraer signos vitales si existen
+    vitals = dashboard_data.get("vitals", [])
+    get_vital = lambda label: next((v["value"] for v in vitals if v["label"] == label), "--")
+    
+    # Parsear fechas
+    fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
+    hora_hoy = datetime.datetime.now().strftime("%H:%M")
+    
+    pt_data = {
+        "nombre": patient_info.get("name", ""),
+        "dob": patient_info.get("dob", ""),
+        "mrn": patient_info.get("mrn", ""),
+        "cama": "Urgencias",
+        "edad": patient_info.get("age", ""),
+        "sexo": "M" if patient_info.get("gender") == "Masculino" else "F",
+        "grupo_rh": "O+",  # Dato fijo para demo, requeriría tabla de sangre
+        "alergias": patient_info.get("allergies", ""),
+        "fecha_ingreso": fecha_hoy,
+        "hora_ingreso": hora_hoy
+    }
+    
+    nota_data = {
+        "diagnostico": latest_note.get("diagnosis", ""),
+        "destino": "DOMICILIO" if "ALTA" in latest_note.get("plan", "").upper() else "PISO / QUIROFANO",
+        "fecha_egreso": "___/___/___",
+        "hora_egreso": "__:__",
+        "fecha": latest_note.get("date", fecha_hoy),
+        "hora": hora_hoy,
+        "turno": "Matutino",
+        "vitals_ta": get_vital("Presión Arterial"),
+        "vitals_fc": get_vital("Frec. Cardíaca"),
+        "vitals_fr": get_vital("Frec. Respiratoria"),
+        "vitals_sato2": get_vital("Saturación O2"),
+        "vitals_peso": get_vital("Peso"),
+        "vitals_talla": "--",
+        "subjetivo": latest_note.get("soap", {}).get("s", ""),
+        "objetivo": latest_note.get("soap", {}).get("o", ""),
+        "analisis": latest_note.get("soap", {}).get("a", ""),
+        "plan": latest_note.get("soap", {}).get("p", ""),
+        "medico": latest_note.get("doctor", "Desconocido"),
+        "cedula": "12345678" # Demo temporal
+    }
+    
+    pdf_filename = f"nota_urgencias_{pt_num}.pdf"
+    pdf_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", pdf_filename)
+    
+    import pdf_engine_v2
+    pdf_engine_v2.generate_nota_urgencias(nota_data, pt_data, pdf_path)
+    
+    from fastapi.responses import FileResponse
+    return FileResponse(path=pdf_path, filename=pdf_filename, media_type='application/pdf')
+
 @app.get("/api/camas/ocupacion", response_model=List[schemas.OcupacionArea])
 def get_ocupacion_camas(db: Session = Depends(get_db)):
     """Calcula y devuelve la ocupación de camas por área siguiendo la lógica del Dashboard Directivo."""

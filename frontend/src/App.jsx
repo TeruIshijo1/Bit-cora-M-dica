@@ -45,8 +45,9 @@ function AppContent() {
           <Route path="/firma-express" element={<FirmaExpress />} />
         </Route>
         
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'enfermeria']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'enfermeria', 'sistemas']} />}>
           <Route path="/ehr" element={<PatientDashboard />} />
+          <Route path="/ehr/:pt_num" element={<PatientDashboard />} />
         </Route>
       </Route>
     </Routes>

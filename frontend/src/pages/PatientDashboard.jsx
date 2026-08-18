@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { api } from '../api';
 import { 
   FiSearch, FiBell, FiCalendar, FiFileText, FiActivity, FiImage, 
   FiSettings, FiUser, FiMessageSquare, FiPlus, FiClock, FiChevronRight 
@@ -7,38 +9,64 @@ import { MdOutlineBloodtype, MdOutlineMonitorHeart, MdOutlineWaterDrop } from 'r
 import { FaTemperatureHalf } from 'react-icons/fa6';
 
 export default function PatientDashboard() {
-  const [activeTab, setActiveTab] = useState('Timeline');
+  const { pt_num } = useParams();
+  const patientId = pt_num || '5704'; // Default a 5704 para la demo si entran desde menú
 
-  // Datos mockeados de prueba para maquetación
-  const patient = {
-    name: "Margarita Thompson",
-    age: "62 años",
-    gender: "Femenino",
-    mrn: "1029483",
-    dob: "14 Abr, 1962",
-    phone: "(55) 1234-5678",
-    email: "margarita@ejemplo.com",
-    allergies: "Penicilina, Sulfa"
+  const [activeTab, setActiveTab] = useState('Timeline');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('token');
+        const res = await api.get(`/ehr/paciente/${patientId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (res.data && res.data.patient && !res.data.error) {
+          setData(res.data);
+        } else {
+          setError(res.data?.error || res.data?.detail || "Error al obtener datos");
+        }
+      } catch (err) {
+        console.error("Error fetching EHR:", err);
+        setError("Error de conexión con el servidor. ¿Está el backend actualizado y ejecutándose?");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [patientId]);
+
+  if (loading) {
+    return <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-slate-50 text-slate-500 font-semibold">Cargando expediente clínico...</div>;
+  }
+
+  if (error || !data) {
+    return <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-slate-50 text-red-500 font-semibold">{error || "No se pudo cargar el expediente."}</div>;
+  }
+
+  const { patient, vitals, timelineEvents, clinicalNotes, medications } = data;
+
+  const getVitalIcon = (label) => {
+    if (label.includes('Cardíaca')) return <MdOutlineMonitorHeart className="text-hes-blue-main text-2xl" />;
+    if (label.includes('Arterial')) return <MdOutlineWaterDrop className="text-blue-500 text-2xl" />;
+    if (label.includes('O2')) return <FiActivity className="text-teal-500 text-2xl" />;
+    if (label.includes('Temp')) return <FaTemperatureHalf className="text-orange-500 text-2xl" />;
+    return <FiActivity className="text-slate-400 text-2xl" />;
   };
 
-  const vitals = [
-    { label: "Frecuencia Cardíaca", value: "72", unit: "bpm", status: "Normal", icon: <MdOutlineMonitorHeart className="text-hes-blue-main text-2xl" />, color: "text-hes-blue-main" },
-    { label: "Presión Arterial", value: "118/76", unit: "mmHg", status: "Normal", icon: <MdOutlineWaterDrop className="text-blue-500 text-2xl" />, color: "text-blue-500" },
-    { label: "SpO2", value: "98", unit: "%", status: "Normal", icon: <FiActivity className="text-teal-500 text-2xl" />, color: "text-teal-500" },
-    { label: "Temperatura", value: "36.8", unit: "°C", status: "Normal", icon: <FaTemperatureHalf className="text-orange-500 text-2xl" />, color: "text-orange-500" },
-  ];
-
-  const timelineEvents = [
-    { date: "12 May, 2026", type: "Visita de Urgencias", time: "9:30 AM", desc: "Seguimiento hipertensión. PA estable. Continuar medicamentos actuales." },
-    { date: "08 Feb, 2026", type: "Examen Físico Anual", time: "10:15 AM", desc: "Examen anual completo. Laboratorios revisados. Mastografía ordenada." },
-    { date: "03 Nov, 2025", type: "Visita de Seguimiento", time: "2:45 PM", desc: "Revisión de medicamentos. Sin problemas agudos." },
-  ];
-
-  const medications = [
-    { name: "Lisinopril 10 mg", instruction: "Tomar 1 tableta diario", status: "Activo", dose: "10 mg", freq: "1 vez al día" },
-    { name: "Atorvastatina 20 mg", instruction: "Tomar 1 tableta al acostarse", status: "Activo", dose: "20 mg", freq: "En la noche" },
-    { name: "Metformina 500 mg", instruction: "Tomar 1 tableta dos veces al día", status: "Suspendido", dose: "500 mg", freq: "2 veces al día" },
-  ];
+  const getVitalColor = (label) => {
+    if (label.includes('Cardíaca')) return "text-hes-blue-main";
+    if (label.includes('Arterial')) return "text-blue-500";
+    if (label.includes('O2')) return "text-teal-500";
+    if (label.includes('Temp')) return "text-orange-500";
+    return "text-slate-500";
+  };
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-slate-50 text-slate-800 overflow-hidden font-sans">
@@ -99,19 +127,19 @@ export default function PatientDashboard() {
           </div>
 
           {/* VITALS */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-5">
             {vitals.map((v, i) => (
-              <div key={i} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <div className={`p-2 bg-white rounded-lg shadow-sm border border-slate-100 ${v.color}`}>
-                  {v.icon}
+              <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div className={`p-2 bg-white rounded-lg shadow-sm border border-slate-100 ${getVitalColor(v.label)}`}>
+                  {getVitalIcon(v.label)}
                 </div>
                 <div>
-                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">{v.label}</div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide truncate max-w-[100px]" title={v.label}>{v.label}</div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-bold text-slate-800">{v.value}</span>
+                    <span className="text-lg font-bold text-slate-800">{v.value}</span>
                     <span className="text-xs text-slate-500">{v.unit}</span>
                   </div>
-                  <div className="text-xs font-medium text-hes-blue-main">{v.status}</div>
+                  <div className="text-[10px] font-medium text-hes-blue-main">{v.status}</div>
                 </div>
               </div>
             ))}
@@ -155,7 +183,19 @@ export default function PatientDashboard() {
                         </div>
                         <div className="text-xs text-slate-500 mb-2">{evt.time}</div>
                         <p className="text-sm text-slate-600 leading-relaxed mb-3">{evt.desc}</p>
-                        <button className="text-xs font-semibold text-hes-blue-main flex items-center gap-1 hover:underline">Ver nota <FiChevronRight /></button>
+                        {evt.type === 'Nota de Evolución' && (
+                          <div className="flex items-center gap-4 mt-2">
+                            <button className="text-xs font-semibold text-hes-blue-main flex items-center gap-1 hover:underline">Ver nota <FiChevronRight /></button>
+                            <a 
+                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="text-xs font-semibold text-emerald-600 flex items-center gap-1 hover:underline"
+                            >
+                              <FiFileText /> Imprimir PDF
+                            </a>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -172,7 +212,7 @@ export default function PatientDashboard() {
                   <button className="text-sm text-hes-blue-main font-semibold flex items-center gap-1 hover:bg-hes-blue-light/10 px-2 py-1 rounded"><FiPlus /> Añadir</button>
                 </div>
                 <div className="space-y-3">
-                  {medications.map((med, i) => (
+                  {medications && medications.length > 0 ? medications.map((med, i) => (
                     <div key={i} className="flex justify-between items-center p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
                       <div>
                         <div className="font-bold text-slate-800 text-sm">{med.name}</div>
@@ -188,7 +228,9 @@ export default function PatientDashboard() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="text-sm text-slate-500 py-4 text-center">No hay medicamentos activos.</div>
+                  )}
                 </div>
                 <div className="mt-4 text-center">
                   <button className="text-sm font-semibold text-hes-blue-main hover:underline">Ver todos los medicamentos →</button>

@@ -162,3 +162,82 @@ def generate_pdf(atencion, medico, paciente):
         pisa_status = pisa.CreatePDF(html_out, dest=result_file)
     
     return f"/static/pdfs/{atencion.folio}.pdf"
+
+import subprocess
+import base64
+
+CHROME_PATHS = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+]
+
+def get_browser_executable():
+    for p in CHROME_PATHS:
+        if os.path.exists(p):
+            return p
+    return None
+
+def render_html_to_pdf_chrome(html_content, output_pdf_path):
+    browser = get_browser_executable()
+    if not browser:
+        # Fallback to pisa if browser not found
+        with open(output_pdf_path, "w+b") as result_file:
+            pisa.CreatePDF(html_content, dest=result_file)
+        return output_pdf_path
+
+    temp_html = output_pdf_path.replace(".pdf", "_render_temp.html")
+    with open(temp_html, "w", encoding="utf-8") as f:
+        f.write(html_content)
+        
+    cmd = [
+        browser,
+        "--headless",
+        "--disable-gpu",
+        "--no-pdf-header-footer",
+        "--allow-file-access-from-files",
+        f"--print-to-pdf={output_pdf_path}",
+        temp_html
+    ]
+    
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    
+    if os.path.exists(temp_html):
+        try:
+            os.remove(temp_html)
+        except:
+            pass
+            
+    if res.returncode != 0 and not os.path.exists(output_pdf_path):
+        raise RuntimeError(f"Chromium PDF Generation failed: {res.stderr}")
+        
+    return output_pdf_path
+
+def generate_nota_urgencias_pdf(nota_data, pt_data, pdf_filename):
+    logo_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "logo.png"))
+    logo_b64 = ""
+    if os.path.exists(logo_file):
+        with open(logo_file, "rb") as lf:
+            logo_b64 = f"data:image/png;base64,{base64.b64encode(lf.read()).decode('utf-8')}"
+            
+    context = {
+        "paciente": pt_data,
+        "nota": nota_data,
+        "medico": {
+            "nombre": nota_data.get('medico', 'N/D'),
+            "cedula": nota_data.get('cedula', 'N/D')
+        },
+        "logo_path": logo_b64
+    }
+    
+    template = template_env.get_template("nota_urgencias.html")
+    html_out = template.render(context)
+    
+    pdf_dir = os.path.join(os.path.dirname(__file__), "static", "pdfs")
+    if not os.path.exists(pdf_dir):
+        os.makedirs(pdf_dir)
+        
+    pdf_path = os.path.join(pdf_dir, pdf_filename)
+    render_html_to_pdf_chrome(html_out, pdf_path)
+    
+    return f"/static/pdfs/{pdf_filename}"

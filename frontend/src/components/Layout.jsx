@@ -30,7 +30,7 @@ export default function Layout() {
     { path: '/rh', label: 'Recursos Humanos', icon: <FiUsers />, roles: ['admin', 'rh', 'sistemas'] },
     { path: '/captura', label: 'Captura (Enfermería)', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
     { path: '/firma-express', label: 'Firma Express (Médico)', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] },
-    { path: '/ehr', label: 'Expediente', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria'] },
+    { path: '/ehr', label: 'Expediente', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria', 'sistemas'] },
     { path: '/camas', label: 'Camas', icon: <MdLocalHospital />, roles: ['admin', 'sistemas', 'enfermeria', 'medico', 'rh'] }
   ];
 
