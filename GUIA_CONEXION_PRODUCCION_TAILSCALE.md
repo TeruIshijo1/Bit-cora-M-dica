@@ -76,7 +76,28 @@ DATABASE_URL=postgresql://usuario_prod:password_prod@localhost:5432/hospital_esc
 
 ---
 
-## 🧪 4. Verificación de la Conexión en Producción
+## 🌐 4. Publicación Web y Acceso Remoto (Tailscale Funnel)
+
+Para acceder a las plataformas desde tablets, celulares o fuera del hospital sin instalar clientes VPN:
+
+### URLs Oficiales del Hospital:
+* 🩺 **Bitácora Médica / Expediente HES:**  
+  👉 **`https://portalhes.tail0c0f17.ts.net/`** *(Mapeado al puerto `8000`)*
+* 📊 **Escandón BI / Plataforma BI:**  
+  👉 **`https://portalhes.tail0c0f17.ts.net:8443/`** *(Mapeado al puerto `5173`)*
+
+### Comandos de Activación en `SERVIDORCALIDAD`:
+```powershell
+# Levantar Funnel de Bitácora Médica (Puerto 8000)
+& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8000
+
+# Levantar Funnel de Escandón BI (Puerto 5173 en HTTPS 8443)
+& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg --https=8443 5173
+```
+
+---
+
+## 🧪 5. Verificación de la Conexión en Producción
 
 Para comprobar que el servidor de producción tiene visibilidad inmediata con SQL Server:
 
@@ -101,7 +122,7 @@ python -c "import sys, os; sys.path.append('.'); from kh_database import get_kh_
 
 ---
 
-## 🛠️ 5. Mantenimiento y Troubleshooting
+## 🛠️ 6. Mantenimiento y Troubleshooting
 
 | Síntoma | Causa Probable | Solución |
 | :--- | :--- | :--- |
