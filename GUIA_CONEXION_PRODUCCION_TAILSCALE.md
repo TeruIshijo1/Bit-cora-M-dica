@@ -108,3 +108,5 @@ python -c "import sys, os; sys.path.append('.'); from kh_database import get_kh_
 | **`Timeout al conectar`** | El nodo de Tailscale en AWS se detuvo o no está en modo desatendido. | En el servidor AWS, verificar que Tailscale esté en `Connected` y con `Run unattended` activo. |
 | **`Driver ODBC no encontrado`** | El servidor no tiene el driver de SQL Server instalado. | Instalar `ODBC Driver 18 for SQL Server` o `ODBC Driver 17 for SQL Server` de Microsoft. |
 | **`Nodo Offline en Tailscale`** | El servicio de Tailscale se pausó al cerrar la sesión de usuario. | Ejecutar `tailscale up --unattended` en el servidor correspondiente. |
+| **`Error 0x80072f0d al instalar en Windows Server`** | El instalador web falla por certificados de Windows Server. | Usar el instalador MSI sin conexión: `https://pkgs.tailscale.com/stable/tailscale-setup-1.102.3-amd64.msi`. |
+| **`x509: certificate signed by unknown authority (Grandstream / Firewall)`** | El firewall/router del hospital hace inspección SSL profunda. | En Grandstream: **Firewall -> Proxy SSL -> Lista de exención**, agregar la IP del servidor o los dominios `*.tailscale.com`. |
