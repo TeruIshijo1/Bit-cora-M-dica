@@ -1217,9 +1217,9 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td className="p-3 text-sm flex gap-3">
-                          {!m.tiene_huella && <button onClick={() => openHuellaModal(m)} className="text-green-600 hover:text-green-800" title="Registrar Huella"><MdFingerprint size={20}/></button>}
-                          <button onClick={() => openEditModal(m)} className="text-hes-blue-main hover:text-blue-800" title="Editar"><FiEdit size={18}/></button>
-                          <button onClick={() => toggleMedicoStatus(m.id, true)} className="text-red-500 hover:text-red-700" title="Eliminar"><FiTrash2 /></button>
+                          <button onClick={() => openHuellaModal(m)} className="text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded" title="Capturar / Actualizar Huella"><MdFingerprint size={20}/></button>
+                          <button onClick={() => openEditModal(m)} className="text-hes-blue-main hover:text-blue-800 p-1 hover:bg-blue-50 rounded" title="Editar"><FiEdit size={18}/></button>
+                          <button onClick={() => toggleMedicoStatus(m.id, true)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded" title="Eliminar"><FiTrash2 /></button>
                           {(rolActual === 'admin' || rolActual === 'sistemas') && (
                             <button onClick={() => handleImpersonate(m.id, 'medico')} className="text-blue-500 underline text-xs">Entrar como...</button>
                           )}

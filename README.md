@@ -139,11 +139,14 @@ Crea o verifica el archivo `.env` dentro de `backend/`:
 # Base de Datos Local PostgreSQL
 DATABASE_URL=postgresql://usuario:password@localhost:5432/hospital_escandon_db
 
-# Base de Datos Hospitalaria Externa (SQL Server - Solo Lectura)
-KH_SERVER=192.168.x.x
+# Base de Datos Hospitalaria Externa (SQL Server KH_HE vía Tailscale Mesh VPN)
+KH_SERVER=100.121.115.8,1433
 KH_DATABASE=KH_HE
-KH_USERNAME=usuario_kh
-KH_PASSWORD=password_kh
+KH_USERNAME=escandon_bi_user
+KH_PASSWORD=Bi_Escandon_2026!#
+
+# Para más información de la conexión de red, consulta:
+# GUIA_CONEXION_PRODUCCION_TAILSCALE.md
 
 # Seguridad JWT
 SECRET_KEY=clave_secreta_super_segura

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText } from 'react-icons/fi';
+import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText, FiCalendar } from 'react-icons/fi';
 import { MdLocalHospital } from 'react-icons/md';
 
 const serverIP = window.location.hostname;
@@ -31,6 +31,7 @@ export default function Layout() {
     { path: '/captura', label: 'Captura (Enfermería)', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
     { path: '/firma-express', label: 'Firma Express (Médico)', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] },
     { path: '/ehr', label: 'Expediente', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria', 'sistemas'] },
+    { path: '/agenda', label: 'Agenda Médica', icon: <FiCalendar />, roles: ['admin', 'medico', 'enfermeria', 'sistemas', 'rh'] },
     { path: '/camas', label: 'Camas', icon: <MdLocalHospital />, roles: ['admin', 'sistemas', 'enfermeria', 'medico', 'rh'] }
   ];
 

@@ -15,7 +15,7 @@ Todos los formatos verticales del hospital deben regirse estrictamente por la **
 | **Ancho de Cuerpo (Body)** | `20.19 cm` | `572.31 pt` | Área imprimible máxima |
 | **Contenedor Principal** | `20.10 cm × 25.50 cm` | `569.76 pt × 722.84 pt` | Tamaño del marco institucional |
 | **Origen X (`FRAME_X`)** | `0.745 cm` (`0.7 + 0.045`) | **`21.12 pt`** | Posición horizontal exacta |
-| **Origen Y (`FRAME_Y`)** | `1.49 cm` | **`47.91 pt`** | Posición vertical exacta (salva rodillos de impresora) |
+| **Origen Y (`FRAME_Y`)** | `1.49 cm` | **`42.24 pt`** | Posición vertical exacta RDLC |
 | **Ancho Marco (`FRAME_W`)** | `20.10 cm` | **`569.76 pt`** | Ancho del marco perimetral |
 | **Alto Marco (`FRAME_H`)** | `25.50 cm` | **`722.84 pt`** | Alto del marco perimetral |
 | **Borde Perimetral** | `MidnightBlue`, `1.25 pt` | `#191970`, `1.25 pt` | Trazo perimetral del formato |
@@ -69,7 +69,7 @@ PRIMARY_BLUE = colors.HexColor('#0056b3')
 FRAME_X = 21.12
 FRAME_W = 569.76
 FRAME_H = 722.84
-FRAME_Y = 47.91
+FRAME_Y = 42.24
 
 class RDLCCanvas(canvas.Canvas):
     def __init__(self, *args, **kwargs):

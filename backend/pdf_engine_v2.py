@@ -16,7 +16,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether
+    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, CondPageBreak
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 
@@ -41,12 +41,10 @@ LATERAL_IMG = os.path.join(ASSETS_DIR, 'lateral_hes_oficial_bold.png')
 # ─────────────────────────────────────────────────────────────
 PAGE_W, PAGE_H = letter # 612.0 x 792.0 pt (21.59 x 27.94 cm)
 
-# Posición horizontal exacta RDLC (sin desplazamientos laterales)
 FRAME_X = 21.12  # 0.7 cm + 0.045 cm = 21.12 pt
 FRAME_W = 569.76 # 20.1 cm exactos
-
-FRAME_H = 722.84 # Sin cambio de tamaño (25.5 cm)
-FRAME_Y = 47.91  # 42.24 + 5.67 pt
+FRAME_H = 722.84 # 25.5 cm exactos
+FRAME_Y = 42.24  # Posición Y original RDLC exacta (42.24 pt)
 
 # ─────────────────────────────────────────────────────────────
 # PALETA INSTITUCIONAL RDLC
@@ -67,7 +65,7 @@ def parse_date_parts(date_str: str):
     """Extrae día, mes, año de cualquier formato."""
     if not date_str:
         return '', '', ''
-    m = re.match(r'^(\d{1,2})[\/\-\s]+([A-Za-z0-9]+)[\/\-\s]+(\d{2,4})$', str(date_str).strip())
+    m = re.match(r'^(\d{1,2})[\/\-\s]+([A-Za-z0-9]+)[\/\-\s]+(\d{2,4})', str(date_str).strip())
     if m:
         return m.group(1).zfill(2), m.group(2), m.group(3)
     return str(date_str), '', ''
@@ -220,18 +218,69 @@ def format_clinical_text(raw_text: str) -> str:
     return '<br/>'.join(formatted_lines)
 
 
-def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) -> str:
-    """
-    Genera el PDF oficial de la Nota de Urgencias calibrado exactamente según especificaciones RDLC.
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, content_w: float, firma_data: dict = None):
+    """Construye la tabla de firmas normada con sello biométrico NOM estético para impresión."""
+    sig_col_w = (content_w - 74) / 2
 
-    # Ancho del contenido de texto: deja 16pt a la derecha para no tocar el lateral vertical
-    # y 5pt a la izquierda para separarse del marco perimetral
+    # Si hay firma biométrica verificada
+    if firma_data and (firma_data.get('sello_digital') or firma_data.get('hash_sha256')):
+        sello_raw = str(firma_data.get('sello_digital') or firma_data.get('hash_sha256') or '')
+        sello_resumido = (sello_raw[:28] + '...') if len(sello_raw) > 28 else sello_raw
+        fecha_txt = firma_data.get('fecha_hora_firma') or firma_data.get('fecha_hora') or datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        stamp_html = f"""
+        <font size='5.8' color='#006633'><b>[✓ FIRMADO BIOMÉTRICAMENTE CON HUELLA]</b></font><br/>
+        <font size='5' color='#004d26'><b>NOM-004-SSA3-2012 / NOM-024-SSA3-2012</b></font><br/>
+        <font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>
+        """
+        top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
+    else:
+        top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=10, leading=14))
+
+    sig_data = [
+        [
+            top_sig_p,
+            '',
+            Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=10, leading=14))
+        ],
+        [
+            Paragraph(f"<b>{medico_nombre}</b><br/><font size='7' color='#444'>Céd. Prof. {medico_ced}</font>", ParagraphStyle('SigM', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER)),
+            '',
+            Paragraph(f"<b>{mip_nombre or '&nbsp;'}</b><br/><font size='7' color='#444'>&nbsp;</font>", ParagraphStyle('SigMIP', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER))
+        ],
+        [
+            Paragraph("<i>Nombre Completo , Firma y Cédulas del Médico</i>", ParagraphStyle('SigL1', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER)),
+            '',
+            Paragraph("<i>Nombre Completo y Firma del MIP</i>", ParagraphStyle('SigL2', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER))
+        ]
+    ]
+
+    t_sig = Table(sig_data, colWidths=[sig_col_w, 74, sig_col_w])
+    t_sig.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+        ('LINEABOVE', (0,1), (0,1), 1, PRIMARY_BLUE),
+        ('LINEABOVE', (2,1), (2,1), 1, PRIMARY_BLUE),
+        ('TOPPADDING', (0,0), (-1,0), 2),
+        ('BOTTOMPADDING', (0,0), (-1,0), 1),
+        ('TOPPADDING', (0,1), (-1,1), 2),
+        ('BOTTOMPADDING', (0,1), (-1,1), 1),
+        ('TOPPADDING', (0,2), (-1,2), 1),
+        ('BOTTOMPADDING', (0,2), (-1,2), 1),
+    ]))
+    return t_sig
+
+
+def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None) -> str:
+    """
+    Genera el PDF oficial de la Nota de Urgencias:
+    - is_general=True: Imprime el documento general unificado con las 3 evoluciones y 1 sola firma al final.
+    - is_general=False: Imprime la nota individual con su propia firma.
+    """
+    if output_path and os.path.dirname(output_path):
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     content_x = FRAME_X + 5.0
-    content_w = FRAME_W - 5.0 - 16.0 # 548.76 pt (~548 pt)
+    content_w = FRAME_W - 5.0 - 16.0 # ~548.76 pt
 
-    # Página 1:
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
     frame_h_p1 = frame_top_p1 - frame_bottom
@@ -254,12 +303,11 @@ def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) ->
         pageTemplates=[template_p1, template_later]
     )
 
-    # Estilos tipográficos ejecutivos
     style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.0, leading=8.6, textColor=TEXT_MUTED)
     style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=TEXT_DARK)
     style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=RED_ALERT)
-    style_soap_h = ParagraphStyle('SoapH', fontName='Helvetica-Bold', fontSize=8.0, leading=9.5, textColor=DARK_BLUE, spaceBefore=2.2, spaceAfter=1.0)
-    style_soap_body = ParagraphStyle('SoapB', fontName='Helvetica', fontSize=7.5, leading=9.2, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=1.8)
+    style_soap_h = ParagraphStyle('SoapH', fontName='Helvetica-Bold', fontSize=8.0, leading=10.0, textColor=DARK_BLUE, spaceBefore=4.0, spaceAfter=1.5)
+    style_soap_body = ParagraphStyle('SoapB', fontName='Helvetica', fontSize=7.5, leading=9.8, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=3.0)
 
     story = []
 
@@ -268,12 +316,6 @@ def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) ->
     # ─────────────────────────────────────────────────────────────
     sexo = str(pt_data.get('sexo', '')).upper()
     sex_str = "<b>M</b> [X] &nbsp; <b>F</b> [ ]" if ('M' in sexo and 'F' not in sexo) else ("<b>M</b> [ ] &nbsp; <b>F</b> [X]" if 'F' in sexo else "<b>M</b> [ ] &nbsp; <b>F</b> [ ]")
-
-    turno = str(nota_data.get('turno', 'Matutino')).upper()
-    t_mat = "[X]" if 'MAT' in turno else "[ ]"
-    t_ves = "[X]" if 'VESP' in turno else "[ ]"
-    t_noc = "[X]" if 'NOCT' in turno else "[ ]"
-    turno_str = f"<b>Matutino</b> {t_mat} &nbsp;&nbsp; <b>Vespertino</b> {t_ves} &nbsp;&nbsp; <b>Nocturno</b> {t_noc}"
 
     meta_table_data = [
         # Fila 1: Nombre + Fecha de Nacimiento
@@ -302,25 +344,17 @@ def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) ->
         # Fila 4: Diagnóstico(s)
         [
             Paragraph('Diagnóstico(s):', style_label),
-            Paragraph(f"<b>{nota_data.get('diagnostico', '').upper()}</b>", style_val),
+            Paragraph(f"<b>{pt_data.get('diagnostico', '').upper()}</b>", style_val),
             '', '', '', ''
         ],
         # Fila 5: Destino y Egreso
         [
             Paragraph('Destino:', style_label),
-            Paragraph(f"<b>{nota_data.get('destino', '')}</b>", style_val),
+            Paragraph(f"<b>{pt_data.get('destino', 'OBSERVACIÓN URGENCIAS')}</b>", style_val),
             Paragraph('Fecha Egreso:', style_label),
-            Paragraph(f"{nota_data.get('fecha_egreso', '___/___/___')}", style_val),
+            Paragraph(f"{pt_data.get('fecha_egreso', '___/___/___')}", style_val),
             Paragraph('Hora:', style_label),
-            Paragraph(f"{nota_data.get('hora_egreso', '__:__')}", style_val)
-        ],
-        # Fila 6: Fecha de Nota y Turno
-        [
-            Paragraph('Fecha de Nota:', style_label),
-            Paragraph(f"<b>{nota_data.get('fecha', '')}</b> &nbsp;&nbsp;&nbsp;&nbsp; <font color='#555'>Hora:</font> <b>{nota_data.get('hora', '')}</b>", style_val),
-            Paragraph('Turno:', style_label),
-            Paragraph(turno_str, style_val),
-            '', ''
+            Paragraph(f"{pt_data.get('hora_egreso', '__:__')}", style_val)
         ]
     ]
 
@@ -337,126 +371,156 @@ def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) ->
         ('SPAN', (1,2), (5,2)),
         ('SPAN', (1,3), (5,3)),
         ('SPAN', (1,4), (1,4)),
-        ('SPAN', (1,5), (1,5)),
-        ('SPAN', (3,5), (5,5)),
         ('LINEBELOW', (0,0), (-1,0), 0.3, BORDER_GREY),
         ('LINEBELOW', (0,1), (-1,1), 0.3, BORDER_GREY),
         ('LINEBELOW', (0,2), (-1,2), 0.3, BORDER_GREY),
         ('LINEBELOW', (0,3), (-1,3), 0.3, BORDER_GREY),
-        ('LINEBELOW', (0,4), (-1,4), 0.3, BORDER_GREY),
-        ('LINEBELOW', (0,5), (-1,5), 0.6, PRIMARY_BLUE),
+        ('LINEBELOW', (0,4), (-1,4), 0.6, PRIMARY_BLUE),
     ]))
     story.append(t_meta)
-    story.append(Spacer(1, 1.5))
+    story.append(Spacer(1, 2))
 
     # ─────────────────────────────────────────────────────────────
-    # 2. BANNER: EVOLUCIÓN Y OBSERVACIONES
+    # RENDERIZADOR DE EVOLUCIONES
     # ─────────────────────────────────────────────────────────────
-    t_banner = Table(
-        [[Paragraph('<b><i>Evolución y observaciones</i></b>', ParagraphStyle('Ban', fontName='Helvetica-BoldOblique', fontSize=8.5, leading=10, textColor=PRIMARY_BLUE, alignment=TA_CENTER))]],
-        colWidths=[content_w]
-    )
-    t_banner.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BANNER_BG),
-        ('BOX', (0,0), (-1,-1), 0.5, BANNER_BORDER),
-        ('TOPPADDING', (0,0), (-1,-1), 1.5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
-    ]))
-    story.append(t_banner)
-    story.append(Spacer(1, 1.5))
+    active_evols = [e for e in [evol1, evol2, evol3] if e and (e.get('subjetivo') or e.get('fecha'))]
+    if not active_evols and evol1:
+        active_evols = [evol1]
 
-    # ─────────────────────────────────────────────────────────────
-    # 3. SIGNOS VITALES
-    # ─────────────────────────────────────────────────────────────
-    v_ta = nota_data.get('vitals_ta', '--')
-    v_fc = nota_data.get('vitals_fc', '--')
-    v_fr = nota_data.get('vitals_fr', '--')
-    v_sat = nota_data.get('vitals_sato2', '--')
-    v_peso = nota_data.get('vitals_peso', '--')
-    v_talla = nota_data.get('vitals_talla', '--')
+    for idx, ev in enumerate(active_evols):
+        num = ev.get('num', idx + 1)
+        is_cont = (idx > 0)
+        
+        # Salto de página inteligente: Si quedan menos de 200 pt libres en la página actual,
+        # salta limpiamente a la siguiente página para no dejar la nota cortada o apretada.
+        if is_cont:
+            story.append(CondPageBreak(200))
+        
+        # 1. Cabecera de la nota (Fecha, Hora, Turno)
+        turno = str(ev.get('turno', 'Matutino')).upper()
+        t_mat = "[X]" if 'MAT' in turno else "[ ]"
+        t_ves = "[X]" if 'VESP' in turno else "[ ]"
+        t_noc = "[X]" if 'NOCT' in turno else "[ ]"
+        turno_str = f"<b>Matutino</b> {t_mat} &nbsp;&nbsp; <b>Vespertino</b> {t_ves} &nbsp;&nbsp; <b>Nocturno</b> {t_noc}"
 
-    vitals_data = [
-        [
-            Paragraph('<b>Signos vitales</b>', style_label),
-            Paragraph(f"TA: <b>{v_ta}</b>", style_val),
-            Paragraph(f"FC: <b>{v_fc}</b>", style_val),
-            Paragraph(f"FR: <b>{v_fr}</b>", style_val),
-            Paragraph(f"SATO2: <b>{v_sat}%</b>", style_val),
-            Paragraph(f"PESO: <b>{v_peso} kg</b>", style_val),
-            Paragraph(f"TALLA: <b>{v_talla}</b>", style_val)
+        nota_header_data = [
+            [
+                Paragraph('Fecha de Nota:', style_label),
+                Paragraph(f"<b>{ev.get('fecha', '')}</b> &nbsp;&nbsp;&nbsp;&nbsp; <font color='#555'>Hora:</font> <b>{ev.get('hora', '')}</b>", style_val),
+                Paragraph('Turno:', style_label),
+                Paragraph(turno_str, style_val)
+            ]
         ]
-    ]
-    t_vitals = Table(vitals_data, colWidths=[70, 79, 79, 79, 80, 80, 81])
-    t_vitals.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 1.0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
-        ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#cccccc')),
-    ]))
-    story.append(t_vitals)
-    story.append(Spacer(1, 1.5))
+        t_nhead = Table(nota_header_data, colWidths=[82, 208, 45, 213])
+        t_nhead.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 0.8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
+            ('LEFTPADDING', (0,0), (-1,-1), 1),
+            ('RIGHTPADDING', (0,0), (-1,-1), 1),
+        ]))
 
-    # ─────────────────────────────────────────────────────────────
-    # 4. CONTENIDO CLINICO SOAP
-    # ─────────────────────────────────────────────────────────────
-    story.append(Paragraph("<b>(S) Subjetivo:</b>", style_soap_h))
-    story.append(Paragraph(format_clinical_text(nota_data.get('subjetivo', '')), style_soap_body))
+        # 2. Banner de Evolución y Observaciones
+        ban_text = f"<b><i>Evolución y observaciones {num} {'(Continuación)' if is_cont else ''}</i></b>"
+        t_banner = Table(
+            [[Paragraph(ban_text, ParagraphStyle('Ban', fontName='Helvetica-BoldOblique', fontSize=8.5, leading=10, textColor=PRIMARY_BLUE, alignment=TA_CENTER))]],
+            colWidths=[content_w]
+        )
+        t_banner.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), BANNER_BG),
+            ('BOX', (0,0), (-1,-1), 0.5, BANNER_BORDER),
+            ('TOPPADDING', (0,0), (-1,-1), 1.5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
+        ]))
 
-    story.append(Paragraph("<b>(O) Objetivo:</b>", style_soap_h))
-    story.append(Paragraph(format_clinical_text(nota_data.get('objetivo', '')), style_soap_body))
+        # 3. Signos Vitales
+        v_ta = ev.get('vitals_ta', '--')
+        v_fc = ev.get('vitals_fc', '--')
+        v_fr = ev.get('vitals_fr', '--')
+        v_sat = ev.get('vitals_sato2', '--')
+        v_peso = ev.get('vitals_peso', '--')
+        v_talla = ev.get('vitals_talla', '--')
 
-    story.append(Paragraph("<b>(A) Análisis:</b>", style_soap_h))
-    story.append(Paragraph(format_clinical_text(nota_data.get('analisis', '')), style_soap_body))
-
-    story.append(Paragraph("<b>(P) Plan (laboratorios solicitados y tratamientos a establecer):</b>", style_soap_h))
-    story.append(Paragraph(format_clinical_text(nota_data.get('plan', '')), style_soap_body))
-
-    # ─────────────────────────────────────────────────────────────
-    # 5. FIRMAS BAJADAS A LA BASE (JUSTO SOBRE EL PIE)
-    # ─────────────────────────────────────────────────────────────
-    medico_nombre = str(nota_data.get('medico', '')).upper()
-    medico_ced = str(nota_data.get('cedula', 'N/D'))
-
-    sig_col_w = (content_w - 74) / 2 # ~237 pt cada firma
-
-    sig_data = [
-        # Fila 0: Espacio en blanco amplio para la firma autógrafa
-        [
-            Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=12, leading=16)),
-            '',
-            Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=12, leading=16))
-        ],
-        # Fila 1: Nombre del médico y cédula / MIP
-        [
-            Paragraph(f"<b>{medico_nombre}</b><br/><font size='7' color='#444'>Céd. Prof. {medico_ced}</font>", ParagraphStyle('SigM', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER)),
-            '',
-            Paragraph("<br/><font size='7' color='#444'>&nbsp;</font>", ParagraphStyle('SigMIP', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER))
-        ],
-        # Fila 2: Etiquetas de rol
-        [
-            Paragraph("<i>Nombre Completo , Firma y Cédulas del Médico</i>", ParagraphStyle('SigL1', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER)),
-            '',
-            Paragraph("<i>Nombre Completo y Firma del MIP</i>", ParagraphStyle('SigL2', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER))
+        vitals_data = [
+            [
+                Paragraph('<b>Signos vitales</b>', style_label),
+                Paragraph(f"TA: <b>{v_ta}</b>", style_val),
+                Paragraph(f"FC: <b>{v_fc}</b>", style_val),
+                Paragraph(f"FR: <b>{v_fr}</b>", style_val),
+                Paragraph(f"SATO2: <b>{v_sat}%</b>", style_val),
+                Paragraph(f"PESO: <b>{v_peso} kg</b>", style_val),
+                Paragraph(f"TALLA: <b>{v_talla}</b>", style_val)
+            ]
         ]
-    ]
+        t_vitals = Table(vitals_data, colWidths=[70, 79, 79, 79, 80, 80, 81])
+        t_vitals.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 1.0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#cccccc')),
+        ]))
 
-    t_sig = Table(sig_data, colWidths=[sig_col_w, 74, sig_col_w])
-    t_sig.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
-        ('LINEABOVE', (0,1), (0,1), 1, PRIMARY_BLUE),
-        ('LINEABOVE', (2,1), (2,1), 1, PRIMARY_BLUE),
-        ('TOPPADDING', (0,0), (-1,0), 6),
-        ('BOTTOMPADDING', (0,0), (-1,0), 1),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 1),
-        ('TOPPADDING', (0,2), (-1,2), 1),
-        ('BOTTOMPADDING', (0,2), (-1,2), 1),
-    ]))
+        # Agrupar la cabecera completa de la evolución con KeepTogether para que nunca quede huérfana
+        evol_header_block = [
+            t_nhead,
+            Spacer(1, 1.5),
+            t_banner,
+            Spacer(1, 1.5),
+            t_vitals,
+            Spacer(1, 2)
+        ]
+        story.append(KeepTogether(evol_header_block))
 
-    story.append(Spacer(1, 18))
-    story.append(KeepTogether([t_sig]))
+        # 4. SOAP Content
+        if ev.get('subjetivo'):
+            story.append(Paragraph("<b>(S) Subjetivo:</b>", style_soap_h))
+            story.append(Paragraph(format_clinical_text(ev.get('subjetivo', '')), style_soap_body))
 
-    # Creador de canvas con datos de ingreso
+        if ev.get('objetivo'):
+            story.append(Paragraph("<b>(O) Objetivo:</b>", style_soap_h))
+            story.append(Paragraph(format_clinical_text(ev.get('objetivo', '')), style_soap_body))
+
+        if ev.get('analisis'):
+            story.append(Paragraph("<b>(A) Análisis:</b>", style_soap_h))
+            story.append(Paragraph(format_clinical_text(ev.get('analisis', '')), style_soap_body))
+
+        if ev.get('plan'):
+            story.append(Paragraph("<b>(P) Plan (laboratorios solicitados y tratamientos a establecer):</b>", style_soap_h))
+            story.append(Paragraph(format_clinical_text(ev.get('plan', '')), style_soap_body))
+
+        # Si NO es formato general (impresión individual), poner la firma al final de cada nota
+        if not is_general:
+            med_nom = str(ev.get('medico', '')).upper()
+            med_c = str(ev.get('cedula', 'N/D'))
+            mip_nom = str(ev.get('mip', '')).upper()
+            t_sig = build_signature_table(med_nom, med_c, mip_nom, content_w, firma_data=firma_data)
+            story.append(Spacer(1, 14))
+            story.append(KeepTogether([t_sig]))
+        else:
+            # Si hay otra evolución subsecuente en el documento general, dar un espacio estético amplio y divisor sutil
+            if idx < len(active_evols) - 1:
+                story.append(Spacer(1, 18))
+                # Divisor sutil y estético entre notas
+                t_div = Table([['']], colWidths=[content_w])
+                t_div.setStyle(TableStyle([
+                    ('LINEABOVE', (0,0), (-1,-1), 0.75, colors.HexColor('#0056b3')),
+                    ('TOPPADDING', (0,0), (-1,-1), 0),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ]))
+                story.append(t_div)
+                story.append(Spacer(1, 16))
+
+    # Si ES FORMATO GENERAL, colocar 1 SOLA FIRMA AL FINAL de todo el documento
+    if is_general and active_evols:
+        last_ev = active_evols[-1]
+        med_nom = str(last_ev.get('medico', '')).upper()
+        med_c = str(last_ev.get('cedula', 'N/D'))
+        mip_nom = str(last_ev.get('mip', '')).upper()
+        
+        t_sig = build_signature_table(med_nom, med_c, mip_nom, content_w, firma_data=firma_data)
+        story.append(Spacer(1, 22))
+        story.append(KeepTogether([t_sig]))
+
     def make_canvas(*args, **kwargs):
         c = RDLCCanvas(*args, **kwargs)
         c.fecha_ingreso = pt_data.get('fecha_ingreso', '')
@@ -465,92 +529,3 @@ def generate_nota_urgencias(nota_data: dict, pt_data: dict, output_path: str) ->
 
     doc.build(story, canvasmaker=make_canvas)
     return output_path
-
-
-def generate_test_pdf():
-    """Genera PDF de prueba para validación."""
-    pt_data = {
-        'nombre': 'COMODIN COMODIN COMODIN',
-        'dob': '06 Oct 1994',
-        'mrn': 'PT-5704',
-        'cama': 'Urgencias',
-        'edad': '31',
-        'sexo': 'M',
-        'grupo_rh': 'O+',
-        'alergias': 'PENICILINA, SULFAS',
-        'fecha_ingreso': '18/08/2026',
-        'hora_ingreso': '12:35'
-    }
-
-    nota_data = {
-        'diagnostico': 'DOLOR ABDOMINAL AGUDO EN FOSA ILIACA DERECHA. SOSPECHA DE APENDICITIS AGUDA.',
-        'destino': 'PISO / QUIROFANO',
-        'fecha_egreso': '___/___/___',
-        'hora_egreso': '__:__',
-        'fecha': '18/08/2026',
-        'hora': '12:35',
-        'turno': 'Matutino',
-        'vitals_ta': '130/85',
-        'vitals_fc': '92',
-        'vitals_fr': '20',
-        'vitals_sato2': '96',
-        'vitals_peso': '78.5',
-        'vitals_talla': '--',
-        'subjetivo': (
-            'Paciente masculino de 35 anos que acude al servicio de urgencias por presentar '
-            'dolor abdominal tipo colico de 12 horas de evolucion, localizado inicialmente en '
-            'epigastrio y que posteriormente migro a fosa iliaca derecha.\n'
-            'Refiere ademas, un episodio de vomito de contenido gastrico, hiporexia desde el '
-            'inicio del cuadro y sensacion de distension abdominal.\n'
-            'Niega fiebre cuantificada en casa, niega diarrea, niega sintomas urinarios.\n'
-            'Antecedentes: Sin cirugias previas. Alergico a Penicilina y Sulfas. Sin enfermedades '
-            'cronico-degenerativas conocidas.'
-        ),
-        'objetivo': (
-            'EXPLORACION FISICA:\n'
-            '• Paciente consciente, orientado, algico, en posicion antialgica (decubito lateral '
-            'derecho con flexion de miembros pelvicos).\n'
-            '• Signos vitales: TA 130/85 mmHg, FC 92 lpm, FR 20 rpm, Temp 38.2 C, SatO2 96%.\n'
-            '• Abdomen: Blando, depresible, doloroso a la palpacion profunda en fosa iliaca derecha. '
-            'McBurney positivo. Rebote positivo. Rovsing positivo. Psoas positivo.\n'
-            '• Peristalsis disminuida.\n'
-            '• Sin datos de irritacion peritoneal generalizada.\n'
-            '• Extremidades integras, llenado capilar 2 segundos.'
-        ),
-        'analisis': (
-            'ANALISIS / VALORACION:\n'
-            'Se trata de paciente masculino con cuadro clinico sugestivo de apendicitis aguda '
-            'con base en:\n'
-            '1. Migracion del dolor de epigastrio a FID (secuencia cronologica de Murphy).\n'
-            '2. Signos apendiculares positivos (McBurney, Rovsing, Psoas).\n'
-            '3. Fiebre de 38.2 C y taquicardia como datos de respuesta inflamatoria.\n'
-            '4. Escala de Alvarado: 8 puntos (alta probabilidad).\n'
-            'Se solicitan: BH completa, QS, EGO, PCR, USG abdominal focalizado en FID.\n'
-            'Se mantiene en ayuno y se inicia solucion cristaloide.'
-        ),
-        'plan': (
-            'PLAN TERAPEUTICO:\n'
-            '1. Ayuno estricto.\n'
-            '2. Solucion Hartmann 1000ml IV para 8 hrs.\n'
-            '3. Ketorolaco 30mg IV c/8hrs (analgesia - NO AINES por alergia a sulfas confirmada, '
-            'ketorolaco es seguro).\n'
-            '4. Ondansetron 4mg IV c/8hrs PRN (antiemetico).\n'
-            '5. Omeprazol 40mg IV c/24hrs (proteccion gastrica).\n'
-            '6. Solicitar: BH, QS 3, EGO, PCR cuantitativa, TP, TTP, Grupo y Rh.\n'
-            '7. Solicitar USG abdominal focalizado en FID.\n'
-            '8. Interconsulta a Cirugia General si se confirma diagnostico.\n'
-            '9. Vigilancia estrecha de signos vitales cada 2 horas.\n'
-            '10. Revalorar con resultados de laboratorio y gabinete.'
-        ),
-        'medico': 'DR. ALEJANDRO MENDOZA RIVERA',
-        'cedula': '12345678',
-    }
-
-    out_pdf = os.path.join(BASE_DIR, 'static', 'pdfs', 'TEST_nota_urgencias_final.pdf')
-    generate_nota_urgencias(nota_data, pt_data, out_pdf)
-    print(f"[OK] Test PDF generated at: {out_pdf}")
-    return out_pdf
-
-
-if __name__ == '__main__':
-    generate_test_pdf()

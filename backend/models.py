@@ -180,3 +180,42 @@ class ProcedimientoFrecuente(Base):
     frecuencia = Column(Integer, default=1)
 
     medico = relationship("Medico")
+
+class CitaMedica(Base):
+    __tablename__ = "citas_medicas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    medico_id = Column(Integer, ForeignKey("medicos.id"), index=True, nullable=True)
+    paciente_id = Column(Integer, ForeignKey("pacientes.id"), index=True, nullable=True)
+    nombre_paciente_manual = Column(String, nullable=True)
+    fecha_hora = Column(DateTime, index=True)
+    motivo = Column(String)
+    lugar = Column(String, default="Consultorio - Consulta Externa")
+    estatus = Column(String, default="Programada") # Programada, Completada, Cancelada
+    notas = Column(Text, nullable=True)
+    fecha_creacion = Column(DateTime, default=datetime.datetime.utcnow)
+
+    medico = relationship("Medico")
+    paciente = relationship("Paciente")
+
+class FirmaDocumentoClinico(Base):
+    __tablename__ = "firmas_documentos_clinicos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_documento = Column(String, index=True) # "Nota de Evolución de Urgencias (87/01)", "Consentimiento Informado", etc.
+    codigo_formato = Column(String, index=True) # "HE-DIRMED-SINPRO-PLT-87/01"
+    pt_num = Column(String, index=True)
+    expediente = Column(String, index=True)
+    evolution_slot = Column(Integer, nullable=True) # 1, 2, 3 o None
+    medico_id = Column(Integer, ForeignKey("medicos.id"), index=True)
+    nombre_medico = Column(String)
+    cedula_profesional = Column(String)
+    fecha_hora_firma = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    metodo_autenticacion = Column(String, default="Biometría Dactilar DigitalPersona (NOM-004/NOM-024-SSA3)")
+    hash_sha256 = Column(String)
+    sello_digital = Column(Text)
+    cadena_original = Column(Text)
+    ip_origen = Column(String, nullable=True)
+
+    medico = relationship("Medico")
+

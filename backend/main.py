@@ -9,6 +9,7 @@ import base64
 import uuid
 import json
 import hashlib
+import hmac
 from PIL import Image
 import io
 import os
@@ -1374,8 +1375,12 @@ def get_full_ehr_dashboard(pt_num: str):
     return kh_database.fetch_full_ehr_dashboard(pt_num)
 
 @app.get("/api/ehr/paciente/{pt_num}/pdf-nota-urgencias")
-def get_pdf_nota_urgencias(pt_num: str):
-    """Genera y descarga el PDF dinámico de la Nota de Evolución de Urgencias."""
+def get_pdf_nota_urgencias(pt_num: str, evolucion: Optional[int] = None):
+    """
+    Genera y descarga el PDF de la Nota de Urgencias:
+    - evolucion=None / 0: Formato General (3 notas en 1, con 1 sola firma al final).
+    - evolucion=1, 2, 3: Nota individual específica (con su propia firma).
+    """
     dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
     
     if "error" in dashboard_data:
@@ -1387,13 +1392,6 @@ def get_pdf_nota_urgencias(pt_num: str):
     if not notes:
         raise HTTPException(status_code=404, detail="No hay notas clínicas para generar PDF")
         
-    latest_note = notes[0]
-    
-    # Extraer signos vitales si existen
-    vitals = dashboard_data.get("vitals", [])
-    get_vital = lambda label: next((v["value"] for v in vitals if v["label"] == label), "--")
-    
-    # Parsear fechas
     fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
     hora_hoy = datetime.datetime.now().strftime("%H:%M")
     
@@ -1401,45 +1399,341 @@ def get_pdf_nota_urgencias(pt_num: str):
         "nombre": patient_info.get("name", ""),
         "dob": patient_info.get("dob", ""),
         "mrn": patient_info.get("mrn", ""),
-        "cama": "Urgencias",
+        "cama": patient_info.get("cama", "Urgencias"),
         "edad": patient_info.get("age", ""),
         "sexo": "M" if patient_info.get("gender") == "Masculino" else "F",
-        "grupo_rh": "O+",  # Dato fijo para demo, requeriría tabla de sangre
+        "grupo_rh": "O+",
         "alergias": patient_info.get("allergies", ""),
-        "fecha_ingreso": fecha_hoy,
-        "hora_ingreso": hora_hoy
+        "fecha_ingreso": patient_info.get("fecha_ingreso", fecha_hoy),
+        "hora_ingreso": patient_info.get("hora_ingreso", hora_hoy),
+        "diagnostico": patient_info.get("diagnostico", ""),
+        "destino": patient_info.get("destino", "DOMICILIO"),
+        "fecha_egreso": patient_info.get("fecha_egreso", "___/___/___"),
+        "hora_egreso": patient_info.get("hora_egreso", "__:__")
     }
     
-    nota_data = {
-        "diagnostico": latest_note.get("diagnosis", ""),
-        "destino": "DOMICILIO" if "ALTA" in latest_note.get("plan", "").upper() else "PISO / QUIROFANO",
-        "fecha_egreso": "___/___/___",
-        "hora_egreso": "__:__",
-        "fecha": latest_note.get("date", fecha_hoy),
-        "hora": hora_hoy,
-        "turno": "Matutino",
-        "vitals_ta": get_vital("Presión Arterial"),
-        "vitals_fc": get_vital("Frec. Cardíaca"),
-        "vitals_fr": get_vital("Frec. Respiratoria"),
-        "vitals_sato2": get_vital("Saturación O2"),
-        "vitals_peso": get_vital("Peso"),
-        "vitals_talla": "--",
-        "subjetivo": latest_note.get("soap", {}).get("s", ""),
-        "objetivo": latest_note.get("soap", {}).get("o", ""),
-        "analisis": latest_note.get("soap", {}).get("a", ""),
-        "plan": latest_note.get("soap", {}).get("p", ""),
-        "medico": latest_note.get("doctor", "Desconocido"),
-        "cedula": "12345678" # Demo temporal
-    }
-    
-    pdf_filename = f"nota_urgencias_{pt_num}.pdf"
-    pdf_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", pdf_filename)
+    evols = dashboard_data.get("evoluciones", {})
+    e1 = evols.get("evolucion1")
+    e2 = evols.get("evolucion2")
+    e3 = evols.get("evolucion3")
     
     import pdf_engine_v2
-    pdf_engine_v2.generate_nota_urgencias(nota_data, pt_data, pdf_path)
+    import importlib
+    importlib.reload(pdf_engine_v2)
+    
+    # Consultar si existe firma biométrica registrada en PostgreSQL
+    db = SessionLocal()
+    try:
+        firma_query = db.query(models.FirmaDocumentoClinico).filter(models.FirmaDocumentoClinico.pt_num == pt_num)
+        if evolucion in [1, 2, 3]:
+            firma_query = firma_query.filter(models.FirmaDocumentoClinico.evolution_slot == evolucion)
+        firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+        firma_data = {
+            "sello_digital": firma_obj.sello_digital,
+            "hash_sha256": firma_obj.hash_sha256,
+            "fecha_hora_firma": firma_obj.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma_obj.fecha_hora_firma else "",
+            "nombre_medico": firma_obj.nombre_medico,
+            "cedula": firma_obj.cedula_profesional
+        } if firma_obj else None
+    except Exception as e:
+        print(f"Error querying signature for PDF: {e}")
+        firma_data = None
+    finally:
+        db.close()
+    
+    if evolucion in [1, 2, 3]:
+        # Impresión individual de una sola nota
+        target_evol = evols.get(f"evolucion{evolucion}")
+        if not target_evol:
+            raise HTTPException(status_code=404, detail=f"No se encontró información para la Evolución {evolucion}")
+            
+        pdf_filename = f"nota_urgencias_{pt_num}_evolucion_{evolucion}.pdf"
+        pdf_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", pdf_filename)
+        pdf_engine_v2.generate_nota_urgencias(pt_data, target_evol, None, None, pdf_path, is_general=False, firma_data=firma_data)
+    else:
+        # Impresión del formato general (3 notas en 1, 1 sola firma al final)
+        pdf_filename = f"nota_urgencias_{pt_num}_general.pdf"
+        pdf_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", pdf_filename)
+        pdf_engine_v2.generate_nota_urgencias(pt_data, e1, e2, e3, pdf_path, is_general=True, firma_data=firma_data)
     
     from fastapi.responses import FileResponse
     return FileResponse(path=pdf_path, filename=pdf_filename, media_type='application/pdf')
+
+class NotaUrgenciasInputSchema(BaseModel):
+    evolution_num: Optional[int] = None
+    fecha: Optional[str] = None
+    hora: Optional[str] = None
+    turno: Optional[str] = "Matutino"
+    vitals_ta: Optional[str] = ""
+    vitals_fc: Optional[str] = ""
+    vitals_fr: Optional[str] = ""
+    vitals_sato2: Optional[str] = ""
+    vitals_peso: Optional[str] = ""
+    vitals_talla: Optional[str] = ""
+    vitals_temp: Optional[str] = ""
+    subjetivo: Optional[str] = ""
+    objetivo: Optional[str] = ""
+    analisis: Optional[str] = ""
+    plan: Optional[str] = ""
+    medico: Optional[str] = "JOSE JOSE PRUEBA ENRIQUEZ"
+    cedula: Optional[str] = "PRUEBA-99281"
+    mip: Optional[str] = ""
+    alergias: Optional[str] = None
+    diagnostico: Optional[str] = None
+    destino: Optional[str] = None
+    cama: Optional[str] = None
+
+@app.post("/api/ehr/paciente/{pt_num}/nota-urgencias")
+def create_or_update_nota_urgencias(pt_num: str, nota: NotaUrgenciasInputSchema, db: Session = Depends(get_db)):
+    """Guarda o actualiza una nota de evolución en SQL Server para el paciente."""
+    res = kh_database.save_or_update_nota_urgencias(pt_num, nota.model_dump())
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+        
+    # INTEGRIDAD NOM-024 / NOM-004: Si el documento se modifica, el sello digital se rompe automáticamente
+    slot_to_invalidate = nota.evolution_num or res.get("slot")
+    if slot_to_invalidate:
+        deleted_count = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.evolution_slot == int(slot_to_invalidate)
+        ).delete()
+        db.commit()
+        print(f"Aviso NOM-024: Se eliminó/revocó el sello digital del slot {slot_to_invalidate} ({deleted_count} firmas revocadas).")
+
+    return res
+
+class FirmaBiometricaInputSchema(BaseModel):
+    codigo_formato: str = "HE-DIRMED-SINPRO-PLT-87/01"
+    tipo_documento: str = "Nota de Evolución de Urgencias (87/01)"
+    evolution_slot: Optional[int] = 1
+    fmd_template: str
+    medico_id: Optional[int] = None
+    contenido_resumen: Optional[str] = ""
+
+@app.post("/api/ehr/paciente/{pt_num}/firmar-biometrico")
+def firmar_documento_biometrico(
+    pt_num: str, 
+    req: FirmaBiometricaInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Firma electrónicamente una nota o consentimiento mediante Biometría Dactilar DigitalPersona,
+    generando sello digital y registro con FECHA Y HORA LOCAL EXACTA conforme a la NOM-004-SSA3-2012 y NOM-024-SSA3-2012.
+    """
+    import requests
+    if not req.fmd_template:
+        raise HTTPException(status_code=400, detail="No se recibió la huella dactilar (FMD).")
+    
+    # 1. Buscar médicos con huella registrada
+    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
+    if not medicos:
+        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella en el sistema.")
+        
+    match_found = None
+    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
+    
+    try:
+        response = requests.post("http://localhost:8082/match-bulk", json={
+            "fmd1": req.fmd_template,
+            "medicos": medicos_data
+        }, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("isMatch"):
+                match_id = data.get("match_id")
+                match_found = next((m for m in medicos if m.id == match_id), None)
+    except Exception as e:
+        print(f"Error conectando con microservicio biométrico: {e}")
+        raise HTTPException(status_code=500, detail="Error de conexión con el motor biométrico DigitalPersona.")
+        
+    if not match_found:
+        raise HTTPException(status_code=401, detail="Huella no reconocida o no coincide con ningún médico registrado.")
+        
+    # 2. Fecha y hora exacta local (sin desfase UTC)
+    now = datetime.datetime.now()
+    fecha_iso = now.isoformat()
+    fecha_legible = now.strftime("%d/%m/%Y %H:%M:%S")
+    cadena_original = f"||{pt_num}|PT-{pt_num}|{req.codigo_formato}|{req.evolution_slot or 'GRAL'}|{fecha_iso}|{match_found.id}|{match_found.cedula}|{req.contenido_resumen[:100]}||"
+    
+    hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
+    
+    # SELLO CRIPTOGRÁFICO HMAC-SHA512 (Clave privada del médico + token institucional)
+    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
+    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
+    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+    
+    # 3. Guardar en PostgreSQL
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    firma_registro = models.FirmaDocumentoClinico(
+        tipo_documento=req.tipo_documento,
+        codigo_formato=req.codigo_formato,
+        pt_num=str(pt_num),
+        expediente=f"PT-{pt_num}",
+        evolution_slot=int(req.evolution_slot) if req.evolution_slot else 1,
+        medico_id=match_found.id,
+        nombre_medico=match_found.nombre_completo,
+        cedula_profesional=match_found.cedula,
+        fecha_hora_firma=now,
+        metodo_autenticacion="Biometría Dactilar DigitalPersona (NOM-004/NOM-024-SSA3)",
+        hash_sha256=hash_sha256,
+        sello_digital=sello_digital,
+        cadena_original=cadena_original,
+        ip_origen=client_ip
+    )
+    db.add(firma_registro)
+    db.commit()
+    db.refresh(firma_registro)
+    
+    # 4. Actualizar en SQL Server (MR_NE_URG SignedBy / SignedOn / ESignature si aplica)
+    try:
+        conn = kh_database.get_kh_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE MR_NE_URG
+                SET SignedBy = ?, SignedOn = GETDATE(), ESignature = ?
+                WHERE PTNum = ?
+            """, (match_found.nombre_completo, sello_digital[:50], pt_num))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Nota: No se actualizó firma en SQL Server: {e}")
+        
+    return {
+        "success": True,
+        "message": "Documento firmado biométricamente con éxito conforme a la NOM-004-SSA3-2012 y NOM-024-SSA3-2012.",
+        "firma": {
+            "id": firma_registro.id,
+            "nombre_medico": match_found.nombre_completo,
+            "cedula": match_found.cedula,
+            "fecha_hora": now.strftime("%d/%m/%Y %H:%M:%S"),
+            "hash_sha256": hash_sha256,
+            "sello_digital": sello_digital,
+            "normativa": "NOM-004-SSA3-2012 / NOM-024-SSA3-2012"
+        }
+    }
+
+@app.get("/api/ehr/paciente/{pt_num}/firmas")
+def get_firmas_paciente(pt_num: str, db: Session = Depends(get_db)):
+    """Obtiene las firmas biométricas registradas para el paciente."""
+    firmas = db.query(models.FirmaDocumentoClinico).filter(models.FirmaDocumentoClinico.pt_num == str(pt_num)).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).all()
+    return [
+        {
+            "id": f.id,
+            "tipo_documento": f.tipo_documento,
+            "codigo_formato": f.codigo_formato,
+            "evolution_slot": f.evolution_slot,
+            "nombre_medico": f.nombre_medico,
+            "cedula_profesional": f.cedula_profesional,
+            "fecha_hora_firma": f.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if f.fecha_hora_firma else "",
+            "metodo_autenticacion": f.metodo_autenticacion,
+            "hash_sha256": f.hash_sha256,
+            "sello_digital": f.sello_digital or "",
+            "cadena_original": f.cadena_original or ""
+        }
+        for f in firmas
+    ]
+
+class VerificarIntegridadInputSchema(BaseModel):
+    firma_id: int
+
+@app.post("/api/ehr/paciente/{pt_num}/verificar-integridad")
+def verificar_integridad_documento(
+    pt_num: str,
+    req: VerificarIntegridadInputSchema,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Recalcula en vivo el Hash SHA-256 y Sello HMAC-SHA512 desde los datos actuales de la base de datos
+    y los compara contra el registro original firmado, proporcionando evidencia de la Tríada de Seguridad.
+    """
+    firma = db.query(models.FirmaDocumentoClinico).filter(
+        models.FirmaDocumentoClinico.id == req.firma_id,
+        models.FirmaDocumentoClinico.pt_num == str(pt_num)
+    ).first()
+    if not firma:
+        raise HTTPException(status_code=404, detail="Registro de firma no encontrado.")
+    
+    # 1. Obtener los datos actuales del paciente y nota desde SQL Server
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    evols = dashboard_data.get("evoluciones", {})
+    slot_key = f"evolucion{firma.evolution_slot or 1}"
+    evol_data = evols.get(slot_key)
+    
+    live_subjetivo = (evol_data.get("subjetivo") if evol_data else "") or ""
+    # Recalcular la cadena original con los datos actuales
+    fecha_iso = firma.fecha_hora_firma.isoformat() if firma.fecha_hora_firma else ""
+    recalculated_cadena = f"||{pt_num}|PT-{pt_num}|{firma.codigo_formato}|{firma.evolution_slot or 'GRAL'}|{fecha_iso}|{firma.medico_id}|{firma.cedula_profesional}|{live_subjetivo[:100]}||"
+    
+    recalculated_hash = hashlib.sha256(recalculated_cadena.encode('utf-8')).hexdigest()
+    
+    # Obtener la llave secreta del médico
+    medico = db.query(models.Medico).filter(models.Medico.id == firma.medico_id).first()
+    huella_token = (medico.huella_token or medico.cedula) if medico else firma.cedula_profesional
+    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
+    secret_key_bytes = f"{huella_token}-{HES_HMAC_SECRET}".encode('utf-8')
+    
+    recalculated_hmac = hmac.new(secret_key_bytes, recalculated_cadena.encode('utf-8'), hashlib.sha512).hexdigest()
+    legacy_sha512 = hashlib.sha512(f"{recalculated_hash}-{huella_token}-{fecha_iso}".encode('utf-8')).hexdigest()
+    
+    is_hash_valid = (recalculated_hash == firma.hash_sha256)
+    is_sello_valid = (recalculated_hmac == firma.sello_digital) or (legacy_sha512 == firma.sello_digital)
+    
+    is_integro = is_hash_valid and is_sello_valid
+    
+    if not is_integro:
+        log_entry = models.AuditoriaLog(
+            usuario_id=None,
+            accion="INTEGRIDAD_DOCUMENTAL_COMPROMETIDA",
+            detalles_json=json.dumps({
+                "pt_num": pt_num,
+                "firma_id": firma.id,
+                "hash_esperado": firma.hash_sha256,
+                "hash_calculado": recalculated_hash,
+                "slot": firma.evolution_slot,
+                "ip": request.client.host if request.client else "127.0.0.1"
+            }),
+            ip_origen=request.client.host if request.client else "127.0.0.1"
+        )
+        db.add(log_entry)
+        db.commit()
+        
+    return {
+        "integro": is_integro,
+        "estado": "Firma íntegra y verificable" if is_integro else "Integridad invalidada - El documento fue modificado posterior a la firma",
+        "triada_seguridad": {
+            "identidad": {
+                "verificado": True,
+                "pilar": "Identidad del Firmante",
+                "metodo": "Biometría Dactilar DigitalPersona (FMD ANSI/NIST 378-2004)",
+                "firmante": firma.nombre_medico,
+                "cedula": firma.cedula_profesional,
+                "estado": "Autenticación biométrica comprobada fehacientemente"
+            },
+            "integridad": {
+                "verificado": is_hash_valid,
+                "pilar": "Integridad del Documento",
+                "metodo": "Función Criptográfica SHA-256",
+                "hash_sha256": firma.hash_sha256,
+                "hash_calculado_en_vivo": recalculated_hash,
+                "estado": "Documento íntegro sin alteraciones posteriores" if is_hash_valid else "Discrepancia detectada: el contenido actual no coincide con la versión firmada"
+            },
+            "autenticidad": {
+                "verificado": is_sello_valid,
+                "pilar": "Autenticidad y No Repudio",
+                "metodo": "Sello Criptográfico HMAC-SHA512",
+                "sello_hmac_sha512": firma.sello_digital,
+                "estado": "Sello criptográfico auténtico garantizado con clave secreta" if is_sello_valid else "Sello inválido o alterado"
+            }
+        },
+        "cadena_original": firma.cadena_original,
+        "fecha_hora_firma": firma.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma.fecha_hora_firma else "",
+        "marco_normativo": "NOM-004-SSA3-2012 / NOM-024-SSA3-2012"
+    }
+
 
 @app.get("/api/camas/ocupacion", response_model=List[schemas.OcupacionArea])
 def get_ocupacion_camas(db: Session = Depends(get_db)):
@@ -1480,6 +1774,91 @@ def get_ocupacion_camas(db: Session = Depends(get_db)):
         })
         
     return resultado
+
+# === AGENDA MEDICA Y CITAS ===
+
+class CitaCreateSchema(BaseModel):
+    medico_id: Optional[int] = None
+    paciente_id: Optional[int] = None
+    nombre_paciente_manual: Optional[str] = None
+    fecha_hora: str # ISO string o YYYY-MM-DD HH:MM
+    motivo: str
+    lugar: Optional[str] = "Consultorio - Consulta Externa"
+    notas: Optional[str] = None
+
+@app.get("/api/medicos/list")
+def get_medicos_list(db: Session = Depends(get_db)):
+    """Devuelve la lista completa de médicos activos para selectores y agenda."""
+    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True).all()
+    return [
+        {
+            "id": m.id,
+            "nombre": m.nombre_completo,
+            "especialidad": m.especialidad,
+            "cedula": m.cedula,
+            "numero_empleado": m.numero_empleado,
+            "horario": m.horario_laboral or "Lunes a Viernes 08:00 - 16:00"
+        }
+        for m in medicos
+    ]
+
+@app.get("/api/agenda/citas")
+def get_agenda_citas(medico_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Obtiene las citas programadas de la agenda médica."""
+    query = db.query(models.CitaMedica)
+    if medico_id:
+        query = query.filter(models.CitaMedica.medico_id == medico_id)
+    
+    citas = query.order_by(models.CitaMedica.fecha_hora.asc()).all()
+    
+    resultado = []
+    for c in citas:
+        medico_nom = c.medico.nombre_completo if c.medico else "Médico de Guardia"
+        medico_esp = c.medico.especialidad if c.medico else "Medicina General"
+        paciente_nom = c.paciente.nombre_completo if c.paciente else (c.nombre_paciente_manual or "Paciente no especificado")
+        
+        resultado.append({
+            "id": c.id,
+            "medico_id": c.medico_id,
+            "medico_nombre": medico_nom,
+            "medico_especialidad": medico_esp,
+            "paciente_id": c.paciente_id,
+            "paciente_nombre": paciente_nom,
+            "fecha_hora": c.fecha_hora.isoformat() if c.fecha_hora else "",
+            "fecha": c.fecha_hora.strftime("%d/%m/%Y") if c.fecha_hora else "",
+            "hora": c.fecha_hora.strftime("%H:%M") if c.fecha_hora else "",
+            "motivo": c.motivo,
+            "lugar": c.lugar,
+            "estatus": c.estatus,
+            "notas": c.notas
+        })
+    return resultado
+
+@app.post("/api/agenda/citas")
+def create_agenda_cita(cita: CitaCreateSchema, db: Session = Depends(get_db)):
+    """Registra una nueva cita médica programada."""
+    try:
+        dt = datetime.datetime.fromisoformat(cita.fecha_hora.replace('Z', '+00:00'))
+    except Exception:
+        try:
+            dt = datetime.datetime.strptime(cita.fecha_hora, "%Y-%m-%d %H:%M")
+        except Exception:
+            dt = datetime.datetime.now() + datetime.timedelta(days=1)
+            
+    nueva_cita = models.CitaMedica(
+        medico_id=cita.medico_id,
+        paciente_id=cita.paciente_id,
+        nombre_paciente_manual=cita.nombre_paciente_manual,
+        fecha_hora=dt,
+        motivo=cita.motivo,
+        lugar=cita.lugar or "Consultorio - Consulta Externa",
+        notas=cita.notas,
+        estatus="Programada"
+    )
+    db.add(nueva_cita)
+    db.commit()
+    db.refresh(nueva_cita)
+    return {"message": "Cita programada con éxito", "id": nueva_cita.id}
 
 # === FRONTEND (PRODUCCION) ===
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")

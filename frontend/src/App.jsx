@@ -6,6 +6,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import CamasDashboard from './pages/CamasDashboard';
 import ServerConfig from './pages/ServerConfig';
 import PatientDashboard from './pages/PatientDashboard';
+import AgendaMedica from './pages/AgendaMedica';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import useAutoLogout from './hooks/useAutoLogout';
@@ -48,6 +49,7 @@ function AppContent() {
         <Route element={<ProtectedRoute allowedRoles={['admin', 'medico', 'enfermeria', 'sistemas']} />}>
           <Route path="/ehr" element={<PatientDashboard />} />
           <Route path="/ehr/:pt_num" element={<PatientDashboard />} />
+          <Route path="/agenda" element={<AgendaMedica />} />
         </Route>
       </Route>
     </Routes>
