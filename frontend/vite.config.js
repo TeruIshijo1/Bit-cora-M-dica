@@ -10,5 +10,9 @@ export default defineConfig({
     alias: {
       'WebSdk': path.resolve(__dirname, './src/mockWebSdk.js')
     }
+  },
+  server: {
+    host: true,
+    port: 5173
   }
 })
