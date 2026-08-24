@@ -4,6 +4,7 @@ import { api } from '../api';
 import { FiUserPlus, FiAlertCircle, FiCheckCircle, FiUsers, FiTrash2, FiLock, FiCamera, FiBarChart2, FiDatabase, FiList, FiUser, FiActivity, FiFileText, FiFolder, FiUpload, FiSearch, FiEdit, FiPlusCircle } from 'react-icons/fi';
 import { MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { PatientJourneyModal } from '../components/PatientModals';
 
@@ -527,6 +528,14 @@ export default function AdminDashboard() {
     setIsHuellaModalOpen(false);
     resetFmd();
   };
+
+  // CIERRE DE MODALES CON TECLA ESC
+  useEscapeKey(!!editingMedico, () => setEditingMedico(null));
+  useEscapeKey(!!editingPaciente, () => setEditingPaciente(null));
+  useEscapeKey(notaModal.open, () => setNotaModal({ open: false, folio: '', text: '' }));
+  useEscapeKey(isHuellaModalOpen && medicoParaHuella, closeHuellaModal);
+  useEscapeKey(trasladosModal.open, () => setTrasladosModal({ open: false, paciente: null, traslados: [] }));
+  useEscapeKey(cleanModal.open, () => setCleanModal(prev => ({ ...prev, open: false })));
 
   const handleSaveHuella = async () => {
     if (!fmdTemplate) {

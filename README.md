@@ -40,9 +40,10 @@ graph TD
 - **Generación de Reportes:** ReportLab Platypus (`pdf_engine_v2.py`) calibrado exactamente según especificaciones de reportes RDLC y `xhtml2pdf` para comprobantes QR.
 - **Conectividad Externa:** `pyodbc` para enlace seguro de solo lectura con SQL Server.
 
-### 3. **Microservicio Biométrico (`/backend_node`)**
+### 3. **Microservicio Biométrico (`/backend_node` y `Bio-security`)**
 - **Servidor:** Node.js (Express) en el puerto `8082`.
 - **Hardware:** SDK nativo DigitalPersona U.are.U para captura y verificación 1:1 / 1:N de huellas dactilares.
+- **Repositorio Independiente:** El componente completo de biometría e integración de huella dactilar utiliza su propio repositorio dedicado: **[Bio-security](../Bio-security)**.
 
 ### 4. **Bases de Datos**
 - **PostgreSQL (`hospital_escandon_db`):** Base de datos transaccional principal del sistema (usuarios, sesiones, roles, firmas biométricas, registros de atenciones y auditoría).

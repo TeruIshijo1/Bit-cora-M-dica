@@ -216,6 +216,69 @@ class FirmaDocumentoClinico(Base):
     sello_digital = Column(Text)
     cadena_original = Column(Text)
     ip_origen = Column(String, nullable=True)
+    
+    # AUDITORÍA FORENSE Y NO-ELIMINACIÓN (NOM-024-SSA3-2012)
+    estado = Column(String, default="ACTIVA", index=True) # ACTIVA, REVOCADA, HISTORICA
+    fecha_revocacion = Column(DateTime, nullable=True)
+    motivo_revocacion = Column(String, nullable=True)
+    version = Column(Integer, default=1)
 
     medico = relationship("Medico")
+
+class HistoricoNotaClinica(Base):
+    """
+    Registro inmutable de versiones de notas clínicas (Append-Only Ledger) conforme a la NOM-024.
+    Ningún registro clínico se destruye; toda edición o cancelación genera una nueva versión auditable.
+    """
+    __tablename__ = "historico_notas_clinicas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo_formato = Column(String, index=True)
+    tipo_documento = Column(String)
+    pt_num = Column(String, index=True)
+    expediente = Column(String, index=True)
+    evolution_slot = Column(Integer, nullable=True)
+    medico_id = Column(Integer, ForeignKey("medicos.id"), nullable=True)
+    nombre_medico = Column(String)
+    cedula_profesional = Column(String)
+    contenido_soap_json = Column(Text) # Respaldo completo de S, O, A, P, Signos Vitales
+    accion = Column(String, default="EDICION") # CREACION, EDICION, REVOCACION
+    motivo = Column(String, nullable=True)
+    fecha_registro = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    ip_origen = Column(String, nullable=True)
+    version = Column(Integer, default=1)
+
+    medico = relationship("Medico")
+
+
+class DietaCuidadosPrescripcion(Base):
+    """
+    Registro clínico enriquecido de régimen dietético y plan de cuidados de enfermería (Bitácora HES / PostgreSQL).
+    """
+    __tablename__ = "dieta_cuidados_prescripciones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pt_num = Column(String(50), index=True, nullable=False)
+    expediente = Column(String(50), nullable=True)
+    tipo_dieta = Column(String(100), nullable=False)
+    horario = Column(String(50), nullable=True, default="Continuo")
+    fase_clinica = Column(String(255), nullable=True)
+    indicaciones_nutricionales = Column(Text, nullable=True)
+    inicio_ayuno_dieta = Column(String(100), nullable=True)
+    nutriologo_responsable = Column(String(255), nullable=True)
+    alergias_alimentarias = Column(String(255), nullable=True)
+    tolerancia_via_oral = Column(String(255), nullable=True)
+    cuidados_enfermeria_json = Column(Text, nullable=True) # JSON array de cuidados
+    medico_id = Column(Integer, ForeignKey("medicos.id"), nullable=True)
+    medico_nombre = Column(String(255), nullable=True)
+    medico_cedula = Column(String(100), nullable=True)
+    hash_sha256 = Column(String(64), nullable=True)
+    sello_digital = Column(Text, nullable=True)
+    cadena_original = Column(Text, nullable=True)
+    fecha_hora_prescripcion = Column(DateTime, default=datetime.datetime.now, index=True)
+    activo = Column(Boolean, default=True)
+
+    medico = relationship("Medico")
+
+
 

@@ -1,15 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText, FiCalendar } from 'react-icons/fi';
+import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText, FiCalendar, FiSearch } from 'react-icons/fi';
 import { MdLocalHospital } from 'react-icons/md';
+import PatientSearchModal from './PatientSearchModal';
 
 const serverIP = window.location.hostname;
 
 export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const rol = localStorage.getItem('rol');
+  
+  // Atajo global Ctrl+K o Cmd+K para abrir buscador
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   
   let medico = null;
   if (rol === 'medico') {
@@ -76,7 +90,21 @@ export default function Layout() {
             </ul>
           </nav>
           
-          <div className="flex items-center gap-3 md:gap-6">
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Botón Buscador Universal de Pacientes */}
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center gap-2 bg-[#003870] hover:bg-[#002b5e] text-slate-200 hover:text-white px-3 py-1.5 rounded-xl text-xs font-bold border border-[#002b5e] shadow-inner transition-all group"
+              title="Buscar Paciente por Nombre, Folio (#5704) o CURP (Ctrl + K)"
+            >
+              <FiSearch className="text-sm text-emerald-400 group-hover:scale-110 transition-transform" />
+              <span className="hidden sm:inline">Buscar Paciente</span>
+              <kbd className="hidden md:inline-block bg-[#00244d] text-[10px] text-slate-300 px-1.5 py-0.5 rounded border border-slate-700 font-mono">
+                Ctrl K
+              </kbd>
+            </button>
+
             <div className="hidden md:flex text-sm font-medium flex-col items-end leading-tight text-slate-200">
               <span>Sesión activa</span>
               <span className="uppercase text-hes-green font-bold tracking-wider">{rol}</span>
@@ -137,6 +165,9 @@ export default function Layout() {
           </ul>
         </nav>
       </header>
+
+      {/* Modal de Búsqueda Global de Pacientes */}
+      <PatientSearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* Main Content Area */}
       <main className="page-content-scroll">

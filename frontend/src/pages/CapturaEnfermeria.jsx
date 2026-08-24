@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api';
 import useFingerprint from '../hooks/useFingerprint';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { MdSearch, MdBed } from 'react-icons/md';
 import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, FiMapPin, FiPlusCircle, FiCheckCircle } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
@@ -39,6 +40,8 @@ export default function CapturaEnfermeria() {
   const [codigoBarras, setCodigoBarras] = useState('');
   const [notaModal, setNotaModal] = useState({ open: false, folio: '', text: '' });
   const [rolActual] = useState(localStorage.getItem('rol'));
+
+  useEscapeKey(notaModal.open, () => setNotaModal({ open: false, folio: '', text: '' }));
   
   // Estados para nuevo paciente rápido
   const [isCreatingPaciente, setIsCreatingPaciente] = useState(false);

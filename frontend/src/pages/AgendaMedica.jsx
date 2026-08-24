@@ -5,6 +5,7 @@ import {
   FiAlertCircle, FiSearch, FiMapPin, FiFileText, FiRefreshCw 
 } from 'react-icons/fi';
 import { MdOutlineMedicalServices } from 'react-icons/md';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export default function AgendaMedica() {
   const [medicos, setMedicos] = useState([]);
@@ -13,6 +14,8 @@ export default function AgendaMedica() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEscapeKey(showModal, () => setShowModal(false));
 
   const [formData, setFormData] = useState({
     medico_id: '',

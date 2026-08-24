@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaUserMd, FaUserAlt } from 'react-icons/fa';
+import { FiFileText, FiArrowRight } from 'react-icons/fi';
 import { getApiUrl } from '../api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 const CamasDashboard = () => {
   const [camas, setCamas] = useState([]);
@@ -26,8 +28,12 @@ const CamasDashboard = () => {
   const currentUserRole = localStorage.getItem('rol');
   const isLimpiezaRole = currentUserRole === 'Mantenimiento/Limpieza' || currentUserRole === 'limpieza';
   const isEnfermeriaRole = currentUserRole === 'enfermeria';
-  
+
   const navigate = useNavigate();
+
+  // CIERRE DE MODALES CON TECLA ESC
+  useEscapeKey(modalOpen && selectedCama, () => setModalOpen(false));
+  useEscapeKey(modalLimpiezaOpen && selectedCama, () => setModalLimpiezaOpen(false));
 
   useEffect(() => {
     fetchCamas();
@@ -373,6 +379,21 @@ const CamasDashboard = () => {
                               <span className="leading-tight">{cama.DoctorName}</span>
                             </div>
                           )}
+                          {cama.PTNum && !isLimpiezaRole && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/ehr/${cama.PTNum}`);
+                              }}
+                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-2 bg-blue-50 hover:bg-blue-800 text-blue-800 hover:text-white rounded-lg text-xs font-bold border border-blue-200 hover:border-transparent transition-all shadow-2xs"
+                              title="Abrir Expediente Clínico Completo"
+                            >
+                              <FiFileText className="text-xs" />
+                              <span>Ver Expediente EHR</span>
+                              <FiArrowRight className="text-[10px]" />
+                            </button>
+                          )}
                         </div>
                       ) : isInhabilitada ? (
                         <div className="flex items-center gap-2 text-sm text-gray-500 italic">
@@ -444,8 +465,18 @@ const CamasDashboard = () => {
               )}
             </div>
 
-            <div className="p-4 border-t bg-slate-50 flex justify-end gap-3">
+            <div className="p-4 border-t bg-slate-50 flex flex-wrap justify-end gap-2.5">
               <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Cerrar</button>
+              <button 
+                onClick={() => {
+                  setModalOpen(false);
+                  navigate(`/ehr/${selectedCama.PTNum}`);
+                }} 
+                className="px-4 py-2 bg-blue-900 text-white font-bold hover:bg-blue-950 rounded-lg shadow-sm flex items-center gap-1.5"
+              >
+                <FiFileText className="text-base" />
+                <span>Ver Expediente Clínico (EHR)</span>
+              </button>
               <button onClick={() => proceedToCaptura(selectedCama)} className="px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg shadow-sm">
                 Continuar a Captura
               </button>

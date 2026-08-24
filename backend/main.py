@@ -1421,10 +1421,13 @@ def get_pdf_nota_urgencias(pt_num: str, evolucion: Optional[int] = None):
     import importlib
     importlib.reload(pdf_engine_v2)
     
-    # Consultar si existe firma biométrica registrada en PostgreSQL
+    # Consultar si existe firma biométrica ACTIVA registrada en PostgreSQL
     db = SessionLocal()
     try:
-        firma_query = db.query(models.FirmaDocumentoClinico).filter(models.FirmaDocumentoClinico.pt_num == pt_num)
+        firma_query = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        )
         if evolucion in [1, 2, 3]:
             firma_query = firma_query.filter(models.FirmaDocumentoClinico.evolution_slot == evolucion)
         firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
@@ -1484,21 +1487,664 @@ class NotaUrgenciasInputSchema(BaseModel):
     cama: Optional[str] = None
 
 @app.post("/api/ehr/paciente/{pt_num}/nota-urgencias")
-def create_or_update_nota_urgencias(pt_num: str, nota: NotaUrgenciasInputSchema, db: Session = Depends(get_db)):
-    """Guarda o actualiza una nota de evolución en SQL Server para el paciente."""
+def create_or_update_nota_urgencias(
+    pt_num: str, 
+    nota: NotaUrgenciasInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Guarda o actualiza una nota de evolución en SQL Server (con usuario de servicio institucional BITACORA_HES)
+    y preserva el histórico inmutable de versiones y revocación de firmas en PostgreSQL conforme a la NOM-024.
+    """
     res = kh_database.save_or_update_nota_urgencias(pt_num, nota.model_dump())
     if "error" in res:
         raise HTTPException(status_code=500, detail=res["error"])
         
-    # INTEGRIDAD NOM-024 / NOM-004: Si el documento se modifica, el sello digital se rompe automáticamente
-    slot_to_invalidate = nota.evolution_num or res.get("slot")
-    if slot_to_invalidate:
-        deleted_count = db.query(models.FirmaDocumentoClinico).filter(
-            models.FirmaDocumentoClinico.pt_num == str(pt_num),
-            models.FirmaDocumentoClinico.evolution_slot == int(slot_to_invalidate)
-        ).delete()
+    slot_affected = int(nota.evolution_num or res.get("slot") or 1)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # 1. Guardar Snapshot Inmutable en HistoricoNotaClinica (NOM-024)
+    try:
+        historico_entry = models.HistoricoNotaClinica(
+            codigo_formato="HE-DIRMED-SINPRO-PLT-87/01",
+            tipo_documento=f"Nota de Evolución de Urgencias (Evolución {slot_affected})",
+            pt_num=str(pt_num),
+            expediente=f"PT-{pt_num}",
+            evolution_slot=slot_affected,
+            nombre_medico=nota.medico or "JOSE JOSE PRUEBA ENRIQUEZ",
+            cedula_profesional=nota.cedula or "PRUEBA-99281",
+            contenido_soap_json=json.dumps(nota.model_dump(), default=str),
+            accion="EDICION" if nota.evolution_num else "CREACION",
+            motivo="Actualización clínica desde Bitácora HES",
+            fecha_registro=datetime.datetime.now(),
+            ip_origen=client_ip
+        )
+        db.add(historico_entry)
+    except Exception as e:
+        print(f"Nota de auditoría: No se pudo registrar en HistoricoNotaClinica: {e}")
+
+    # 2. INTEGRIDAD NOM-024 / NOM-004: Soft-Revocation (NUNCA BORRAR FÍSICAMENTE DE LA BD)
+    firmas_activas = db.query(models.FirmaDocumentoClinico).filter(
+        models.FirmaDocumentoClinico.pt_num == str(pt_num),
+        models.FirmaDocumentoClinico.evolution_slot == slot_affected,
+        models.FirmaDocumentoClinico.estado == "ACTIVA"
+    ).all()
+
+    for f in firmas_activas:
+        f.estado = "REVOCADA"
+        f.fecha_revocacion = datetime.datetime.now()
+        f.motivo_revocacion = f"Modificación y edición del contenido clínico en slot {slot_affected}"
+
+    # 3. Registrar evento en AuditoriaLog Central
+    try:
+        log_auditoria = models.AuditoriaLog(
+            usuario_id=None,
+            accion="MODIFICACION_NOTA_CLINICA_Y_REVOCACION_FIRMA",
+            detalles_json=json.dumps({
+                "pt_num": str(pt_num),
+                "slot": slot_affected,
+                "medico": nota.medico,
+                "cedula": nota.cedula,
+                "firmas_revocadas_ids": [f.id for f in firmas_activas],
+                "usuario_servicio": "BITACORA_HES"
+            }),
+            fecha_hora=datetime.datetime.now(),
+            ip_origen=client_ip
+        )
+        db.add(log_auditoria)
+    except Exception as e:
+        print(f"Error registrando auditoria log: {e}")
+
+    db.commit()
+    print(f"Aviso NOM-024: Se preservó histórico y se marcaron {len(firmas_activas)} firmas como REVOCADAS (sin borrado físico).")
+
+    return res
+
+class SignosVitalesInputSchema(BaseModel):
+    systolic: Optional[Union[int, str]] = None
+    diastolic: Optional[Union[int, str]] = None
+    ta: Optional[str] = None
+    pulse: Optional[Union[int, str]] = None
+    respiratory: Optional[Union[int, str]] = None
+    oxygen_saturation: Optional[Union[int, str]] = None
+    temperature: Optional[Union[float, str]] = None
+    weight: Optional[Union[float, str]] = None
+    height: Optional[Union[float, str]] = None
+    procedure_date: Optional[str] = None
+
+@app.get("/api/ehr/paciente/{pt_num}/signos-vitales")
+def get_paciente_signos_vitales(pt_num: str):
+    """Consulta los signos vitales más recientes y el historial desde la tabla maestra PTVS en SQL Server."""
+    return kh_database.fetch_patient_vitals_ptvs(pt_num)
+
+@app.post("/api/ehr/paciente/{pt_num}/signos-vitales")
+def save_paciente_signos_vitales(
+    pt_num: str, 
+    vitals: SignosVitalesInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Registra o actualiza la toma de signos vitales en la tabla [KH_HE].[dbo].[PTVS] de SQL Server
+    y asienta el evento en la auditoría inmutable de la Bitácora.
+    """
+    res = kh_database.save_patient_vitals_ptvs(pt_num, vitals.model_dump())
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    # Registrar en AuditoriaLog Central
+    try:
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        log = models.AuditoriaLog(
+            usuario_id=None,
+            accion="CAPTURA_SIGNOS_VITALES_PTVS",
+            detalles_json=json.dumps({
+                "pt_num": str(pt_num),
+                "vitals": vitals.model_dump(),
+                "ptvs_id": res.get("ptvs_id")
+            }, default=str),
+            fecha_hora=datetime.datetime.now(),
+            ip_origen=client_ip
+        )
+        db.add(log)
         db.commit()
-        print(f"Aviso NOM-024: Se eliminó/revocó el sello digital del slot {slot_to_invalidate} ({deleted_count} firmas revocadas).")
+    except Exception as e:
+        print(f"Error registrando auditoría de signos vitales: {e}")
+
+    return res
+
+class PrescribirMedicamentoInputSchema(BaseModel):
+    name: str
+    amount: Optional[str] = ""
+    uom: Optional[str] = "mg"
+    route: Optional[str] = "Oral"
+    frequency: Optional[str] = "Cada 8 horas"
+    prn: Optional[bool] = False
+    why: Optional[str] = ""
+    dispense: Optional[str] = ""
+    refills: Optional[int] = 0
+    instruction: Optional[str] = ""
+    fmd_template: str # Huella dactilar obligatoria del médico tratante
+    medico_id: Optional[int] = None
+
+class DiscontinuarMedicamentoInputSchema(BaseModel):
+    ptdg_num: int
+    reason: Optional[str] = "Discontinuado por evolución clínica"
+    fmd_template: str # Huella dactilar para suspender
+
+@app.get("/api/ehr/paciente/{pt_num}/medicamentos")
+def get_paciente_medicamentos(pt_num: str):
+    """Consulta la lista de medicamentos prescritos desde la tabla maestra PTDG en SQL Server."""
+    return kh_database.fetch_patient_medications_ptdg(pt_num)
+
+@app.post("/api/ehr/paciente/{pt_num}/medicamentos/prescribir-biometrico")
+def prescribir_medicamento_biometrico(
+    pt_num: str,
+    req: PrescribirMedicamentoInputSchema,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Prescribe formalmente un fármaco en SQL Server (PTDG) requiriendo validación biométrica dactilar
+    del médico conforme a la NOM-004-SSA3-2012 y NOM-024-SSA3-2012.
+    """
+    import requests
+    if not req.fmd_template:
+        raise HTTPException(status_code=400, detail="Se requiere la huella dactilar del médico para prescribir fármacos.")
+
+    # 1. Validar huella dactilar contra médicos registrados
+    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
+    if not medicos:
+        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella biométrica en el sistema.")
+
+    match_found = None
+    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
+
+    try:
+        response = requests.post("http://localhost:8082/match-bulk", json={
+            "fmd1": req.fmd_template,
+            "medicos": medicos_data
+        }, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("isMatch"):
+                match_id = data.get("match_id")
+                match_found = next((m for m in medicos if m.id == match_id), None)
+    except Exception as e:
+        print(f"Error conectando con microservicio biométrico: {e}")
+        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico DigitalPersona.")
+
+    if not match_found:
+        raise HTTPException(status_code=401, detail="Huella dactilar no reconocida. Solo un médico adscrito autorizado puede prescribir.")
+
+    # 2. Generar Firma Criptográfica de la Prescripción
+    now = datetime.datetime.now()
+    cadena_original = f"||{pt_num}|PT-{pt_num}|RECETA-PTDG|{req.name}|{req.amount} {req.uom}|{req.route}|{req.frequency}|{now.isoformat()}|{match_found.id}|{match_found.cedula}||"
+    hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
+
+    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
+    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
+    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+
+    # 3. Guardar en SQL Server PTDG
+    res = kh_database.save_patient_medication_ptdg(pt_num, req.model_dump())
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    # 4. Guardar evidencia en PostgreSQL
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    firma_registro = models.FirmaDocumentoClinico(
+        tipo_documento="Prescripción Médica de Farmacoterapia (PTDG)",
+        codigo_formato="HE-DIRMED-SINPRO-REC-01",
+        pt_num=str(pt_num),
+        expediente=f"PT-{pt_num}",
+        evolution_slot=None,
+        medico_id=match_found.id,
+        nombre_medico=match_found.nombre_completo,
+        cedula_profesional=match_found.cedula,
+        fecha_hora_firma=now,
+        metodo_autenticacion="Biometría Dactilar DigitalPersona (NOM-004/NOM-024)",
+        hash_sha256=hash_sha256,
+        sello_digital=sello_digital,
+        cadena_original=cadena_original,
+        ip_origen=client_ip,
+        estado="ACTIVA"
+    )
+    db.add(firma_registro)
+
+    log_auditoria = models.AuditoriaLog(
+        usuario_id=None,
+        accion="PRESCRIPCION_MEDICAMENTO_PTDG",
+        detalles_json=json.dumps({
+            "pt_num": str(pt_num),
+            "medication": req.name,
+            "dose": f"{req.amount} {req.uom}",
+            "route": req.route,
+            "freq": req.frequency,
+            "medico": match_found.nombre_completo,
+            "cedula": match_found.cedula,
+            "ptdg_id": res.get("ptdg_id")
+        }),
+        fecha_hora=now,
+        ip_origen=client_ip
+    )
+    db.add(log_auditoria)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Fármaco '{req.name}' prescrito y firmado exitosamente por {match_found.nombre_completo}.",
+        "medico": match_found.nombre_completo,
+        "cedula": match_found.cedula,
+        "ptdg_id": res.get("ptdg_id"),
+        "sello": sello_digital[:32] + "..."
+    }
+
+@app.post("/api/ehr/paciente/{pt_num}/medicamentos/discontinuar-biometrico")
+def discontinuar_medicamento_biometrico(
+    pt_num: str,
+    req: DiscontinuarMedicamentoInputSchema,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Suspende un fármaco activo en PTDG requiriendo huella biométrica del médico."""
+    import requests
+    if not req.fmd_template:
+        raise HTTPException(status_code=400, detail="Se requiere huella dactilar para suspender medicamentos.")
+
+    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
+    match_found = None
+    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
+
+    try:
+        response = requests.post("http://localhost:8082/match-bulk", json={
+            "fmd1": req.fmd_template,
+            "medicos": medicos_data
+        }, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("isMatch"):
+                match_id = data.get("match_id")
+                match_found = next((m for m in medicos if m.id == match_id), None)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico.")
+
+    if not match_found:
+        raise HTTPException(status_code=401, detail="Huella no autorizada para suspender fármacos.")
+
+    res = kh_database.discontinue_patient_medication_ptdg(pt_num, req.ptdg_num, req.reason or "Indicación médica")
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    log = models.AuditoriaLog(
+        usuario_id=None,
+        accion="SUSPENSION_MEDICAMENTO_PTDG",
+        detalles_json=json.dumps({
+            "pt_num": str(pt_num),
+            "ptdg_num": req.ptdg_num,
+            "motivo": req.reason,
+            "medico": match_found.nombre_completo,
+            "cedula": match_found.cedula
+        }),
+        fecha_hora=datetime.datetime.now(),
+        ip_origen=client_ip
+    )
+    db.add(log)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Medicamento suspendido por {match_found.nombre_completo}."
+    }
+
+class PrescribirDietaInputSchema(BaseModel):
+    tipo_dieta: str
+    horario: Optional[str] = "Continuo"
+    fase_clinica: Optional[str] = ""
+    indicaciones_nutricionales: Optional[str] = ""
+    inicio_ayuno_dieta: Optional[str] = ""
+    nutriologo_responsable: Optional[str] = "Nutrición Clínica HES"
+    alergias_alimentarias: Optional[str] = ""
+    tolerancia_via_oral: Optional[str] = "Adecuada"
+    cuidados_enfermeria: Optional[List[Dict[str, Any]]] = []
+    fmd_template: str # Huella dactilar obligatoria
+    medico_id: Optional[int] = None
+
+@app.get("/api/ehr/paciente/{pt_num}/dieta-cuidados")
+def get_paciente_dieta_cuidados(pt_num: str, db: Session = Depends(get_db)):
+    """Consulta la prescripción dietética y cuidados de enfermería (PostgreSQL + Fallback SQL Server)."""
+    # 1. Buscar en PostgreSQL (registro extendido con firma)
+    dieta_pg = db.query(models.DietaCuidadosPrescripcion).filter(
+        models.DietaCuidadosPrescripcion.pt_num == str(pt_num),
+        models.DietaCuidadosPrescripcion.activo == True
+    ).order_by(models.DietaCuidadosPrescripcion.fecha_hora_prescripcion.desc()).first()
+
+    if dieta_pg:
+        cuidados = []
+        if dieta_pg.cuidados_enfermeria_json:
+            try:
+                cuidados = json.loads(dieta_pg.cuidados_enfermeria_json)
+            except Exception:
+                cuidados = []
+        return {
+            "source": "PostgreSQL (Bitácora HES)",
+            "tipo": dieta_pg.tipo_dieta,
+            "horario": dieta_pg.horario,
+            "fase": dieta_pg.fase_clinica,
+            "indicaciones": dieta_pg.indicaciones_nutricionales,
+            "inicio": dieta_pg.inicio_ayuno_dieta,
+            "nutriologo": dieta_pg.nutriologo_responsable,
+            "alergias_alimentarias": dieta_pg.alergias_alimentarias,
+            "tolerancia_via_oral": dieta_pg.tolerancia_via_oral,
+            "cuidados_enfermeria": cuidados,
+            "medico": dieta_pg.medico_nombre,
+            "cedula": dieta_pg.medico_cedula,
+            "fecha_prescripcion": dieta_pg.fecha_hora_prescripcion.strftime("%d/%m/%Y %H:%M") if dieta_pg.fecha_hora_prescripcion else "",
+            "sello": dieta_pg.sello_digital[:32] + "..." if dieta_pg.sello_digital else ""
+        }
+
+    # 2. Fallback a SQL Server MR_SOL_DIET
+    dieta_sql = kh_database.fetch_patient_diet_mr_sol_diet(pt_num)
+    if dieta_sql and (dieta_sql.get("tipo") or dieta_sql.get("mrnum_sol_diet")):
+        return {
+            "source": "SQL Server (MR_SOL_DIET)",
+            "tipo": dieta_sql.get("tipo", "Dieta Hospitalaria"),
+            "horario": dieta_sql.get("horario", "--"),
+            "fase": "--",
+            "indicaciones": dieta_sql.get("detalle") or "Sin indicaciones registradas.",
+            "inicio": dieta_sql.get("created_on") or "--",
+            "nutriologo": dieta_sql.get("created_by") or "--",
+            "alergias_alimentarias": dieta_sql.get("intolerancia") or "Ninguna registrada",
+            "tolerancia_via_oral": "--",
+            "cuidados_enfermeria": []
+        }
+
+    return {
+        "source": "Ninguna",
+        "tipo": "Sin dieta asignada",
+        "horario": "--",
+        "fase": "--",
+        "indicaciones": "No se ha registrado régimen dietético para este paciente.",
+        "inicio": "--",
+        "nutriologo": "--",
+        "alergias_alimentarias": "--",
+        "tolerancia_via_oral": "--",
+        "cuidados_enfermeria": []
+    }
+
+@app.post("/api/ehr/paciente/{pt_num}/dieta-cuidados/prescribir-biometrico")
+def prescribir_dieta_cuidados_biometrico(
+    pt_num: str,
+    req: PrescribirDietaInputSchema,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Prescribe formalmente el régimen dietético en SQL Server (MR_SOL_DIET) y almacena el plan de cuidados
+    enriquecido en PostgreSQL con validación biométrica dactilar (NOM-004 / NOM-024).
+    """
+    import requests
+    if not req.fmd_template:
+        raise HTTPException(status_code=400, detail="Se requiere la huella dactilar para prescribir dieta y cuidados.")
+
+    # 1. Validar huella dactilar
+    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
+    if not medicos:
+        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella biométrica en el sistema.")
+
+    match_found = None
+    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
+
+    try:
+        response = requests.post("http://localhost:8082/match-bulk", json={
+            "fmd1": req.fmd_template,
+            "medicos": medicos_data
+        }, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("isMatch"):
+                match_id = data.get("match_id")
+                match_found = next((m for m in medicos if m.id == match_id), None)
+    except Exception as e:
+        print(f"Error conectando con microservicio biométrico: {e}")
+        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico DigitalPersona.")
+
+    if not match_found:
+        raise HTTPException(status_code=401, detail="Huella dactilar no autorizada para prescribir régimen dietético.")
+
+    # 2. Generar Sello Digital HMAC-SHA512
+    now = datetime.datetime.now()
+    cadena_original = f"||{pt_num}|PT-{pt_num}|DIETA-MR_SOL_DIET|{req.tipo_dieta}|{req.fase_clinica}|{req.horario}|{now.isoformat()}|{match_found.id}|{match_found.cedula}||"
+    hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
+
+    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
+    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
+    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+
+    # 3. Guardar en SQL Server MR_SOL_DIET
+    res_sql = kh_database.save_patient_diet_mr_sol_diet(pt_num, {
+        "tipo": req.tipo_dieta,
+        "horario": req.horario,
+        "detalle": req.indicaciones_nutricionales or req.fase_clinica,
+        "intolerancia": req.alergias_alimentarias
+    })
+    if "error" in res_sql:
+        print(f"Nota: No se pudo guardar en MR_SOL_DIET: {res_sql['error']}")
+
+    # 4. Desactivar prescripciones dietéticas previas en PostgreSQL para este paciente
+    db.query(models.DietaCuidadosPrescripcion).filter(
+        models.DietaCuidadosPrescripcion.pt_num == str(pt_num)
+    ).update({"activo": False})
+
+    # 5. Insertar en PostgreSQL (Bitácora HES)
+    nueva_dieta = models.DietaCuidadosPrescripcion(
+        pt_num=str(pt_num),
+        expediente=f"PT-{pt_num}",
+        tipo_dieta=req.tipo_dieta,
+        horario=req.horario,
+        fase_clinica=req.fase_clinica,
+        indicaciones_nutricionales=req.indicaciones_nutricionales,
+        inicio_ayuno_dieta=req.inicio_ayuno_dieta or now.strftime("%d/%m/%Y %H:%M"),
+        nutriologo_responsable=req.nutriologo_responsable or "Nutrición Clínica HES",
+        alergias_alimentarias=req.alergias_alimentarias,
+        tolerancia_via_oral=req.tolerancia_via_oral,
+        cuidados_enfermeria_json=json.dumps(req.cuidados_enfermeria or [], ensure_ascii=False),
+        medico_id=match_found.id,
+        medico_nombre=match_found.nombre_completo,
+        medico_cedula=match_found.cedula,
+        hash_sha256=hash_sha256,
+        sello_digital=sello_digital,
+        cadena_original=cadena_original,
+        fecha_hora_prescripcion=now,
+        activo=True
+    )
+    db.add(nueva_dieta)
+
+    # 6. Registrar en auditoría
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    log = models.AuditoriaLog(
+        usuario_id=None,
+        accion="PRESCRIPCION_DIETA_Y_CUIDADOS",
+        detalles_json=json.dumps({
+            "pt_num": str(pt_num),
+            "tipo_dieta": req.tipo_dieta,
+            "horario": req.horario,
+            "fase": req.fase_clinica,
+            "medico": match_found.nombre_completo,
+            "cedula": match_found.cedula,
+            "diet_id": res_sql.get("diet_id")
+        }),
+        fecha_hora=now,
+        ip_origen=client_ip
+    )
+    db.add(log)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Régimen dietético '{req.tipo_dieta}' prescrito y firmado por {match_found.nombre_completo}.",
+        "medico": match_found.nombre_completo,
+        "cedula": match_found.cedula,
+        "sello": sello_digital[:32] + "..."
+    }
+
+@app.get("/api/ehr/pacientes/buscar")
+def buscar_pacientes_universal(q: str = "", limit: int = 30):
+    """
+    Buscador universal de pacientes (activos, hospitalizados y egresados/de alta) en Vertical SQL Server.
+    Permite buscar por nombre, apellido, folio/expediente (PTNum) o CURP.
+    """
+    return kh_database.search_patients_kh(query_text=q, limit=limit)
+
+# ==========================================
+# ENDPOINTS ALERGIAS (PTAL + DIS_AL)
+# ==========================================
+
+class RegistrarAlergiaInputSchema(BaseModel):
+    allergy_num: str
+    allergic_since: Optional[str] = None
+    notes: Optional[str] = ""
+    user: Optional[str] = None
+
+class InactivarAlergiaInputSchema(BaseModel):
+    ptal_num: int
+    user: Optional[str] = None
+
+@app.get("/api/ehr/alergias/catalogo")
+def obtener_catalogo_alergias(q: str = "", limit: int = 50):
+    """
+    Consulta el catálogo maestro de alergias de Vertical (DIS_AL).
+    """
+    return kh_database.fetch_allergy_catalog(search_query=q, limit=limit)
+
+@app.get("/api/ehr/paciente/{pt_num}/alergias")
+def obtener_alergias_paciente(pt_num: str):
+    """
+    Consulta las alergias activas del paciente registradas en SQL Server (PTAL).
+    """
+    return kh_database.fetch_patient_allergies_ptal(pt_num)
+
+@app.post("/api/ehr/paciente/{pt_num}/alergias/registrar")
+def registrar_alergia_paciente(
+    pt_num: str, 
+    req: RegistrarAlergiaInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Registra una nueva alergia para el paciente en Vertical (PTAL).
+    """
+    if not req.allergy_num:
+        raise HTTPException(status_code=400, detail="Debe seleccionar una alergia del catálogo.")
+    
+    usuario = req.user or "jose_prueba"
+    res = kh_database.save_patient_allergy_ptal(
+        pt_num=pt_num,
+        allergy_num=req.allergy_num,
+        allergic_since=req.allergic_since,
+        notes=req.notes or "",
+        user=usuario
+    )
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    # Auditoría Forense
+    auditoria = models.AuditoriaLog(
+        tipo_accion="CREACION",
+        modulo="ALERGIAS_PTAL",
+        usuario=usuario,
+        paciente_id=str(pt_num),
+        ip_origen=request.client.host if request.client else "127.0.0.1",
+        detalles_json={
+            "accion": "Registro de alergia en PTAL",
+            "allergy_num": req.allergy_num,
+            "allergic_since": req.allergic_since,
+            "notes": req.notes,
+            "ptal_id": res.get("ptal_id")
+        }
+    )
+    db.add(auditoria)
+    db.commit()
+
+    return res
+
+@app.post("/api/ehr/paciente/{pt_num}/alergias/inactivar")
+def inactivar_alergia_paciente(
+    pt_num: str, 
+    req: InactivarAlergiaInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Inactiva una alergia del paciente en Vertical (PTAL).
+    """
+    usuario = req.user or "jose_prueba"
+    res = kh_database.inactivate_patient_allergy_ptal(
+        pt_num=pt_num,
+        ptal_num=req.ptal_num,
+        user=usuario
+    )
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    # Auditoría Forense
+    auditoria = models.AuditoriaLog(
+        tipo_accion="ELIMINACION",
+        modulo="ALERGIAS_PTAL",
+        usuario=usuario,
+        paciente_id=str(pt_num),
+        ip_origen=request.client.host if request.client else "127.0.0.1",
+        detalles_json={
+            "accion": "Inactivación de alergia en PTAL",
+            "ptal_num": req.ptal_num
+        }
+    )
+    db.add(auditoria)
+    db.commit()
+
+    return res
+
+class ActualizarTextoAlergiasInputSchema(BaseModel):
+    allergies_text: str
+    user: Optional[str] = None
+
+@app.post("/api/ehr/paciente/{pt_num}/alergias/actualizar-texto")
+def actualizar_texto_alergias_paciente(
+    pt_num: str, 
+    req: ActualizarTextoAlergiasInputSchema, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el texto consolidado de ALERGIAS en MR_NE_URG y MR_SOL_DIET de Vertical.
+    """
+    usuario = req.user or "jose_prueba"
+    res = kh_database.update_patient_allergies_text(
+        pt_num=pt_num,
+        allergies_text=req.allergies_text,
+        user=usuario
+    )
+    if "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+
+    # Auditoría Forense
+    auditoria = models.AuditoriaLog(
+        tipo_accion="ACTUALIZACION",
+        modulo="ALERGIAS_TEXTO",
+        usuario=usuario,
+        paciente_id=str(pt_num),
+        ip_origen=request.client.host if request.client else "127.0.0.1",
+        detalles_json={
+            "accion": "Actualización manual de texto de alergias en MR_NE_URG / MR_SOL_DIET",
+            "allergies_text": req.allergies_text
+        }
+    )
+    db.add(auditoria)
+    db.commit()
 
     return res
 
@@ -1617,8 +2263,11 @@ def firmar_documento_biometrico(
 
 @app.get("/api/ehr/paciente/{pt_num}/firmas")
 def get_firmas_paciente(pt_num: str, db: Session = Depends(get_db)):
-    """Obtiene las firmas biométricas registradas para el paciente."""
-    firmas = db.query(models.FirmaDocumentoClinico).filter(models.FirmaDocumentoClinico.pt_num == str(pt_num)).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).all()
+    """Obtiene las firmas biométricas activas y vigentes para el paciente."""
+    firmas = db.query(models.FirmaDocumentoClinico).filter(
+        models.FirmaDocumentoClinico.pt_num == str(pt_num),
+        models.FirmaDocumentoClinico.estado == "ACTIVA"
+    ).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).all()
     return [
         {
             "id": f.id,
@@ -1631,10 +2280,64 @@ def get_firmas_paciente(pt_num: str, db: Session = Depends(get_db)):
             "metodo_autenticacion": f.metodo_autenticacion,
             "hash_sha256": f.hash_sha256,
             "sello_digital": f.sello_digital or "",
-            "cadena_original": f.cadena_original or ""
+            "cadena_original": f.cadena_original or "",
+            "estado": f.estado
         }
         for f in firmas
     ]
+
+@app.get("/api/ehr/paciente/{pt_num}/historial-auditoria")
+def get_historial_auditoria_paciente(pt_num: str, db: Session = Depends(get_db)):
+    """
+    Entrega el expediente forense inmutable de auditoría (NOM-024-SSA3-2012):
+    Todas las versiones de notas, firmas históricas, firmas revocadas y eventos de seguridad.
+    """
+    historico_notas = db.query(models.HistoricoNotaClinica).filter(
+        models.HistoricoNotaClinica.pt_num == str(pt_num)
+    ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).all()
+
+    firmas_todas = db.query(models.FirmaDocumentoClinico).filter(
+        models.FirmaDocumentoClinico.pt_num == str(pt_num)
+    ).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).all()
+
+    return {
+        "pt_num": pt_num,
+        "expediente": f"PT-{pt_num}",
+        "total_versiones_clinicas": len(historico_notas),
+        "total_firmas_registradas": len(firmas_todas),
+        "firmas": [
+            {
+                "id": f.id,
+                "slot": f.evolution_slot,
+                "documento": f.tipo_documento,
+                "medico": f.nombre_medico,
+                "cedula": f.cedula_profesional,
+                "fecha_firma": f.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if f.fecha_hora_firma else "",
+                "estado": f.estado,
+                "fecha_revocacion": f.fecha_revocacion.strftime("%d/%m/%Y %H:%M:%S") if f.fecha_revocacion else None,
+                "motivo_revocacion": f.motivo_revocacion,
+                "hash_sha256": f.hash_sha256,
+                "sello_hmac": f.sello_digital,
+                "ip_origen": f.ip_origen
+            }
+            for f in firmas_todas
+        ],
+        "versiones_clinicas": [
+            {
+                "id": h.id,
+                "slot": h.evolution_slot,
+                "accion": h.accion,
+                "medico": h.nombre_medico,
+                "cedula": h.cedula_profesional,
+                "fecha": h.fecha_registro.strftime("%d/%m/%Y %H:%M:%S") if h.fecha_registro else "",
+                "ip_origen": h.ip_origen,
+                "motivo": h.motivo,
+                "contenido_soap": json.loads(h.contenido_soap_json) if h.contenido_soap_json else {}
+            }
+            for h in historico_notas
+        ],
+        "marco_normativo": "NOM-004-SSA3-2012 / NOM-024-SSA3-2012 (Inmutabilidad y No Repudio)"
+    }
 
 class VerificarIntegridadInputSchema(BaseModel):
     firma_id: int

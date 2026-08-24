@@ -3,6 +3,7 @@ import { api } from '../api';
 import { FiClock, FiMapPin, FiActivity, FiCheckCircle, FiUser, FiX } from 'react-icons/fi';
 import { MdBed } from 'react-icons/md';
 import { FaStethoscope } from 'react-icons/fa';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // Helper to get token
 const getToken = () => localStorage.getItem('token');
@@ -12,6 +13,8 @@ export const TrasladoModal = ({ paciente, areas = [], onClose, onSuccess }) => {
   const [habitacion, setHabitacion] = useState(paciente?.num_habitacion || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEscapeKey(!!paciente, onClose);
 
   if (!paciente) return null;
 
@@ -103,6 +106,8 @@ export const PatientJourneyModal = ({ paciente, onClose }) => {
       fetchJourney();
     }
   }, [paciente]);
+
+  useEscapeKey(!!paciente, onClose);
 
   const fetchJourney = async () => {
     try {
