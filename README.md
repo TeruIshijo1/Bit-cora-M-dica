@@ -185,5 +185,5 @@ Este script automatizado realiza:
 
 ## 📄 Licencia y Confidencialidad
 
-Propiedad exclusiva de la **Fundación Dr. Manuel Gea González - Hospital Escandón**.  
+Propiedad exclusiva del **Ing. Alberto García Mendoza**.  
 Todos los derechos reservados. El uso, copia o distribución no autorizada de este código o sus especificaciones clínicas está estrictamente prohibido.
