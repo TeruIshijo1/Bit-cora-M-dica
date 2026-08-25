@@ -51,7 +51,7 @@ def main():
     def ignore_node(dir, files):
         return [f for f in files if f == "node_modules"]
     
-    shutil.copytree("backend_node", os.path.join(DEPLOY_DIR, "backend_node"), ignore=ignore_node)
+    shutil.copytree("../Teru/Bio-security", os.path.join(DEPLOY_DIR, "backend_node"), ignore=ignore_node)
 
     # Scripts raiz y extras
     print("  - Copiando Scripts de arranque...")
