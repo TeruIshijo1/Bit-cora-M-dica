@@ -21,11 +21,13 @@ Sistema integral de gestión clínica, control de atenciones médicas, expedient
 
 ```mermaid
 graph TD
-    Client[🖥️ Frontend React + Vite + Tailwind] -->|REST API :8000| Backend[🐍 Backend FastAPI / Python]
-    Client -->|Biometría :8082| BiometricSvc[📦 Microservicio Node.js + U.are.U]
-    Backend -->|Lectura / Escritura| Postgres[(🗄️ PostgreSQL Principal)]
-    Backend -->|Solo Lectura| SQLServer[(🏥 SQL Server KH_HE)]
-    Backend -->|ReportLab V2 Engine| PDFGen[📄 Generador PDF Formatos Oficiales]
+    Client["💻 Frontend React + Vite + Tailwind"] -->|"REST API :8000"| Backend["🐍 Backend FastAPI / Python"]
+    Client -->|"Biometría (Firma)"| BiometricSvc["📦 Repo: Bio-security Node.js"]
+    Backend -->|"Lectura / Escritura"| Postgres["🐘 PostgreSQL Principal"]
+    Backend -->|"Solo Lectura"| SQLServer["🏥 SQL Server KH_HE"]
+    Backend -->|"ReportLab V2 Engine"| PDFGen["📄 Generador PDF Formatos"]
+    Backend -->|"Motor FEA"| Crypto["🔐 Criptografía ECDSA P-256 + HKDF"]
+    Crypto -->|"Sello de Tiempo RFC 3161"| TSA["⏱️ Time Stamping Authority"]
 ```
 
 ### 1. **Frontend (`/frontend`)**
