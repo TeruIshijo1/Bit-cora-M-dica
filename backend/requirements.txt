@@ -21,3 +21,5 @@ python-dotenv
 slowapi
 reportlab
 pypdf
+cryptography
+asn1crypto

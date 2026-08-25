@@ -10,6 +10,8 @@ import uuid
 import json
 import hashlib
 import hmac
+import crypto_fea
+import tsa_client
 from PIL import Image
 import io
 import os
@@ -1684,9 +1686,7 @@ def prescribir_medicamento_biometrico(
     cadena_original = f"||{pt_num}|PT-{pt_num}|RECETA-PTDG|{req.name}|{req.amount} {req.uom}|{req.route}|{req.frequency}|{now.isoformat()}|{match_found.id}|{match_found.cedula}||"
     hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
 
-    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
-    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
-    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+    sello_digital = crypto_fea.firmar_documento(db, match_found, cadena_original)
 
     # 3. Guardar en SQL Server PTDG
     res = kh_database.save_patient_medication_ptdg(pt_num, req.model_dump())
@@ -1921,9 +1921,7 @@ def prescribir_dieta_cuidados_biometrico(
     cadena_original = f"||{pt_num}|PT-{pt_num}|DIETA-MR_SOL_DIET|{req.tipo_dieta}|{req.fase_clinica}|{req.horario}|{now.isoformat()}|{match_found.id}|{match_found.cedula}||"
     hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
 
-    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
-    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
-    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+    sello_digital = crypto_fea.firmar_documento(db, match_found, cadena_original)
 
     # 3. Guardar en SQL Server MR_SOL_DIET
     res_sql = kh_database.save_patient_diet_mr_sol_diet(pt_num, {
@@ -2205,10 +2203,11 @@ def firmar_documento_biometrico(
     
     hash_sha256 = hashlib.sha256(cadena_original.encode('utf-8')).hexdigest()
     
-    # SELLO CRIPTOGRÁFICO HMAC-SHA512 (Clave privada del médico + token institucional)
-    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
-    secret_key_bytes = f"{match_found.huella_token or match_found.cedula}-{HES_HMAC_SECRET}".encode('utf-8')
-    sello_digital = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+    # SELLO CRIPTOGRÁFICO (Firma Electrónica Avanzada ECDSA del médico)
+    sello_digital = crypto_fea.firmar_documento(db, match_found, cadena_original)
+    
+    # SELLADO DE TIEMPO RFC 3161 (no bloqueante: si el TSA falla, la firma continúa)
+    tsa_info = tsa_client.get_timestamp(hash_sha256)
     
     # 3. Guardar en PostgreSQL
     client_ip = request.client.host if request.client else "127.0.0.1"
@@ -2226,7 +2225,8 @@ def firmar_documento_biometrico(
         hash_sha256=hash_sha256,
         sello_digital=sello_digital,
         cadena_original=cadena_original,
-        ip_origen=client_ip
+        ip_origen=client_ip,
+        tsa_token=tsa_info['token_b64'] if tsa_info else None
     )
     db.add(firma_registro)
     db.commit()
@@ -2257,6 +2257,7 @@ def firmar_documento_biometrico(
             "fecha_hora": now.strftime("%d/%m/%Y %H:%M:%S"),
             "hash_sha256": hash_sha256,
             "sello_digital": sello_digital,
+            "tsa_gen_time": tsa_info['gen_time'] if tsa_info else None,
             "normativa": "NOM-004-SSA3-2012 / NOM-024-SSA3-2012"
         }
     }
@@ -2376,14 +2377,13 @@ def verificar_integridad_documento(
     # Obtener la llave secreta del médico
     medico = db.query(models.Medico).filter(models.Medico.id == firma.medico_id).first()
     huella_token = (medico.huella_token or medico.cedula) if medico else firma.cedula_profesional
-    HES_HMAC_SECRET = os.getenv("HES_HMAC_SECRET", "HES-CRIPTO-SECRET-2026-NOM024-NOM004")
-    secret_key_bytes = f"{huella_token}-{HES_HMAC_SECRET}".encode('utf-8')
-    
-    recalculated_hmac = hmac.new(secret_key_bytes, recalculated_cadena.encode('utf-8'), hashlib.sha512).hexdigest()
-    legacy_sha512 = hashlib.sha512(f"{recalculated_hash}-{huella_token}-{fecha_iso}".encode('utf-8')).hexdigest()
-    
     is_hash_valid = (recalculated_hash == firma.hash_sha256)
-    is_sello_valid = (recalculated_hmac == firma.sello_digital) or (legacy_sha512 == firma.sello_digital)
+    legacy_sha512 = hashlib.sha512(f"{recalculated_hash}-{huella_token}-{fecha_iso}".encode('utf-8')).hexdigest()
+    # El fallback plano legacy solo se acepta para firmas generadas antes de la migracion (ej. 25 de Agosto de 2026)
+    cutoff_date = datetime.datetime(2027, 1, 1)
+    fecha_firma_dt = firma.fecha_hora_firma or datetime.datetime.min
+    legacy_is_valid = (legacy_sha512 == firma.sello_digital) and (fecha_firma_dt < cutoff_date)
+    is_sello_valid = crypto_fea.verificar_firma(medico, recalculated_cadena, firma.sello_digital, firma.fecha_hora_firma) or legacy_is_valid
     
     is_integro = is_hash_valid and is_sello_valid
     
@@ -2427,11 +2427,12 @@ def verificar_integridad_documento(
             "autenticidad": {
                 "verificado": is_sello_valid,
                 "pilar": "Autenticidad y No Repudio",
-                "metodo": "Sello Criptográfico HMAC-SHA512",
+                "metodo": "Firma Electrónica Avanzada ECDSA P-256 (asimétrica)" if (firma.sello_digital or '').startswith('ECDSA:') else "Sello Criptográfico HMAC-SHA512 (legacy)",
                 "sello_hmac_sha512": firma.sello_digital,
-                "estado": "Sello criptográfico auténtico garantizado con clave secreta" if is_sello_valid else "Sello inválido o alterado"
+                "estado": "Sello criptográfico auténtico garantizado con clave privada del firmante" if is_sello_valid else "Sello inválido o alterado"
             }
         },
+        "sellado_tiempo": tsa_client.verify_timestamp(getattr(firma, 'tsa_token', None), firma.hash_sha256 or ''),
         "cadena_original": firma.cadena_original,
         "fecha_hora_firma": firma.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma.fecha_hora_firma else "",
         "marco_normativo": "NOM-004-SSA3-2012 / NOM-024-SSA3-2012"

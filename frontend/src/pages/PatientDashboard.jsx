@@ -1931,7 +1931,7 @@ export default function PatientDashboard() {
 
             <div className="text-[11px] text-slate-400 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-left space-y-1">
               <div><strong>Normativa Aplicable:</strong> NOM-004-SSA3-2012 y NOM-024-SSA3-2012</div>
-              <div><strong>Algoritmo Criptográfico:</strong> SHA-256 + Sello HMAC SHA-512</div>
+              <div><strong>Algoritmo Criptográfico:</strong> ECDSA P-256 (SECP256R1) + Hash SHA-256</div>
               <div><strong>Almacenamiento:</strong> Base de datos central del Hospital Escandón</div>
             </div>
 
@@ -2308,8 +2308,12 @@ export default function PatientDashboard() {
                   <div className="flex items-center gap-1.5 text-hes-blue-main font-bold text-xs uppercase">
                     <FiLock /> 3. Autenticidad y No Repudio
                   </div>
-                  <div className="font-semibold text-slate-800">Sello HMAC-SHA512</div>
-                  <div className="text-[11px] text-slate-500">Generado con Clave Criptográfica</div>
+                  <div className="font-semibold text-slate-800">
+                    {(auditModal.firma.sello_digital || '').startsWith('ECDSA:') ? 'Firma ECDSA P-256' : 'Sello HMAC-SHA512 (Legacy)'}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {(auditModal.firma.sello_digital || '').startsWith('ECDSA:') ? 'Clave privada asimétrica exclusiva del firmante' : 'Generado con Clave Criptográfica institucional'}
+                  </div>
                   <div className="text-[10px] text-emerald-700 font-medium pt-1 border-t border-slate-200/60">
                     Imposibilidad de falsificación o suplantación pericial
                   </div>
@@ -2318,11 +2322,11 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            {/* SELLO CRIPTOGRÁFICO HMAC-SHA512 */}
+            {/* SELLO CRIPTOGRÁFICO DIGITAL */}
             <div className="space-y-1.5">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
-                  <FiLock className="text-hes-blue-main" /> Sello Criptográfico HMAC-SHA512
+                  <FiLock className="text-hes-blue-main" /> {(auditModal.firma.sello_digital || '').startsWith('ECDSA:') ? 'Sello Digital ECDSA P-256' : 'Sello Criptográfico HMAC-SHA512 (Legacy)'}
                 </span>
                 <button
                   type="button"
@@ -2363,6 +2367,40 @@ export default function PatientDashboard() {
                 <div className="p-2.5 bg-slate-100 text-slate-800 font-mono text-[11px] rounded-xl break-all select-all border border-slate-200">
                   {auditModal.firma.hash_sha256}
                 </div>
+              </div>
+            )}
+
+            {/* SELLADO DE TIEMPO RFC 3161 (TSA) */}
+            {auditModal.verification?.sellado_tiempo && (
+              <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+                auditModal.verification.sellado_tiempo.disponible
+                  ? (auditModal.verification.sellado_tiempo.verificado
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-red-50 border-red-200 text-red-700')
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}>
+                <div className="font-bold flex items-center gap-1.5">
+                  <FiClock /> Sellado de Tiempo (TSA RFC 3161)
+                  {auditModal.verification.sellado_tiempo.disponible ? (
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      auditModal.verification.sellado_tiempo.verificado ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'
+                    }`}>
+                      {auditModal.verification.sellado_tiempo.verificado ? '✓ Token válido' : '✗ Token inválido'}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-black bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                      Pendiente de countersign
+                    </span>
+                  )}
+                </div>
+                {auditModal.verification.sellado_tiempo.disponible ? (
+                  <p className="text-[11px]">
+                    Una Autoridad de Sellado de Tiempo certificó que este documento existía el{' '}
+                    <strong>{new Date(auditModal.verification.sellado_tiempo.gen_time).toLocaleString()}</strong> (hora de autoridad, independiente del servidor del hospital).
+                  </p>
+                ) : (
+                  <p className="text-[11px]">Esta firma no cuenta con token de autoridad de tiempo. La fecha mostrada proviene del servidor del hospital.</p>
+                )}
               </div>
             )}
 

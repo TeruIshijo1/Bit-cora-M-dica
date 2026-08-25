@@ -47,8 +47,11 @@ def check_and_add_columns(eng):
                     "ALTER TABLE medicos ADD COLUMN IF NOT EXISTS horario_laboral VARCHAR;",
                     "ALTER TABLE medicos ADD COLUMN IF NOT EXISTS es_ayudante BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE medicos ADD COLUMN IF NOT EXISTS medico_asignado_id INTEGER;",
+                    "ALTER TABLE medicos ADD COLUMN IF NOT EXISTS public_key_pem TEXT;",
+                    "ALTER TABLE medicos ADD COLUMN IF NOT EXISTS private_key_enc TEXT;",
                     "ALTER TABLE camas ADD COLUMN IF NOT EXISTS estado_limpieza VARCHAR DEFAULT 'Limpia';",
-                    "ALTER TABLE camas ADD COLUMN IF NOT EXISTS notas_limpieza VARCHAR;"
+                    "ALTER TABLE camas ADD COLUMN IF NOT EXISTS notas_limpieza VARCHAR;",
+                    "ALTER TABLE firmas_documentos_clinicos ADD COLUMN IF NOT EXISTS tsa_token TEXT;"
                 ]
                 for q in queries:
                     conn.execute(text(q))
@@ -65,8 +68,11 @@ def check_and_add_columns(eng):
                     ("medicos", "horario_laboral VARCHAR"),
                     ("medicos", "es_ayudante BOOLEAN DEFAULT 0"),
                     ("medicos", "medico_asignado_id INTEGER"),
+                    ("medicos", "public_key_pem TEXT"),
+                    ("medicos", "private_key_enc TEXT"),
                     ("camas", "estado_limpieza VARCHAR DEFAULT 'Limpia'"),
-                    ("camas", "notas_limpieza VARCHAR")
+                    ("camas", "notas_limpieza VARCHAR"),
+                    ("firmas_documentos_clinicos", "tsa_token TEXT")
                 ]
                 for tabla, col in columnas:
                     try:

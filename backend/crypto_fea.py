@@ -1,0 +1,153 @@
+import os
+import hashlib
+import hmac
+import base64
+import logging
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+import datetime
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
+from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger('hes.crypto_fea')
+
+def get_hes_secret():
+    secret = os.getenv('HES_HMAC_SECRET')
+    if not secret:
+        raise RuntimeError('FATAL: HES_HMAC_SECRET no está configurado en el entorno (.env). El sistema debe fallar duro por seguridad.')
+    return secret
+
+def get_kdf_fernet_key(huella_token: str) -> bytes:
+    secret = get_hes_secret().encode('utf-8')
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'hes-fea-salt-nom004',
+        info=b'FEA_KEK_DERIVATION',
+    )
+    derived = hkdf.derive(huella_token.encode('utf-8') + secret)
+    return base64.urlsafe_b64encode(derived)
+
+def generate_ecdsa_keypair():
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    
+    priv_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    
+    pub_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    
+    return priv_pem, pub_pem
+
+def ensure_medico_keys(db_session, medico):
+    if getattr(medico, 'public_key_pem', None) is None:
+        # LOCK de fila + double-checked: evita que dos primeras firmas
+        # simultáneas del mismo médico generen pares de llaves distintos.
+        # En backends/tests sin soporte de query (FakeDB, SQLite) continúa sin lock.
+        try:
+            medico_locked = db_session.query(type(medico)).filter_by(id=medico.id).with_for_update().first()
+        except Exception:
+            medico_locked = None
+        if medico_locked is None:
+            medico_locked = medico
+        if getattr(medico_locked, 'public_key_pem', None) is None:
+            priv_pem, pub_pem = generate_ecdsa_keypair()
+            
+            token = medico_locked.huella_token or medico_locked.cedula
+            if not token:
+                raise ValueError('El medico no tiene huella_token ni cedula para derivar la llave KEK.')
+                
+            f = Fernet(get_kdf_fernet_key(token))
+            priv_enc = f.encrypt(priv_pem)
+            
+            medico_locked.public_key_pem = pub_pem.decode('utf-8')
+            medico_locked.private_key_enc = priv_enc.decode('utf-8')
+            
+            db_session.add(medico_locked)
+            db_session.commit()
+            
+            medico.public_key_pem = medico_locked.public_key_pem
+            medico.private_key_enc = medico_locked.private_key_enc
+        else:
+            medico.public_key_pem = medico_locked.public_key_pem
+            medico.private_key_enc = medico_locked.private_key_enc
+
+    return medico.public_key_pem, medico.private_key_enc
+
+def firmar_documento(db_session, medico, cadena_original: str) -> str:
+    ensure_medico_keys(db_session, medico)
+    
+    token = medico.huella_token or medico.cedula
+    f = Fernet(get_kdf_fernet_key(token))
+    
+    priv_enc = medico.private_key_enc.encode('utf-8')
+    try:
+        priv_pem = f.decrypt(priv_enc)
+    except InvalidToken:
+        # La KEK cambió (ej. re-registro de huella). Se rota el par de llaves
+        # completo para que el médico pueda seguir firmando. Los sellos ECDSA
+        # previos a la rotación dejarán de ser verificables (fail-closed).
+        priv_pem, pub_pem = generate_ecdsa_keypair()
+        medico.public_key_pem = pub_pem.decode('utf-8')
+        medico.private_key_enc = f.encrypt(priv_pem).decode('utf-8')
+        db_session.add(medico)
+        db_session.commit()
+        logger.warning(
+            'ROTACION_DE_LLAVES_FEA: medico_id=%s (%s). La KEK cambió y el par ECDSA fue regenerado. '
+            'Los sellos ECDSA previos a esta rotación ya no son verificables.',
+            getattr(medico, 'id', '?'), getattr(medico, 'nombre_completo', '?')
+        )
+    
+    private_key = serialization.load_pem_private_key(priv_pem, password=None)
+    
+    signature = private_key.sign(
+        cadena_original.encode('utf-8'),
+        ec.ECDSA(hashes.SHA256())
+    )
+    
+    return 'ECDSA:' + base64.b64encode(signature).decode('utf-8')
+
+def verificar_firma(medico, cadena_original: str, sello_digital: str, fecha_firma: datetime.datetime = None) -> bool:
+    if not sello_digital:
+        return False
+    if sello_digital.startswith('ECDSA:'):
+        if medico is None or not getattr(medico, 'public_key_pem', None):
+            return False
+            
+        try:
+            b64_sig = sello_digital.split('ECDSA:', 1)[1]
+            signature = base64.b64decode(b64_sig)
+            
+            public_key = serialization.load_pem_public_key(medico.public_key_pem.encode('utf-8'))
+            public_key.verify(
+                signature,
+                cadena_original.encode('utf-8'),
+                ec.ECDSA(hashes.SHA256())
+            )
+            return True
+        except Exception:
+            return False
+    else:
+        if medico is None:
+            return False
+            
+        # Caducidad del legacy HMAC: si no se puede acreditar la fecha de firma
+        # (None) o la firma es posterior al corte, el sello legacy se rechaza (fail-closed).
+        if not fecha_firma or fecha_firma >= datetime.datetime(2027, 1, 1):
+            return False
+            
+        try:
+            secret = get_hes_secret()
+            token = medico.huella_token or medico.cedula
+            secret_key_bytes = f'{token}-{secret}'.encode('utf-8')
+            expected = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
+            return hmac.compare_digest(expected, sello_digital)
+        except Exception:
+            return False

@@ -55,6 +55,10 @@ class Medico(Base):
     es_ayudante = Column(Boolean, default=False)
     medico_asignado_id = Column(Integer, ForeignKey("medicos.id"), nullable=True)
     
+    # Asymmetric Keys (FEA - NOM-004)
+    public_key_pem = Column(Text, nullable=True) # ECDSA Public Key (SECP256R1)
+    private_key_enc = Column(Text, nullable=True) # ECDSA Private Key (Encrypted with Fernet KEK)
+    
     medico_asignado = relationship("Medico", remote_side=[id])
     
     @property
@@ -216,6 +220,7 @@ class FirmaDocumentoClinico(Base):
     sello_digital = Column(Text)
     cadena_original = Column(Text)
     ip_origen = Column(String, nullable=True)
+    tsa_token = Column(Text, nullable=True) # Token RFC 3161 de Autoridad de Sellado de Tiempo (base64)
     
     # AUDITORÍA FORENSE Y NO-ELIMINACIÓN (NOM-024-SSA3-2012)
     estado = Column(String, default="ACTIVA", index=True) # ACTIVA, REVOCADA, HISTORICA
