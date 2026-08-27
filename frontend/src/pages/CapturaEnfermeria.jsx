@@ -7,11 +7,13 @@ import { MdSearch, MdBed } from 'react-icons/md';
 import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, FiMapPin, FiPlusCircle, FiCheckCircle } from 'react-icons/fi';
 import { FaStethoscope } from 'react-icons/fa';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
+import AlertBanner from '../components/ui/AlertBanner';
 
 export default function CapturaEnfermeria() {
   const navigate = useNavigate();
   const location = useLocation();
   
+  const [apiError, setApiError] = useState(null);
   const [pacientes, setPacientes] = useState([]);
   const [camas, setCamas] = useState([]);
   const [medicos, setMedicos] = useState([]);
@@ -106,6 +108,7 @@ export default function CapturaEnfermeria() {
   const getToken = () => localStorage.getItem('token');
 
   const fetchData = async () => {
+    setApiError(null);
     try {
       const resP = await api.get('/pacientes');
       setPacientes(resP.data);
@@ -123,10 +126,11 @@ export default function CapturaEnfermeria() {
         const resCamas = await api.get('/camas', { headers: { Authorization: `Bearer ${getToken()}` } });
         setCamas(Array.isArray(resCamas.data) ? resCamas.data : []);
       } catch (e) {
-        console.error("Error fetching camas in captura:", e);
+        // Camas opcionales
       }
     } catch (e) {
-      console.error(e);
+      const msg = e.response?.data?.detail || "Servicio no disponible. No se pudieron cargar los datos de pacientes y catálogos.";
+      setApiError(msg);
     }
   };
 
@@ -136,17 +140,25 @@ export default function CapturaEnfermeria() {
   };
 
   const fetchMisRegistros = async () => {
+    setApiError(null);
     try {
       const res = await api.get('/atenciones/mis-registros', { headers: { Authorization: `Bearer ${getToken()}` } });
       setHistorial(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      const msg = e.response?.data?.detail || "Servicio no disponible al cargar registros de enfermería.";
+      setApiError(msg);
+    }
   };
 
   const fetchHistorialGlobal = async () => {
+    setApiError(null);
     try {
       const res = await api.get('/atenciones/global', { headers: { Authorization: `Bearer ${getToken()}` } });
       setHistorial(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      const msg = e.response?.data?.detail || "Servicio no disponible al cargar historial global.";
+      setApiError(msg);
+    }
   };
 
   const handleAddNota = async () => {
@@ -341,6 +353,14 @@ export default function CapturaEnfermeria() {
     <div className="w-full h-full overflow-y-auto p-6 bg-slate-50">
       <div className="max-w-5xl mx-auto w-full pb-12">
         
+        {/* Banner de alerta para servicio 503 / errores de API */}
+        <AlertBanner 
+          message={apiError} 
+          type="error" 
+          onRetry={fetchData} 
+          onClose={() => setApiError(null)} 
+        />
+
         {/* Tabs */}
       <div className="flex gap-4 mb-6 border-b border-slate-200">
         <button 

@@ -16,7 +16,7 @@ export const useDigitalPersona = () => {
         setReader(fpReader);
 
         const onDeviceConnected = (event) => {
-            console.log("Device connected", event);
+            // Debug eliminado por seguridad de datos biométricos
             setStatus('Lector Conectado');
             if (event.deviceUid) {
                 setDevices(prev => {
@@ -27,7 +27,7 @@ export const useDigitalPersona = () => {
         };
 
         const onDeviceDisconnected = (event) => {
-            console.log("Device disconnected", event);
+            // Debug eliminado por seguridad de datos biométricos
             setStatus('Lector Desconectado');
             if (event.deviceUid) {
                 setDevices(prev => prev.filter(uid => uid !== event.deviceUid));
@@ -35,7 +35,7 @@ export const useDigitalPersona = () => {
         };
 
         const onSamplesAcquired = (event) => {
-            console.log("Muestra adquirida", event);
+            // Debug eliminado por seguridad de datos biométricos
             try {
                 let sample = event.samples[0];
                 if (sample) {
@@ -53,7 +53,7 @@ export const useDigitalPersona = () => {
                                 format = parsed.Format;
                             }
                         } catch (e) {
-                            console.warn("Failed to parse inner JSON", e);
+                            // JSON parsing fallback
                         }
                     }
                     
@@ -74,11 +74,10 @@ export const useDigitalPersona = () => {
                     setStatus('Huella Capturada');
                     setIsAcquiring(false);
                     // Stop acquisition after a successful read if we want to be fully manual
-                    fpReader.stopAcquisition().catch(e => console.log("Ignored stop error", e));
+                    fpReader.stopAcquisition().catch(() => {});
                 }
             } catch (err) {
-                console.error("Error al procesar huella:", err);
-                setError("Error procesando huella");
+                setError("Error procesando huella dactilar");
                 setIsAcquiring(false);
             }
         };
@@ -119,7 +118,7 @@ export const useDigitalPersona = () => {
             fpReader.off("DeviceConnected", onDeviceConnected);
             fpReader.off("DeviceDisconnected", onDeviceDisconnected);
             fpReader.off("SamplesAcquired", onSamplesAcquired);
-            fpReader.stopAcquisition().catch(e => console.error("Error deteniendo", e));
+            fpReader.stopAcquisition().catch(() => {});
         };
     }, []);
 
@@ -142,7 +141,7 @@ export const useDigitalPersona = () => {
                     setStatus('Esperando huella...');
                     setIsAcquiring(true);
                     return;
-                } catch(e) { console.warn("Reintento fallido", e); }
+                } catch(e) { /* Reintento silencioso */ }
             } else {
                 setError(`Error al iniciar captura: ${errorMsg}`);
                 setIsAcquiring(false);

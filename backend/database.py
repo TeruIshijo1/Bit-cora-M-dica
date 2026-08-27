@@ -6,11 +6,12 @@ from sqlalchemy.engine import Engine
 
 import os
 from dotenv import load_dotenv
-
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
-# SQLALCHEMY_DATABASE_URL = "sqlite:///./hospital_escandon.db"
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres@localhost/hospital_escandon_db")
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+if not SQLALCHEMY_DATABASE_URL:
+    raise ValueError("Falta DATABASE_URL en el archivo .env. Configure la URL de conexión a la base de datos.")
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(

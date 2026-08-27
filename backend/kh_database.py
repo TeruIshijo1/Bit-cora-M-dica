@@ -5,8 +5,17 @@ import uuid
 import socket
 import time
 from dotenv import load_dotenv
+from fastapi import HTTPException
 
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
+
+def raise_kh_unavailable():
+    """Lanza excepción HTTP 503 cuando la base de datos central de SQL Server no responde."""
+    raise HTTPException(
+        status_code=503,
+        detail="Sistema hospitalario central no disponible, intente más tarde"
+    )
 
 _LAST_CONN_FAIL_TIME = 0
 
@@ -106,7 +115,7 @@ def fetch_camas():
     """Obtiene el estatus actual de las camas desde KH_HE cruzando V_MRPT, PC y PR."""
     conn = get_kh_connection()
     if not conn:
-        return []
+        raise_kh_unavailable()
     
     try:
         cursor = conn.cursor()
@@ -168,7 +177,7 @@ def fetch_patient_info_and_timeline(pt_num: str):
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No connection to hospital DB"}
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         
@@ -221,132 +230,6 @@ def fetch_patient_info_and_timeline(pt_num: str):
     finally:
         conn.close()
 
-def get_fallback_ehr_dashboard(pt_num: str):
-    """Genera datos de contingencia ultra rápidos si SQL Server no está disponible para evitar bloqueos."""
-    now_d = datetime.datetime.now().strftime("%d/%m/%Y")
-    return {
-        "patient": {
-            "name": "COMODIN COMODIN COMODIN" if str(pt_num) == "5704" else f"PACIENTE PT-{pt_num}",
-            "age": "35 años",
-            "gender": "Masculino",
-            "mrn": f"PT-{pt_num}",
-            "dob": "15 May 1991",
-            "phone": "55-1234-5678",
-            "email": "paciente@hospitalescandon.org",
-            "allergies": "ALERGIAS NEGADAS",
-            "cama": "URGENCIAS C-01",
-            "diagnostico": "DOLOR ABDOMINAL EN ESTUDIO / VALORACIÓN DE URGENCIAS",
-            "destino": "OBSERVACIÓN",
-            "fecha_ingreso": now_d,
-            "hora_ingreso": "08:30",
-            "fecha_egreso": "___/___/___",
-            "hora_egreso": "__:__"
-        },
-        "vitals": [
-            {"label": "Presión Arterial", "value": "120/80", "unit": "mmHg", "status": "Normal"},
-            {"label": "Frec. Cardíaca", "value": "78", "unit": "lpm", "status": "Normal"},
-            {"label": "Frec. Respiratoria", "value": "18", "unit": "rpm", "status": "Normal"},
-            {"label": "Saturación O2", "value": "98", "unit": "%", "status": "Normal"},
-            {"label": "Temperatura", "value": "36.6", "unit": "°C", "status": "Normal"},
-            {"label": "Peso", "value": "75.0", "unit": "kg", "status": "Normal"}
-        ],
-        "timelineEvents": [
-            {"date": now_d, "time": "08:30", "type": "Ingreso a Urgencias", "location": "URGENCIAS", "desc": "Ingreso del paciente al servicio de urgencias por dolor abdominal."},
-            {"date": now_d, "time": "09:00", "type": "Nota de Evolución 1", "location": "URGENCIAS", "desc": "Valoración inicial del turno matutino, paciente estable con signos vitales en rango."}
-        ],
-        "clinicalNotes": [
-            {
-                "evolution_num": 1,
-                "title": "Evolución y Observaciones 1",
-                "date": now_d,
-                "time": "09:00",
-                "turno": "Matutino",
-                "doctor": "JOSE JOSE PRUEBA ENRIQUEZ",
-                "diagnosis": "DOLOR ABDOMINAL EN ESTUDIO",
-                "soap": {
-                    "s": "Paciente masculino que refiere inicio de dolor abdominal de moderada intensidad.",
-                    "o": "Abdomen blando, depresible, ruidos peristálticos presentes, sin datos de irritación peritoneal.",
-                    "a": "Cuadro clínico compatible con síndrome doloroso abdominal en evolución favorable.",
-                    "p": "Se indica analgesia intravenosa, vigilancia hemodinámica y laboratorios de control."
-                }
-            }
-        ],
-        "evoluciones": {
-            "evolucion1": {
-                "num": 1,
-                "title": "Evolución y Observaciones 1",
-                "fecha": now_d,
-                "hora": "09:00",
-                "date_iso": datetime.datetime.now().isoformat(),
-                "turno": "Matutino",
-                "vitals_ta": "120/80",
-                "vitals_fc": "78",
-                "vitals_fr": "18",
-                "vitals_sato2": "98",
-                "vitals_peso": "75.0",
-                "vitals_talla": "1.72",
-                "vitals_temp": "36.6",
-                "subjetivo": "Paciente masculino que refiere inicio de dolor abdominal de moderada intensidad.",
-                "objetivo": "Abdomen blando, depresible, ruidos peristálticos presentes, sin datos de irritación peritoneal.",
-                "analisis": "Cuadro clínico compatible con síndrome doloroso abdominal en evolución favorable.",
-                "plan": "Se indica analgesia intravenosa, vigilancia hemodinámica y laboratorios de control.",
-                "medico": "JOSE JOSE PRUEBA ENRIQUEZ",
-                "cedula": "PRUEBA-99281",
-                "mip": ""
-            },
-            "evolucion2": None,
-            "evolucion3": None
-        },
-        "medications": [
-            {"name": "Omeprazol 40mg IV", "dose": "40mg cada 24 hrs", "type": "Solución", "status": "Activo"},
-            {"name": "Ketorolaco 30mg IV", "dose": "30mg cada 8 hrs", "type": "Solución", "status": "Activo"}
-        ],
-        "dietas": {
-            "tipo": "Ayuno / Dieta Líquida",
-            "descripcion": "Ayuno hasta nueva valoración médica o tolerancia oral.",
-            "alergias": "Negadas"
-        },
-        "cuidados_enfermeria": [
-            {"cuidado": "Monitorización de signos vitales cada 4 horas", "frecuencia": "c/4h", "responsable": "Enfermería"},
-            {"cuidado": "Vigilancia de diuresis y balance de líquidos", "frecuencia": "Por turno", "responsable": "Enfermería"}
-        ],
-        "laboratorios": [
-            {"estudio": "Biometría Hemática Completa", "fecha": now_d, "resultado": "Reportado / Normal"},
-            {"estudio": "Química Sanguínea 6 elementos", "fecha": now_d, "resultado": "Glucosa 95, Urea 22, Creatinina 0.9"}
-        ],
-        "imagenologia": [
-            {"estudio": "Ultrasonido Abdominal Focalizado", "fecha": now_d, "resultado": "Sin evidencia de litiasis ni colecistitis"}
-        ],
-        "proximas_citas": [],
-        "formatos_disponibles": [
-            {
-                "area": "Urgencias",
-                "icono": "FiAlertCircle",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-87/01",
-                        "nombre": "Nota de Evolución de Urgencias",
-                        "subtitulo": "Documento general con hasta 3 notas consecutivas y firmas normadas",
-                        "tipo": "Evolución",
-                        "activo": True,
-                        "url_pdf": f"/api/ehr/paciente/{pt_num}/pdf-nota-urgencias",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            }
-        ],
-        "cargos_solicitudes": {
-            "dieta_activa": "Ayuno Estricto",
-            "medicamentos_activos_count": 2,
-            "laboratorios_count": 2,
-            "imagenologia_count": 1,
-            "proxima_cita": None,
-            "solicitudes_pendientes": []
-        },
-        "offline_mode": True
-    }
-
 def fetch_full_ehr_dashboard(pt_num: str):
     """
     Obtiene toda la información necesaria para llenar el Expediente Electrónico (Dashboard).
@@ -354,7 +237,7 @@ def fetch_full_ehr_dashboard(pt_num: str):
     """
     conn = get_kh_connection()
     if not conn:
-        return get_fallback_ehr_dashboard(pt_num)
+        raise_kh_unavailable()
         
     try:
         cursor = conn.cursor()
@@ -468,6 +351,7 @@ def fetch_full_ehr_dashboard(pt_num: str):
             "medications": []
         }
         
+        e1, e2, e3 = None, None, None
         if nota_dict:
             # Helper para formatear evolución
             def parse_evol(prefix_num, date_col, turno_col, ta_col, fc_col, fr_col, sat_col, peso_col, talla_col, temp_col, s_col, o_col, a_col, p_col, med_col, ced_col, mip_col):
@@ -502,137 +386,143 @@ def fetch_full_ehr_dashboard(pt_num: str):
             e2 = parse_evol(2, 'FECHANOTA2', 'TURNO2', 'TA2', 'FC2', 'FR2', 'SAT_O2_2', 'PESO2', 'TALLA2', 'NOTAS2', 'S_SUBJETIVO2', 'O_OBJETIVO2', 'A_ANALISIS2', 'P_PLAN2', 'MEDICO3', 'CEDULA2', 'N_MIP2')
             e3 = parse_evol(3, 'FECHANOTA3', 'TURNO33', 'TA3', 'FC3', 'FR3', 'SAT_O2_3', 'PESO3', 'TALLA3', 'NOTAS3', 'S_SUBJETIVO3', 'O_OBJETIVO3', 'A_ANALISIS3', 'P_PLAN3', 'MEDICO4', 'CEDULA3', 'N_MIP3')
             
-            dashboard_data["evoluciones"] = {
-                "evolucion1": e1,
-                "evolucion2": e2,
-                "evolucion3": e3
-            }
-            
-            # 3.5. Signos Vitales Maestros desde tabla PTVS de SQL Server
+        dashboard_data["evoluciones"] = {
+            "evolucion1": e1,
+            "evolucion2": e2,
+            "evolucion3": e3
+        }
+        
+        # 3.5. Signos Vitales Maestros desde tabla PTVS de SQL Server
+        try:
+            cursor.execute("""
+                SELECT TOP 1
+                    ProcedureDate, Age, Height, Weight, Temperature, PulseRate,
+                    SystolicPressure, DiastolicPressure, RespiratroryRAte, OxygenSaturation,
+                    PTVSNum, PTVSID
+                FROM PTVS
+                WHERE PTNum = ?
+                ORDER BY ProcedureDate DESC, CreatedOn DESC
+            """, (pt_num,))
+            ptvs_r = cursor.fetchone()
+            ptvs_dict = dict(zip([c[0] for c in cursor.description], ptvs_r)) if ptvs_r else {}
+        except Exception as e_ptvs_fetch:
+            print(f"Nota: No se pudo consultar PTVS en dashboard: {e_ptvs_fetch}")
+            ptvs_dict = {}
+
+        # Extraer valores de PTVS o fallback a latest_e
+        latest_e = e3 or e2 or e1
+        
+        sys_val = ptvs_dict.get("SystolicPressure")
+        dia_val = ptvs_dict.get("DiastolicPressure")
+        if sys_val and dia_val:
+            ta_val = f"{sys_val}/{dia_val}"
+        elif latest_e and latest_e.get("vitals_ta") and latest_e.get("vitals_ta") != "--":
+            ta_val = latest_e.get("vitals_ta")
+        else:
+            ta_val = "120/80"
+
+        fc_val = str(ptvs_dict.get("PulseRate") or (latest_e.get("vitals_fc") if latest_e and latest_e.get("vitals_fc") != "--" else "78"))
+        fr_val = str(ptvs_dict.get("RespiratroryRAte") or (latest_e.get("vitals_fr") if latest_e and latest_e.get("vitals_fr") != "--" else "18"))
+        sat_val = str(ptvs_dict.get("OxygenSaturation") or (latest_e.get("vitals_sato2") if latest_e and latest_e.get("vitals_sato2") != "--" else "98"))
+        def format_num_str(val):
+            if val is None or val == "" or val == "--":
+                return ""
             try:
-                cursor.execute("""
-                    SELECT TOP 1
-                        ProcedureDate, Age, Height, Weight, Temperature, PulseRate,
-                        SystolicPressure, DiastolicPressure, RespiratroryRAte, OxygenSaturation,
-                        PTVSNum, PTVSID
-                    FROM PTVS
-                    WHERE PTNum = ?
-                    ORDER BY ProcedureDate DESC, CreatedOn DESC
-                """, (pt_num,))
-                ptvs_r = cursor.fetchone()
-                ptvs_dict = dict(zip([c[0] for c in cursor.description], ptvs_r)) if ptvs_r else {}
-            except Exception as e_ptvs_fetch:
-                print(f"Nota: No se pudo consultar PTVS en dashboard: {e_ptvs_fetch}")
-                ptvs_dict = {}
+                f = float(val)
+                if f.is_integer():
+                    return str(int(f))
+                return f"{f:.1f}"
+            except Exception:
+                return str(val)
 
-            # Extraer valores de PTVS o fallback a latest_e
-            latest_e = e3 or e2 or e1
-            
-            sys_val = ptvs_dict.get("SystolicPressure")
-            dia_val = ptvs_dict.get("DiastolicPressure")
-            if sys_val and dia_val:
-                ta_val = f"{sys_val}/{dia_val}"
-            elif latest_e and latest_e.get("vitals_ta") and latest_e.get("vitals_ta") != "--":
-                ta_val = latest_e.get("vitals_ta")
-            else:
-                ta_val = "120/80"
+        temp_raw = ptvs_dict.get("Temperature") or (latest_e.get("vitals_temp") if latest_e and latest_e.get("vitals_temp") != "--" else "36.5")
+        peso_raw = ptvs_dict.get("Weight") or (latest_e.get("vitals_peso") if latest_e and latest_e.get("vitals_peso") != "--" else "75.0")
+        talla_raw = ptvs_dict.get("Height") or (latest_e.get("vitals_talla") if latest_e and latest_e.get("vitals_talla") != "--" else "1.72")
 
-            fc_val = str(ptvs_dict.get("PulseRate") or (latest_e.get("vitals_fc") if latest_e and latest_e.get("vitals_fc") != "--" else "78"))
-            fr_val = str(ptvs_dict.get("RespiratroryRAte") or (latest_e.get("vitals_fr") if latest_e and latest_e.get("vitals_fr") != "--" else "18"))
-            sat_val = str(ptvs_dict.get("OxygenSaturation") or (latest_e.get("vitals_sato2") if latest_e and latest_e.get("vitals_sato2") != "--" else "98"))
-            def format_num_str(val):
-                if val is None or val == "" or val == "--":
-                    return ""
-                try:
-                    f = float(val)
-                    if f.is_integer():
-                        return str(int(f))
-                    return f"{f:.1f}"
-                except Exception:
-                    return str(val)
+        temp_val = format_num_str(temp_raw)
+        peso_val = format_num_str(peso_raw)
+        talla_val = format_num_str(talla_raw)
 
-            temp_raw = ptvs_dict.get("Temperature") or (latest_e.get("vitals_temp") if latest_e and latest_e.get("vitals_temp") != "--" else "36.5")
-            peso_raw = ptvs_dict.get("Weight") or (latest_e.get("vitals_peso") if latest_e and latest_e.get("vitals_peso") != "--" else "75.0")
-            talla_raw = ptvs_dict.get("Height") or (latest_e.get("vitals_talla") if latest_e and latest_e.get("vitals_talla") != "--" else "1.72")
+        dashboard_data["ptvs"] = {
+            "systolic": str(sys_val or "120"),
+            "diastolic": str(dia_val or "80"),
+            "ta": ta_val,
+            "fc": fc_val,
+            "fr": fr_val,
+            "sat_o2": sat_val,
+            "temp": temp_val,
+            "peso": peso_val,
+            "talla": talla_val,
+            "procedure_date": ptvs_dict.get("ProcedureDate").strftime("%d/%m/%Y %H:%M") if ptvs_dict.get("ProcedureDate") else datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "source": "PTVS" if ptvs_dict else "Evolución/Default"
+        }
 
-            temp_val = format_num_str(temp_raw)
-            peso_val = format_num_str(peso_raw)
-            talla_val = format_num_str(talla_raw)
+        dashboard_data["vitals"] = [
+            {"label": "Presión Arterial", "value": ta_val, "unit": "mmHg", "status": "Normal"},
+            {"label": "Frec. Cardíaca", "value": fc_val, "unit": "lpm", "status": "Normal"},
+            {"label": "Frec. Respiratoria", "value": fr_val, "unit": "rpm", "status": "Normal"},
+            {"label": "Saturación O2", "value": sat_val, "unit": "%", "status": "Normal"},
+            {"label": "Temperatura", "value": temp_val, "unit": "°C", "status": "Normal"},
+            {"label": "Peso", "value": peso_val, "unit": "kg", "status": "Normal"}
+        ]
 
-            dashboard_data["ptvs"] = {
-                "systolic": str(sys_val or "120"),
-                "diastolic": str(dia_val or "80"),
-                "ta": ta_val,
-                "fc": fc_val,
-                "fr": fr_val,
-                "sat_o2": sat_val,
-                "temp": temp_val,
-                "peso": peso_val,
-                "talla": talla_val,
-                "procedure_date": ptvs_dict.get("ProcedureDate").strftime("%d/%m/%Y %H:%M") if ptvs_dict.get("ProcedureDate") else datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "source": "PTVS" if ptvs_dict else "Evolución/Default"
-            }
-
-            dashboard_data["vitals"] = [
-                {"label": "Presión Arterial", "value": ta_val, "unit": "mmHg", "status": "Normal"},
-                {"label": "Frec. Cardíaca", "value": fc_val, "unit": "lpm", "status": "Normal"},
-                {"label": "Frec. Respiratoria", "value": fr_val, "unit": "rpm", "status": "Normal"},
-                {"label": "Saturación O2", "value": sat_val, "unit": "%", "status": "Normal"},
-                {"label": "Temperatura", "value": temp_val, "unit": "°C", "status": "Normal"},
-                {"label": "Peso", "value": peso_val, "unit": "kg", "status": "Normal"}
-            ]
-
-            # Si PTVS tiene signos vitales registrados, actualizar la evolución para que los formatos y PDF tomen siempre la tabla maestra
-            if ptvs_dict and e1:
-                e1["vitals_ta"] = ta_val
-                e1["vitals_fc"] = fc_val
-                e1["vitals_fr"] = fr_val
-                e1["vitals_sato2"] = sat_val
-                e1["vitals_temp"] = temp_val
-                e1["vitals_peso"] = peso_val
-                e1["vitals_talla"] = talla_val
-            
-            dashboard_data["evoluciones"] = {
-                "evolucion1": e1,
-                "evolucion2": e2,
-                "evolucion3": e3
-            }
+        # Si PTVS tiene signos vitales registrados, actualizar la evolución para que los formatos y PDF tomen siempre la tabla maestra
+        if ptvs_dict and e1:
+            e1["vitals_ta"] = ta_val
+            e1["vitals_fc"] = fc_val
+            e1["vitals_fr"] = fr_val
+            e1["vitals_sato2"] = sat_val
+            e1["vitals_temp"] = temp_val
+            e1["vitals_peso"] = peso_val
+            e1["vitals_talla"] = talla_val
+        
+        dashboard_data["evoluciones"] = {
+            "evolucion1": e1,
+            "evolucion2": e2,
+            "evolucion3": e3
+        }
                 
-            # Agregar todas las evoluciones a las notas clínicas y a la línea de tiempo
-            for ev in [e1, e2, e3]:
-                if ev:
-                    dashboard_data["clinicalNotes"].append({
-                        "evolution_num": ev["num"],
-                        "title": ev["title"],
-                        "date": ev["fecha"],
-                        "time": ev["hora"],
-                        "turno": ev["turno"],
-                        "doctor": ev["medico"],
-                        "diagnosis": dashboard_data["patient"]["diagnostico"],
-                        "soap": {
-                            "s": ev["subjetivo"],
-                            "o": ev["objetivo"],
-                            "a": ev["analisis"],
-                            "p": ev["plan"]
-                        }
-                    })
-                    
-                    dashboard_data["timelineEvents"].append({
-                        "date": ev["fecha"],
-                        "time": ev["hora"],
-                        "type": f"Nota de Evolución {ev['num']}",
-                        "desc": f"El Dr(a). {ev['medico']} registró la Evolución {ev['num']} (Turno {ev['turno']})."
-                    })
-                
-        # Agregar movimientos de cama a la línea de tiempo
-        for r in timeline_rows:
-            if r[1]: # EntryDate
-                dashboard_data["timelineEvents"].append({
-                    "date": r[1].strftime('%d/%m/%Y'),
-                    "time": r[1].strftime('%H:%M'),
-                    "type": "Asignación de Cama",
-                    "desc": f"Paciente asignado a {str(r[0] or '')}"
-                })
+        # Obtener Consentimiento 32/01 si existe
+        cursor.execute("SELECT TOP 1 INTETYPE, N_MEDICO, CEDULA, ALERGIAS, DIAGNOSTICO FROM MR_CI_ETE_CARD WHERE PTNum = ? ORDER BY CreatedOn DESC", (pt_num,))
+        c32_row = cursor.fetchone()
+        if c32_row:
+            dashboard_data["consentimiento_32_01"] = {
+                "tipo_interrogatorio": c32_row[0] or "Directo",
+                "medico_tratante": c32_row[1] or "",
+                "cedula": c32_row[2] or "",
+                "alergias": c32_row[3] or "",
+                "diagnostico": c32_row[4] or "",
+            }
+        else:
+            dashboard_data["consentimiento_32_01"] = None
+
+        # Obtener Consentimiento EED si existe
+        cursor.execute("SELECT TOP 1 NOMBRE_MEDICO, CEDULA_PROFESIONAL, INTERROGATORIO, RESPONSABLE, COMENTARIOS, TA, FC_META, FR, TALLA, PESO, TA_BASAL, FC_BASAL, SO2_BASAL, S_BASAL, TA_5MCG, FC_5MCG, SO2_5MCG, S_5MCG, TA_10MCG, FC_10MCG, SO2_10MCG, S_10MCG, TA_20MCG, FC_20MCG, SO2_20MCG, S_20MCG, TA_30MCG, FC_30MCG, SO2_30MCG, S_30MCG, TA_40MCG, FC_40MCG, SO2_40MCG, S_40MCG, TA_ANTROPINA, FC_ANTROPINA, SO2_ANTROPINA, S_ANTROPINA, TA_2MIN, FC_2MIN, SO2_2MIN, SINTOMAS_2MIN, TA_4MIN, FC_4MIN, SO2_4MIN, SINTOMAS_4MIN FROM MR_CI_EED WHERE PTNum = ? ORDER BY CreatedOn DESC", (pt_num,))
+        c_eed_row = cursor.fetchone()
+        if c_eed_row:
+            dashboard_data["consentimiento_eed"] = {
+                "medico": c_eed_row[0] or "",
+                "cedula": c_eed_row[1] or "",
+                "tipo_interrogatorio": c_eed_row[2] or "Directo",
+                "responsable": c_eed_row[3] or "",
+                "comentarios": c_eed_row[4] or "",
+                "ta": c_eed_row[5] or "",
+                "fc_meta": c_eed_row[6] or "",
+                "fr": c_eed_row[7] or "",
+                "talla": c_eed_row[8] or "",
+                "peso": c_eed_row[9] or "",
+                "ta_basal": c_eed_row[10] or "", "fc_basal": c_eed_row[11] or "", "so2_basal": c_eed_row[12] or "", "s_basal": c_eed_row[13] or "",
+                "ta_5mcg": c_eed_row[14] or "", "fc_5mcg": c_eed_row[15] or "", "so2_5mcg": c_eed_row[16] or "", "s_5mcg": c_eed_row[17] or "",
+                "ta_10mcg": c_eed_row[18] or "", "fc_10mcg": c_eed_row[19] or "", "so2_10mcg": c_eed_row[20] or "", "s_10mcg": c_eed_row[21] or "",
+                "ta_20mcg": c_eed_row[22] or "", "fc_20mcg": c_eed_row[23] or "", "so2_20mcg": c_eed_row[24] or "", "s_20mcg": c_eed_row[25] or "",
+                "ta_30mcg": c_eed_row[26] or "", "fc_30mcg": c_eed_row[27] or "", "so2_30mcg": c_eed_row[28] or "", "s_30mcg": c_eed_row[29] or "",
+                "ta_40mcg": c_eed_row[30] or "", "fc_40mcg": c_eed_row[31] or "", "so2_40mcg": c_eed_row[32] or "", "s_40mcg": c_eed_row[33] or "",
+                "ta_atropina": c_eed_row[34] or "", "fc_atropina": c_eed_row[35] or "", "so2_atropina": c_eed_row[36] or "", "s_atropina": c_eed_row[37] or "",
+                "ta_2min": c_eed_row[38] or "", "fc_2min": c_eed_row[39] or "", "so2_2min": c_eed_row[40] or "", "sintomas_2min": c_eed_row[41] or "",
+                "ta_4min": c_eed_row[42] or "", "fc_4min": c_eed_row[43] or "", "so2_4min": c_eed_row[44] or "", "sintomas_4min": c_eed_row[45] or "",
+            }
+        else:
+            dashboard_data["consentimiento_eed"] = None
                 
         # 1. Medicamentos Prescritos (Consultar tabla maestra PTDG en SQL Server)
         ptdg_meds = []
@@ -839,7 +729,7 @@ def fetch_full_ehr_dashboard(pt_num: str):
                         "subtitulo": "Documento general con hasta 3 notas consecutivas y firmas normadas",
                         "tipo": "Evolución",
                         "activo": True,
-                        "url_pdf": f"/api/ehr/paciente/{pt_num}/pdf-nota-urgencias",
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-nota-urgencias",
                         "paginas": 2,
                         "norma": "NOM-004-SSA3-2012"
                     },
@@ -974,14 +864,274 @@ def fetch_full_ehr_dashboard(pt_num: str):
                         "activo": False,
                         "paginas": 1,
                         "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-32/01",
+                        "nombre": "Consentimiento Informado para Ecocardiograma Transesofágico",
+                        "subtitulo": "Autorización para realización de estudio bajo sedación con apoyo de anestesiólogo cardiovascular",
+                        "tipo": "Legal",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-32-01",
+                        "paginas": 1,
+                        "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-EED",
+                        "nombre": "Ecocardiograma de Estrés con Dobutamina",
+                        "subtitulo": "Consentimiento informado y hoja de monitoreo hemodinámico",
+                        "tipo": "Legal y Clínico",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-eed",
+                        "paginas": 2,
+                        "norma": "NOM-004-SSA3-2012"
                     }
                 ]
             }
         ]
 
+        # Filtrar solo los formatos activos para que solo salgan los que ya tenemos hechos
+        for categoria in dashboard_data["formatos_disponibles"]:
+            categoria["formatos"] = [f for f in categoria["formatos"] if f.get("activo")]
+        dashboard_data["formatos_disponibles"] = [c for c in dashboard_data["formatos_disponibles"] if len(c["formatos"]) > 0]
+
+        # 6.5 CONSTRUCCIÓN INTEGRAL Y CRONOLÓGICA DE LA LÍNEA DE TIEMPO (TIMELINE)
+        raw_timeline = []
+
+        # A. Formatos de Evolución (MR_NE_URG)
+        for ev in [e1, e2, e3]:
+            if ev:
+                dashboard_data["clinicalNotes"].append({
+                    "evolution_num": ev["num"],
+                    "title": ev["title"],
+                    "date": ev["fecha"],
+                    "time": ev["hora"],
+                    "turno": ev["turno"],
+                    "doctor": ev["medico"],
+                    "diagnosis": dashboard_data["patient"]["diagnostico"],
+                    "soap": {
+                        "s": ev["subjetivo"],
+                        "o": ev["objetivo"],
+                        "a": ev["analisis"],
+                        "p": ev["plan"]
+                    }
+                })
+                # Determinar fecha/hora exacta
+                ev_dt = None
+                date_col_map = {1: 'FECHANOTA1', 2: 'FECHANOTA2', 3: 'FECHANOTA3'}
+                if nota_dict.get(date_col_map.get(ev["num"])):
+                    ev_dt = nota_dict.get(date_col_map.get(ev["num"]))
+                elif nota_dict.get('ModifiedOn'):
+                    ev_dt = nota_dict.get('ModifiedOn')
+                elif nota_dict.get('CreatedOn'):
+                    ev_dt = nota_dict.get('CreatedOn')
+
+                raw_timeline.append({
+                    "_dt": ev_dt,
+                    "date": ev["fecha"],
+                    "time": ev["hora"],
+                    "type": f"Nota de Evolución {ev['num']}",
+                    "category": "Evolución Clínica",
+                    "badge": "Formato 87/01",
+                    "format_code": "HE-DIRMED-SINPRO-PLT-87/01",
+                    "desc": f"El Dr(a). {ev['medico']} registró la Evolución {ev['num']} (Turno {ev['turno']}).",
+                    "doctor": ev["medico"],
+                    "pdf_url": f"/ehr/paciente/{pt_num}/pdf-nota-urgencias",
+                    "action_type": "format"
+                })
+
+        # B. Consentimiento 32/01 - Ecocardiograma Transesofágico (MR_CI_ETE_CARD)
+        try:
+            cursor.execute("""
+                SELECT TOP 5 
+                    MRNum_CI_ETE_CARD, INTETYPE, N_MEDICO, DIAGNOSTICO,
+                    CreatedOn, ModifiedOn, SignedBy, SignedOn, ESignature
+                FROM MR_CI_ETE_CARD 
+                WHERE PTNum = ? 
+                ORDER BY CreatedOn DESC
+            """, (pt_num,))
+            for r32 in cursor.fetchall():
+                if r32[1] or r32[2] or r32[3] or r32[6]:
+                    dt32 = r32[5] or r32[4] or r32[7]
+                    med32 = str(r32[2] or r32[6] or "JOSE JOSE PRUEBA ENRIQUEZ")
+                    diag32 = str(r32[3] or "Valoración Cardiológica")
+                    raw_timeline.append({
+                        "_dt": dt32,
+                        "date": dt32.strftime('%d/%m/%Y') if dt32 else "",
+                        "time": dt32.strftime('%H:%M') if dt32 else "",
+                        "type": "Consentimiento Informado: Ecocardiograma Transesofágico (32/01)",
+                        "category": "Consentimiento Informado",
+                        "badge": "Formato 32/01",
+                        "format_code": "HE-DIRMED-CONSUL-PLT-32/01",
+                        "desc": f"El Dr(a). {med32} registró el Consentimiento Informado (32/01) para Ecocardiograma Transesofágico. Diagnóstico: {diag32}.",
+                        "doctor": med32,
+                        "signed": bool(r32[6] or r32[8]),
+                        "pdf_url": f"/ehr/paciente/{pt_num}/pdf-consentimiento-32-01",
+                        "action_type": "format"
+                    })
+        except Exception as e_c32_tl:
+            print(f"Nota: Error agregando consentimiento 32/01 a timeline: {e_c32_tl}")
+
+        # C. Ecocardiograma de Estrés con Dobutamina (MR_CI_EED)
+        try:
+            cursor.execute("""
+                SELECT TOP 5 
+                    MRNum_CI_EED, NOMBRE_MEDICO, RESPONSABLE, FC_META, COMENTARIOS,
+                    CreatedOn, ModifiedOn, SignedBy, SignedOn, ESignature
+                FROM MR_CI_EED 
+                WHERE PTNum = ? 
+                ORDER BY CreatedOn DESC
+            """, (pt_num,))
+            for reed in cursor.fetchall():
+                if reed[1] or reed[2] or reed[4] or reed[7]:
+                    dted = reed[6] or reed[5] or reed[8]
+                    med_ed = str(reed[1] or reed[7] or "JOSE JOSE PRUEBA ENRIQUEZ")
+                    resp_ed = str(reed[2] or "Paciente")
+                    fc_ed = str(reed[3] or "145")
+                    raw_timeline.append({
+                        "_dt": dted,
+                        "date": dted.strftime('%d/%m/%Y') if dted else "",
+                        "time": dted.strftime('%H:%M') if dted else "",
+                        "type": "Ecocardiograma de Estrés con Dobutamina (EED)",
+                        "category": "Consentimiento y Monitoreo",
+                        "badge": "Formato EED",
+                        "format_code": "HE-DIRMED-CONSUL-PLT-EED",
+                        "desc": f"Registro y protocolo de Ecocardiograma de Estrés con Dobutamina (FC Meta: {fc_ed} lpm). Responsable: {resp_ed}.",
+                        "doctor": med_ed,
+                        "signed": bool(reed[7] or reed[9]),
+                        "pdf_url": f"/ehr/paciente/{pt_num}/pdf-consentimiento-eed",
+                        "action_type": "format"
+                    })
+        except Exception as e_eed_tl:
+            print(f"Nota: Error agregando EED a timeline: {e_eed_tl}")
+
+        # D. Prescripciones Médicas de Fármacos (PTDG)
+        for med in ptdg_meds:
+            med_dt = None
+            if med.get("date_iso"):
+                try:
+                    med_dt = datetime.datetime.fromisoformat(med["date_iso"])
+                except Exception:
+                    pass
+            raw_timeline.append({
+                "_dt": med_dt,
+                "date": med.get("date", "").split(" ")[0] if " " in med.get("date", "") else med.get("date", ""),
+                "time": med.get("date", "").split(" ")[1] if " " in med.get("date", "") else "",
+                "type": f"Prescripción Médica: {med['name']}",
+                "category": "Farmacoterapia",
+                "badge": "Medicamento",
+                "format_code": "",
+                "desc": f"{med['dose']} vía {med['route']} ({med['freq']}). {med['instruction'] or med['why']}".strip(),
+                "doctor": med.get("created_by", ""),
+                "action_type": "tab_medications"
+            })
+
+        # E. Prescripciones Nutricionales / Dietas (MR_SOL_DIET)
+        try:
+            cursor.execute("""
+                SELECT TOP 5 MRNum_SOL_DIET, HORARIO, TIPO, DETALLE, INTOLERANCIA, CreatedOn, CreatedBy 
+                FROM MR_SOL_DIET 
+                WHERE PTNum = ? 
+                ORDER BY CreatedOn DESC
+            """, (pt_num,))
+            for dr in cursor.fetchall():
+                if dr[2] or dr[3]:
+                    dt_diet = dr[5]
+                    t_str = tipo_map.get(str(dr[2] or "").upper(), str(dr[2] or "Hospitalaria")) if 'tipo_map' in locals() else str(dr[2] or "Dieta")
+                    raw_timeline.append({
+                        "_dt": dt_diet,
+                        "date": dt_diet.strftime('%d/%m/%Y') if dt_diet else "",
+                        "time": dt_diet.strftime('%H:%M') if dt_diet else "",
+                        "type": f"Prescripción de Dieta: {t_str}",
+                        "category": "Nutrición y Cuidados",
+                        "badge": "Dieta",
+                        "format_code": "",
+                        "desc": f"Régimen: {t_str} ({dr[1] or 'Continuo'}). {dr[3] or ''}".strip(),
+                        "doctor": str(dr[6] or ""),
+                        "action_type": "tab_diets"
+                    })
+        except Exception as e_diet_tl:
+            print(f"Nota: Error agregando dietas a timeline: {e_diet_tl}")
+
+        # F. Signos Vitales (PTVS)
+        try:
+            cursor.execute("""
+                SELECT TOP 3 
+                    PTVSNum, ProcedureDate, SystolicPressure, DiastolicPressure, 
+                    PulseRate, RespiratroryRAte, OxygenSaturation, Temperature, Weight, 
+                    CreatedBy, CreatedOn 
+                FROM PTVS 
+                WHERE PTNum = ? 
+                ORDER BY ProcedureDate DESC, CreatedOn DESC
+            """, (pt_num,))
+            for pv in cursor.fetchall():
+                dt_vs = pv[1] or pv[10]
+                sys_p = pv[2] or "--"
+                dia_p = pv[3] or "--"
+                fc_p = pv[4] or "--"
+                fr_p = pv[5] or "--"
+                sat_p = pv[6] or "--"
+                raw_timeline.append({
+                    "_dt": dt_vs,
+                    "date": dt_vs.strftime('%d/%m/%Y') if dt_vs else "",
+                    "time": dt_vs.strftime('%H:%M') if dt_vs else "",
+                    "type": "Registro de Signos Vitales",
+                    "category": "Monitoreo Clínico",
+                    "badge": "Signos Vitales",
+                    "format_code": "",
+                    "desc": f"TA: {sys_p}/{dia_p} mmHg • FC: {fc_p} lpm • FR: {fr_p} rpm • SpO2: {sat_p}% • Temp: {pv[7] or '--'}°C • Peso: {pv[8] or '--'} kg",
+                    "doctor": str(pv[9] or ""),
+                    "action_type": "vitals_modal"
+                })
+        except Exception as e_vs_tl:
+            print(f"Nota: Error agregando signos vitales a timeline: {e_vs_tl}")
+
+        # G. Movimientos de Cama (UDR_RPT_HABITACION)
+        seen_rooms = set()
+        for r in timeline_rows:
+            if r[1]:
+                room_key = (str(r[0]), r[1].strftime('%Y-%m-%d %H:%M'))
+                if room_key in seen_rooms:
+                    continue
+                seen_rooms.add(room_key)
+                raw_timeline.append({
+                    "_dt": r[1],
+                    "date": r[1].strftime('%d/%m/%Y'),
+                    "time": r[1].strftime('%H:%M'),
+                    "type": "Asignación de Cama",
+                    "category": "Admisión y Traslado",
+                    "badge": "Ubicación",
+                    "format_code": "",
+                    "desc": f"Paciente asignado a {str(r[0] or 'Urgencias')}",
+                    "doctor": "",
+                    "action_type": "none"
+                })
+
+        # ORDENAMIENTO CRONOLÓGICO DESCENDENTE ESTRICTO
+        def event_sort_comparator(item):
+            d = item.get("_dt")
+            if isinstance(d, datetime.datetime):
+                return d
+            elif isinstance(d, datetime.date):
+                return datetime.datetime.combine(d, datetime.time.min)
+            return datetime.datetime.min
+
+        raw_timeline.sort(key=event_sort_comparator, reverse=True)
+
+        # Limpiar clave temporal y asignar
+        for idx, evt in enumerate(raw_timeline):
+            dt_obj = evt.pop("_dt", None)
+            if dt_obj and not evt.get("date"):
+                evt["date"] = dt_obj.strftime('%d/%m/%Y')
+                evt["time"] = dt_obj.strftime('%H:%M')
+            if dt_obj:
+                evt["timestamp"] = dt_obj.isoformat()
+            evt["id"] = f"tl_{idx+1}"
+
+        dashboard_data["timelineEvents"] = raw_timeline
+
         # 7. Resumen de Cargos y Solicitudes en Vivo (Para el Sidebar Derecho)
         dashboard_data["cargos_solicitudes"] = {
-            "dieta_activa": "Ayuno Estricto",
+            "dieta_activa": dashboard_data.get("dietas", {}).get("tipo", "Ayuno Estricto"),
             "medicamentos_activos_count": len(dashboard_data["medications"]),
             "laboratorios_count": len(dashboard_data["laboratorios"]),
             "imagenologia_count": len(dashboard_data["imagenologia"]),
@@ -1007,7 +1157,7 @@ def save_or_update_nota_urgencias(pt_num: str, nota_data: dict) -> dict:
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No se pudo conectar con la base de datos central de SQL Server."}
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1162,6 +1312,95 @@ def save_or_update_nota_urgencias(pt_num: str, nota_data: dict) -> dict:
     finally:
         conn.close()
 
+def save_or_update_consentimiento_32_01(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento 32/01 en la tabla MR_CI_ETE_CARD de SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        # Buscar si ya existe un registro creado hoy para este paciente y episodio
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_ETE_CARD, CreatedOn 
+            FROM MR_CI_ETE_CARD 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_ETE_CARD DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        # Verificar si el último registro fue creado hoy para actualizarlo, o crear uno nuevo
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico_tratante") or "JOSE JOSE PRUEBA ENRIQUEZ")
+        cedula = str(consent_data.get("cedula") or "PRUEBA-99281")
+        alergias = str(consent_data.get("alergias") or "NEGADAS")
+        intetype = str(consent_data.get("tipo_interrogatorio") or "Directo")
+        diagnostico = str(consent_data.get("diagnostico") or "VALORACIÓN CARDIOLÓGICA")
+        expediente = f"PT-{pt_num}"
+
+        # Obtener metadatos del paciente y episodio activo
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+
+        if existing_row and is_today:
+            # ACTUALIZAR Y REVOCAR FIRMAS PREVIAS EN VERTICAL (NOM-024) EN EL REGISTRO ACTIVO
+            sql = """
+            UPDATE MR_CI_ETE_CARD
+            SET N_MEDICO = ?, CEDULA = ?, ALERGIAS = ?, INTETYPE = ?, DIAGNOSTICO = ?, EXPEDIENTE = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL,
+                MR_ST = 'RG', ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_ETE_CARD = ?
+            """
+            cursor.execute(sql, (medico, cedula, alergias, intetype, diagnostico, expediente, c_name, c_key, c_id, pt_id, v_user, latest_mrnum))
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_ETE_CARD (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_ETE_CARDID,
+                EXPEDIENTE, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                N_MEDICO, CEDULA, ALERGIAS, INTETYPE, DIAGNOSTICO
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, ?, GETDATE(), ?, GETDATE(),
+                ?, ?, ?, ?, ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                expediente, v_user, v_user,
+                medico, cedula, alergias, intetype, diagnostico
+            ))
+            
+        conn.commit()
+        return {"success": True, "message": "Consentimiento 32/01 registrado correctamente en SQL Server (Vertical)."}
+        
+    except Exception as e:
+        print(f"Error saving Consentimiento 32_01: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
 
 def fetch_patient_vitals_ptvs(pt_num: str) -> dict:
     """
@@ -1169,13 +1408,7 @@ def fetch_patient_vitals_ptvs(pt_num: str) -> dict:
     """
     conn = get_kh_connection()
     if not conn:
-        return {
-            "systolic": "120", "diastolic": "80", "ta": "120/80",
-            "pulse": "78", "respiratory": "18", "oxygen_saturation": "98",
-            "temperature": "36.5", "weight": "75.0", "height": "1.72",
-            "procedure_date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "source": "fallback"
-        }
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1232,7 +1465,7 @@ def save_patient_vitals_ptvs(pt_num: str, vitals_data: dict, connection_existing
     """
     conn = connection_existing or get_kh_connection()
     if not conn:
-        return {"error": "No se pudo conectar con la base de datos SQL Server."}
+        raise_kh_unavailable()
 
     should_close = (connection_existing is None)
     try:
@@ -1373,7 +1606,7 @@ def fetch_patient_medications_ptdg(pt_num: str) -> list:
     """
     conn = get_kh_connection()
     if not conn:
-        return []
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1440,7 +1673,7 @@ def save_patient_medication_ptdg(pt_num: str, med_data: dict, connection_existin
     """
     conn = connection_existing or get_kh_connection()
     if not conn:
-        return {"error": "No se pudo conectar con la base de datos SQL Server."}
+        raise_kh_unavailable()
 
     should_close = (connection_existing is None)
     try:
@@ -1551,7 +1784,7 @@ def discontinue_patient_medication_ptdg(pt_num: str, ptdg_num: int, reason: str 
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No se pudo conectar con SQL Server."}
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1581,7 +1814,7 @@ def fetch_patient_diet_mr_sol_diet(pt_num: str) -> dict:
     """
     conn = get_kh_connection()
     if not conn:
-        return {}
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1638,7 +1871,7 @@ def save_patient_diet_mr_sol_diet(pt_num: str, diet_data: dict, connection_exist
     """
     conn = connection_existing or get_kh_connection()
     if not conn:
-        return {"error": "No se pudo conectar con la base de datos SQL Server."}
+        raise_kh_unavailable()
 
     should_close = (connection_existing is None)
     try:
@@ -1706,7 +1939,7 @@ def search_patients_kh(query_text: str = "", limit: int = 30) -> list:
     """
     conn = get_kh_connection()
     if not conn:
-        return []
+        raise_kh_unavailable()
 
     try:
         cursor = conn.cursor()
@@ -1799,7 +2032,7 @@ def fetch_allergy_catalog(search_query: str = "", limit: int = 50) -> list:
     """
     conn = get_kh_connection()
     if not conn:
-        return []
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         q = f"%{search_query.strip()}%" if (search_query and search_query.strip()) else "%"
@@ -1836,7 +2069,7 @@ def fetch_patient_allergies_ptal(pt_num: str) -> list:
     """
     conn = get_kh_connection()
     if not conn:
-        return []
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1892,7 +2125,7 @@ def save_patient_allergy_ptal(pt_num: str, allergy_num: str, allergic_since: str
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No hay conexión a la base de datos SQL Server."}
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT PTID FROM PT WHERE PTNum = ?", (int(pt_num),))
@@ -1950,7 +2183,7 @@ def inactivate_patient_allergy_ptal(pt_num: str, ptal_num: int, user: str = None
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No hay conexión a la base de datos SQL Server."}
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         v_user = user or os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
@@ -2011,7 +2244,7 @@ def update_patient_allergies_text(pt_num: str, allergies_text: str, user: str = 
     """
     conn = get_kh_connection()
     if not conn:
-        return {"error": "No hay conexión a SQL Server."}
+        raise_kh_unavailable()
     try:
         cursor = conn.cursor()
         v_user = user or os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
@@ -2046,4 +2279,161 @@ def update_patient_allergies_text(pt_num: str, allergies_text: str, user: str = 
 
 
 
+
+import uuid, datetime, os
+def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento de Ecocardiograma de Estrés con Dobutamina en MR_CI_EED.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_EED, CreatedOn 
+            FROM MR_CI_EED 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_EED DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico") or consent_data.get("medico_tratante") or "")
+        cedula = str(consent_data.get("cedula") or consent_data.get("cedula_profesional") or "")
+        interrogatorio = str(consent_data.get("tipo_interrogatorio") or consent_data.get("interrogatorio") or "Directo")
+        responsable = str(consent_data.get("responsable") or "")
+        comentarios = str(consent_data.get("comentarios") or "")
+        ta = str(consent_data.get("ta") or "")
+        fc_meta = str(consent_data.get("fc_meta") or "")
+        fr = str(consent_data.get("fr") or "")
+        talla = str(consent_data.get("talla") or "")
+        peso = str(consent_data.get("peso") or "")
+        expediente = f"PT-{pt_num}"
+
+        ta_basal, fc_basal, so2_basal, s_basal = str(consent_data.get("ta_basal") or ""), str(consent_data.get("fc_basal") or ""), str(consent_data.get("so2_basal") or ""), str(consent_data.get("s_basal") or "")
+        ta_5mcg, fc_5mcg, so2_5mcg, s_5mcg = str(consent_data.get("ta_5mcg") or ""), str(consent_data.get("fc_5mcg") or ""), str(consent_data.get("so2_5mcg") or ""), str(consent_data.get("s_5mcg") or "")
+        ta_10mcg, fc_10mcg, so2_10mcg, s_10mcg = str(consent_data.get("ta_10mcg") or ""), str(consent_data.get("fc_10mcg") or ""), str(consent_data.get("so2_10mcg") or ""), str(consent_data.get("s_10mcg") or "")
+        ta_20mcg, fc_20mcg, so2_20mcg, s_20mcg = str(consent_data.get("ta_20mcg") or ""), str(consent_data.get("fc_20mcg") or ""), str(consent_data.get("so2_20mcg") or ""), str(consent_data.get("s_20mcg") or "")
+        ta_30mcg, fc_30mcg, so2_30mcg, s_30mcg = str(consent_data.get("ta_30mcg") or ""), str(consent_data.get("fc_30mcg") or ""), str(consent_data.get("so2_30mcg") or ""), str(consent_data.get("s_30mcg") or "")
+        ta_40mcg, fc_40mcg, so2_40mcg, s_40mcg = str(consent_data.get("ta_40mcg") or ""), str(consent_data.get("fc_40mcg") or ""), str(consent_data.get("so2_40mcg") or ""), str(consent_data.get("s_40mcg") or "")
+        ta_antropina, fc_antropina, so2_antropina, s_antropina = str(consent_data.get("ta_antropina") or consent_data.get("ta_atropina") or ""), str(consent_data.get("fc_antropina") or consent_data.get("fc_atropina") or ""), str(consent_data.get("so2_antropina") or consent_data.get("so2_atropina") or ""), str(consent_data.get("s_antropina") or consent_data.get("s_atropina") or "")
+        ta_2min, fc_2min, so2_2min, sintomas_2min = str(consent_data.get("ta_2min") or ""), str(consent_data.get("fc_2min") or ""), str(consent_data.get("so2_2min") or ""), str(consent_data.get("sintomas_2min") or "")
+        ta_4min, fc_4min, so2_4min, sintomas_4min = str(consent_data.get("ta_4min") or ""), str(consent_data.get("fc_4min") or ""), str(consent_data.get("so2_4min") or ""), str(consent_data.get("sintomas_4min") or "")
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+
+        if existing_row:
+            sql = """
+            UPDATE MR_CI_EED
+            SET NOMBRE_MEDICO = ?, CEDULA_PROFESIONAL = ?, INTERROGATORIO = ?, RESPONSABLE = ?, COMENTARIOS = ?,
+                TA = ?, FC_META = ?, FR = ?, TALLA = ?, PESO = ?,
+                TA_BASAL = ?, FC_BASAL = ?, SO2_BASAL = ?, S_BASAL = ?,
+                TA_5MCG = ?, FC_5MCG = ?, SO2_5MCG = ?, S_5MCG = ?,
+                TA_10MCG = ?, FC_10MCG = ?, SO2_10MCG = ?, S_10MCG = ?,
+                TA_20MCG = ?, FC_20MCG = ?, SO2_20MCG = ?, S_20MCG = ?,
+                TA_30MCG = ?, FC_30MCG = ?, SO2_30MCG = ?, S_30MCG = ?,
+                TA_40MCG = ?, FC_40MCG = ?, SO2_40MCG = ?, S_40MCG = ?,
+                TA_ANTROPINA = ?, FC_ANTROPINA = ?, SO2_ANTROPINA = ?, S_ANTROPINA = ?,
+                TA_2MIN = ?, FC_2MIN = ?, SO2_2MIN = ?, SINTOMAS_2MIN = ?,
+                TA_4MIN = ?, FC_4MIN = ?, SO2_4MIN = ?, SINTOMAS_4MIN = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL, MR_ST = 'RG',
+                ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_EED = ?
+            """
+            cursor.execute(sql, (
+                medico, cedula, interrogatorio, responsable, comentarios,
+                ta, fc_meta, fr, talla, peso,
+                ta_basal, fc_basal, so2_basal, s_basal,
+                ta_5mcg, fc_5mcg, so2_5mcg, s_5mcg,
+                ta_10mcg, fc_10mcg, so2_10mcg, s_10mcg,
+                ta_20mcg, fc_20mcg, so2_20mcg, s_20mcg,
+                ta_30mcg, fc_30mcg, so2_30mcg, s_30mcg,
+                ta_40mcg, fc_40mcg, so2_40mcg, s_40mcg,
+                ta_antropina, fc_antropina, so2_antropina, s_antropina,
+                ta_2min, fc_2min, so2_2min, sintomas_2min,
+                ta_4min, fc_4min, so2_4min, sintomas_4min,
+                c_name, c_key, c_id, pt_id,
+                v_user, latest_mrnum
+            ))
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_EED (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_EEDID,
+                EXPEDIENTE, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                NOMBRE_MEDICO, CEDULA_PROFESIONAL, INTERROGATORIO, RESPONSABLE, COMENTARIOS,
+                TA, FC_META, FR, TALLA, PESO,
+                TA_BASAL, FC_BASAL, SO2_BASAL, S_BASAL,
+                TA_5MCG, FC_5MCG, SO2_5MCG, S_5MCG,
+                TA_10MCG, FC_10MCG, SO2_10MCG, S_10MCG,
+                TA_20MCG, FC_20MCG, SO2_20MCG, S_20MCG,
+                TA_30MCG, FC_30MCG, SO2_30MCG, S_30MCG,
+                TA_40MCG, FC_40MCG, SO2_40MCG, S_40MCG,
+                TA_ANTROPINA, FC_ANTROPINA, SO2_ANTROPINA, S_ANTROPINA,
+                TA_2MIN, FC_2MIN, SO2_2MIN, SINTOMAS_2MIN,
+                TA_4MIN, FC_4MIN, SO2_4MIN, SINTOMAS_4MIN
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, ?, GETDATE(), ?, GETDATE(),
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                expediente, v_user, v_user,
+                medico, cedula, interrogatorio, responsable, comentarios,
+                ta, fc_meta, fr, talla, peso,
+                ta_basal, fc_basal, so2_basal, s_basal,
+                ta_5mcg, fc_5mcg, so2_5mcg, s_5mcg,
+                ta_10mcg, fc_10mcg, so2_10mcg, s_10mcg,
+                ta_20mcg, fc_20mcg, so2_20mcg, s_20mcg,
+                ta_30mcg, fc_30mcg, so2_30mcg, s_30mcg,
+                ta_40mcg, fc_40mcg, so2_40mcg, s_40mcg,
+                ta_antropina, fc_antropina, so2_antropina, s_antropina,
+                ta_2min, fc_2min, so2_2min, sintomas_2min,
+                ta_4min, fc_4min, so2_4min, sintomas_4min
+            ))
+
+        conn.commit()
+        return {"status": "success", "message": "Consentimiento EED guardado correctamente en SQL Server"}
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_eed: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
 

@@ -8,7 +8,7 @@ import {
   FiSettings, FiUser, FiMessageSquare, FiPlus, FiClock, FiChevronRight, 
   FiEdit3, FiCheckCircle, FiAlertCircle, FiScissors, FiHome, FiUsers, 
   FiFolder, FiDownload, FiCheck, FiLayers, FiSave, FiX, FiCheckSquare,
-  FiArrowLeft, FiExternalLink, FiShield, FiLock, FiCopy
+  FiArrowLeft, FiExternalLink, FiShield, FiLock, FiCopy, FiServer
 } from 'react-icons/fi';
 import { 
   MdOutlineBloodtype, MdOutlineMonitorHeart, MdOutlineWaterDrop, 
@@ -26,7 +26,44 @@ export default function PatientDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedFormatArea, setSelectedFormatArea] = useState('Todos');
+  const [searchFormatoQuery, setSearchFormatoQuery] = useState('');
   const [selectedFormat, setSelectedFormat] = useState(null); // FORMATO SELECCIONADO EN PESTAÑA FORMATOS
+  const [consentForm3201, setConsentForm3201] = useState({
+    tipo_interrogatorio: 'Directo',
+    testigo1: '',
+    testigo2: '',
+    paciente_o_representante: '',
+    representante_legal: ''
+  });
+  const [consentModal3201, setConsentModal3201] = useState({
+    open: false,
+    isEdit: false,
+    tipo_interrogatorio: 'Directo',
+    testigo1: '',
+    testigo2: '',
+    paciente_o_representante: '',
+    representante_legal: '',
+    saving: false
+  });
+
+  const [consentModalEED, setConsentModalEED] = useState({
+    open: false,
+    isEdit: false,
+    tipo_interrogatorio: 'Directo',
+    responsable: '',
+    comentarios: '',
+    ta: '', fc_meta: '', fr: '', talla: '', peso: '',
+    ta_basal: '', fc_basal: '', so2_basal: '', s_basal: '',
+    ta_5mcg: '', fc_5mcg: '', so2_5mcg: '', s_5mcg: '',
+    ta_10mcg: '', fc_10mcg: '', so2_10mcg: '', s_10mcg: '',
+    ta_20mcg: '', fc_20mcg: '', so2_20mcg: '', s_20mcg: '',
+    ta_30mcg: '', fc_30mcg: '', so2_30mcg: '', s_30mcg: '',
+    ta_40mcg: '', fc_40mcg: '', so2_40mcg: '', s_40mcg: '',
+    ta_antropina: '', fc_antropina: '', so2_antropina: '', s_antropina: '',
+    ta_2min: '', fc_2min: '', so2_2min: '', sintomas_2min: '',
+    ta_4min: '', fc_4min: '', so2_4min: '', sintomas_4min: '',
+    saving: false
+  });
   const [firmas, setFirmas] = useState([]); // Firmas biométricas de PostgreSQL
 
   // Lector Biométrico DigitalPersona
@@ -317,6 +354,8 @@ export default function PatientDashboard() {
   useEscapeKey(discontinueModal.open, () => setDiscontinueModal(prev => ({ ...prev, open: false })));
   useEscapeKey(dietModal.open, () => setDietModal(prev => ({ ...prev, open: false, waitingFingerprint: false })));
   useEscapeKey(allergyModal.open, () => setAllergyModal(prev => ({ ...prev, open: false })));
+  useEscapeKey(consentModal3201.open, () => setConsentModal3201(prev => ({ ...prev, open: false })));
+  useEscapeKey(consentModalEED.open, () => setConsentModalEED(prev => ({ ...prev, open: false })));
 
   const fetchPatientAllergies = async () => {
     try {
@@ -476,6 +515,7 @@ export default function PatientDashboard() {
     mip: ''
   });
   const [savingNota, setSavingNota] = useState(false);
+  const [savingConsent, setSavingConsent] = useState(false);
 
   useEscapeKey(notaModal.open, () => setNotaModal(prev => ({ ...prev, open: false })));
 
@@ -500,6 +540,20 @@ export default function PatientDashboard() {
       
       if (res.data && res.data.patient && !res.data.error) {
         setData(res.data);
+        if (res.data.consentimiento_32_01) {
+          setConsentForm3201({
+            tipo_interrogatorio: res.data.consentimiento_32_01.tipo_interrogatorio || 'Directo',
+            testigo1: res.data.consentimiento_32_01.testigo1 || '',
+            testigo2: res.data.consentimiento_32_01.testigo2 || '',
+            paciente_o_representante: res.data.consentimiento_32_01.paciente_o_representante || res.data.patient.name || '',
+            representante_legal: res.data.consentimiento_32_01.representante_legal || ''
+          });
+        } else {
+          setConsentForm3201(prev => ({
+            ...prev,
+            paciente_o_representante: res.data.patient.name,
+          }));
+        }
       } else {
         setError(res.data?.error || res.data?.detail || "Error al obtener datos");
       }
@@ -517,12 +571,14 @@ export default function PatientDashboard() {
   }, [patientId]);
 
   // Manejar captura de huella para firmar documento
-  const handleOpenBiometricSign = (slot, title, content) => {
+  const handleOpenBiometricSign = (slot, title, content, codigoFormato, tipoDocumento) => {
     setSigningModal({
       open: true,
       slot,
       title,
       content,
+      codigoFormato,
+      tipoDocumento,
       submitting: false,
       successMsg: null,
       errorMsg: null
@@ -542,8 +598,8 @@ export default function PatientDashboard() {
         try {
           setSigningModal(prev => ({ ...prev, submitting: true, errorMsg: null }));
           const res = await api.post(`/ehr/paciente/${patientId}/firmar-biometrico`, {
-            codigo_formato: 'HE-DIRMED-SINPRO-PLT-87/01',
-            tipo_documento: `Nota de Evolución de Urgencias (Evolución ${signingModal.slot})`,
+            codigo_formato: signingModal.codigoFormato || 'HE-DIRMED-SINPRO-PLT-87/01',
+            tipo_documento: signingModal.tipoDocumento || `Nota de Evolución de Urgencias (Evolución ${signingModal.slot})`,
             evolution_slot: signingModal.slot,
             fmd_template: dpFmd,
             contenido_resumen: signingModal.content
@@ -837,15 +893,143 @@ export default function PatientDashboard() {
     }
   };
 
-  // Filtrado de formatos
-  const allFormatos = formatos_disponibles.flatMap(cat => cat.formatos.map(f => ({ ...f, area: cat.area })));
-  const filteredFormatos = selectedFormatArea === 'Todos' 
+  const handleOpenNewConsent3201 = () => {
+    setConsentModal3201({
+      open: true,
+      isEdit: false,
+      tipo_interrogatorio: 'Directo',
+      testigo1: '',
+      testigo2: '',
+      paciente_o_representante: data?.patient?.name || '',
+      representante_legal: '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent3201 = () => {
+    const c = data?.consentimiento_32_01 || {};
+    setConsentModal3201({
+      open: true,
+      isEdit: true,
+      tipo_interrogatorio: c.tipo_interrogatorio || consentForm3201.tipo_interrogatorio || 'Directo',
+      testigo1: c.testigo1 || consentForm3201.testigo1 || '',
+      testigo2: c.testigo2 || consentForm3201.testigo2 || '',
+      paciente_o_representante: c.paciente_o_representante || consentForm3201.paciente_o_representante || data?.patient?.name || '',
+      representante_legal: c.representante_legal || consentForm3201.representante_legal || '',
+      saving: false
+    });
+  };
+
+  const handleSaveConsentModal3201 = async (e) => {
+    e.preventDefault();
+    setConsentModal3201(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = {
+        tipo_interrogatorio: consentModal3201.tipo_interrogatorio,
+        testigo1: consentModal3201.testigo1,
+        testigo2: consentModal3201.testigo2,
+        paciente_o_representante: consentModal3201.paciente_o_representante || data?.patient?.name || '',
+        representante_legal: consentModal3201.representante_legal || '',
+        medico_tratante: data?.patient?.attending || 'JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: data?.patient?.cedula || 'PRUEBA-99281',
+        alergias: data?.patient?.allergies || 'NEGADAS',
+        diagnostico: data?.patient?.diagnostico || 'VALORACIÓN CARDIOLÓGICA'
+      };
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-32-01`, payload);
+      if (res.data?.success || !res.data?.error) {
+        setConsentForm3201(payload);
+        setConsentModal3201(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert("¡Consentimiento 32/01 guardado con éxito en el expediente SQL Server!\n(Al modificar el documento, cualquier firma digital previa se revocó conforme a la NOM-024)");
+      } else {
+        alert(res.data?.error || "Error al guardar el consentimiento.");
+        setConsentModal3201(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error("Error saving consent:", err);
+      alert("Error al conectar con el servidor para guardar el consentimiento.");
+      setConsentModal3201(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleOpenNewConsentEED = () => {
+    setConsentModalEED({
+      open: true, isEdit: false, tipo_interrogatorio: 'Directo', responsable: '', comentarios: '',
+      ta: '', fc_meta: '', fr: '', talla: '', peso: '',
+      ta_basal: '', fc_basal: '', so2_basal: '', s_basal: '',
+      ta_5mcg: '', fc_5mcg: '', so2_5mcg: '', s_5mcg: '',
+      ta_10mcg: '', fc_10mcg: '', so2_10mcg: '', s_10mcg: '',
+      ta_20mcg: '', fc_20mcg: '', so2_20mcg: '', s_20mcg: '',
+      ta_30mcg: '', fc_30mcg: '', so2_30mcg: '', s_30mcg: '',
+      ta_40mcg: '', fc_40mcg: '', so2_40mcg: '', s_40mcg: '',
+      ta_antropina: '', fc_antropina: '', so2_antropina: '', s_antropina: '',
+      ta_2min: '', fc_2min: '', so2_2min: '', sintomas_2min: '',
+      ta_4min: '', fc_4min: '', so2_4min: '', sintomas_4min: '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsentEED = () => {
+    const c = data?.consentimiento_eed || {};
+    setConsentModalEED({
+      open: true, isEdit: true, saving: false,
+      tipo_interrogatorio: c.tipo_interrogatorio || 'Directo',
+      responsable: c.responsable || '',
+      comentarios: c.comentarios || '',
+      ta: c.ta || '', fc_meta: c.fc_meta || '', fr: c.fr || '', talla: c.talla || '', peso: c.peso || '',
+      ta_basal: c.ta_basal || '', fc_basal: c.fc_basal || '', so2_basal: c.so2_basal || '', s_basal: c.s_basal || '',
+      ta_5mcg: c.ta_5mcg || '', fc_5mcg: c.fc_5mcg || '', so2_5mcg: c.so2_5mcg || '', s_5mcg: c.s_5mcg || '',
+      ta_10mcg: c.ta_10mcg || '', fc_10mcg: c.fc_10mcg || '', so2_10mcg: c.so2_10mcg || '', s_10mcg: c.s_10mcg || '',
+      ta_20mcg: c.ta_20mcg || '', fc_20mcg: c.fc_20mcg || '', so2_20mcg: c.so2_20mcg || '', s_20mcg: c.s_20mcg || '',
+      ta_30mcg: c.ta_30mcg || '', fc_30mcg: c.fc_30mcg || '', so2_30mcg: c.so2_30mcg || '', s_30mcg: c.s_30mcg || '',
+      ta_40mcg: c.ta_40mcg || '', fc_40mcg: c.fc_40mcg || '', so2_40mcg: c.so2_40mcg || '', s_40mcg: c.s_40mcg || '',
+      ta_antropina: c.ta_atropina || '', fc_antropina: c.fc_atropina || '', so2_antropina: c.so2_atropina || '', s_antropina: c.s_atropina || '',
+      ta_2min: c.ta_2min || '', fc_2min: c.fc_2min || '', so2_2min: c.so2_2min || '', sintomas_2min: c.sintomas_2min || '',
+      ta_4min: c.ta_4min || '', fc_4min: c.fc_4min || '', so2_4min: c.so2_4min || '', sintomas_4min: c.sintomas_4min || ''
+    });
+  };
+
+  const handleSaveConsentModalEED = async (e) => {
+    e.preventDefault();
+    setConsentModalEED(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = { ...consentModalEED };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const token = localStorage.getItem('token');
+        const res = await api.post('/ehr/paciente/'+patientId+'/consentimiento-eed', payload, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data?.success || !res.data?.error) {
+        setConsentModalEED(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert('Guardado con exito.');
+      } else {
+        alert(res.data?.error || 'Error al guardar.');
+        setConsentModalEED(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      setConsentModalEED(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  // Filtrado de formatos (únicamente los formatos activos / desarrollados)
+  const allFormatos = formatos_disponibles
+    .flatMap(cat => cat.formatos.map(f => ({ ...f, area: cat.area })))
+    .filter(f => f.activo !== false);
+
+  const availableAreas = ['Todos', ...Array.from(new Set(allFormatos.map(f => f.area)))];
+
+  const filteredFormatos = (selectedFormatArea === 'Todos' 
     ? allFormatos 
-    : allFormatos.filter(f => f.area === selectedFormatArea);
+    : allFormatos.filter(f => f.area === selectedFormatArea)
+  ).filter(f => f.nombre.toLowerCase().includes(searchFormatoQuery.toLowerCase()) || f.codigo.toLowerCase().includes(searchFormatoQuery.toLowerCase()));
 
   const tabsList = [
     { id: 'Timeline', label: 'Timeline (Historial)', icon: <FiClock /> },
-    { id: 'Formatos Clínicos', label: 'Formatos Clínicos (+100)', icon: <FiFileText /> },
+    { id: 'Formatos Clínicos', label: `Formatos Clínicos (${allFormatos.length})`, icon: <FiFileText /> },
     { id: 'Medicamentos', label: 'Medicamentos', icon: <MdOutlineMedicalServices /> },
     { id: 'Dietas y Cuidados', label: 'Dietas y Cuidados', icon: <MdOutlineRestaurant /> },
     { id: 'Laboratorios', label: 'Laboratorios', icon: <MdOutlineBiotech /> },
@@ -1025,45 +1209,130 @@ export default function PatientDashboard() {
                 {timelineEvents.length === 0 ? (
                   <div className="text-center py-8 text-slate-400 text-xs">No hay eventos clínicos registrados aún.</div>
                 ) : (
-                  timelineEvents.map((evt, idx) => (
-                    <div key={idx} className="relative flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-full bg-hes-blue-main text-white flex items-center justify-center shadow shrink-0 z-10 text-xs font-bold ring-4 ring-white">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 bg-slate-50 hover:bg-white p-4 rounded-xl border border-slate-200 shadow-xs hover:border-hes-blue-main/40 transition-all">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
-                          <span className="font-bold text-slate-800 text-sm">{evt.type}</span>
-                          <span className="text-xs font-semibold text-hes-blue-main bg-blue-50 px-2 py-0.5 rounded self-start sm:self-auto">
-                            {evt.date} • {evt.time}
-                          </span>
+                  timelineEvents.map((evt, idx) => {
+                    const matchingFirma = firmas.find(f => 
+                      (evt.format_code && f.codigo_formato === evt.format_code) ||
+                      (evt.type?.includes('Evolución') && f.evolution_slot === (evt.type.includes('1') ? 1 : evt.type.includes('2') ? 2 : 3))
+                    );
+                    const isSigned = Boolean(evt.signed || matchingFirma);
+
+                    const getBadgeClass = (badge, cat) => {
+                      if (badge?.includes('87/01') || cat?.includes('Evolución')) return 'bg-blue-50 text-hes-blue-main border-blue-200';
+                      if (badge?.includes('32/01') || badge?.includes('EED') || cat?.includes('Consentimiento')) return 'bg-purple-50 text-purple-700 border-purple-200';
+                      if (badge?.includes('Dieta') || cat?.includes('Nutrición')) return 'bg-amber-50 text-amber-700 border-amber-200';
+                      if (badge?.includes('Medicamento') || cat?.includes('Farmaco')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                      if (badge?.includes('Signos') || cat?.includes('Monitoreo')) return 'bg-teal-50 text-teal-700 border-teal-200';
+                      return 'bg-slate-100 text-slate-700 border-slate-200';
+                    };
+
+                    return (
+                      <div key={evt.id || idx} className="relative flex items-start gap-4 group">
+                        <div className="w-8 h-8 rounded-full bg-hes-blue-main text-white flex items-center justify-center shadow shrink-0 z-10 text-xs font-bold ring-4 ring-white">
+                          {idx + 1}
                         </div>
-                        <p className="text-xs text-slate-600 leading-relaxed mt-1">{evt.desc}</p>
-                        
-                        {evt.type && evt.type.startsWith('Nota de Evolución') && (
-                          <div className="flex items-center gap-3 mt-3 pt-2 border-t border-slate-200/60">
-                            <button 
-                              onClick={() => {
-                                const fmt = allFormatos.find(f => f.codigo === 'HE-DIRMED-SINPRO-PLT-87/01') || allFormatos[0];
-                                setSelectedFormat(fmt);
-                                setActiveTab('Formatos Clínicos');
-                              }}
-                              className="text-xs font-semibold text-hes-blue-main hover:underline flex items-center gap-1"
-                            >
-                              Ver Formato Oficial <FiChevronRight />
-                            </button>
-                            <a 
-                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="text-xs font-semibold text-emerald-600 hover:underline flex items-center gap-1"
-                            >
-                              <FiDownload /> Imprimir PDF Oficial
-                            </a>
+                        <div className="flex-1 bg-slate-50 hover:bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs hover:border-hes-blue-main/40 transition-all space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-800 text-sm">{evt.type}</span>
+                              {evt.badge && (
+                                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${getBadgeClass(evt.badge, evt.category)}`}>
+                                  {evt.badge}
+                                </span>
+                              )}
+                              {isSigned && (
+                                <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                  <MdVerifiedUser className="text-emerald-600 text-xs" /> Firmado Digitalmente (NOM-024)
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs font-semibold text-hes-blue-main bg-blue-50 px-2.5 py-0.5 rounded-md self-start sm:self-auto border border-blue-100 shrink-0">
+                              {evt.date} • {evt.time}
+                            </span>
                           </div>
-                        )}
+
+                          <p className="text-xs text-slate-600 leading-relaxed">{evt.desc}</p>
+
+                          {/* ACCIONES Y BOTONES DEL EVENTO */}
+                          <div className="flex items-center justify-between flex-wrap gap-2 pt-2.5 mt-2 border-t border-slate-200/60">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              {/* Acción Formato Clínico */}
+                              {evt.format_code && (
+                                <button 
+                                  onClick={() => {
+                                    const fmt = allFormatos.find(f => f.codigo === evt.format_code) || {
+                                      codigo: evt.format_code,
+                                      nombre: evt.type,
+                                      subtitulo: 'Formato Institucional HES',
+                                      area: evt.category || 'Servicios Clínicos'
+                                    };
+                                    setSelectedFormat(fmt);
+                                    setActiveTab('Formatos Clínicos');
+                                  }}
+                                  className="text-xs font-bold text-hes-blue-main hover:underline flex items-center gap-1 bg-white hover:bg-blue-50/60 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                >
+                                  Ver Formato Oficial <FiChevronRight />
+                                </button>
+                              )}
+
+                              {/* Acción Imprimir PDF */}
+                              {evt.pdf_url && (
+                                <a 
+                                  href={`${api.defaults.baseURL}${evt.pdf_url}`} 
+                                  target="_blank" 
+                                  rel="noreferrer"
+                                  className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1 bg-white hover:bg-emerald-50/60 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                >
+                                  <FiDownload /> Imprimir PDF Oficial
+                                </a>
+                              )}
+
+                              {/* Acción Medicamentos */}
+                              {evt.action_type === 'tab_medications' && (
+                                <button 
+                                  onClick={() => setActiveTab('Medicamentos')}
+                                  className="text-xs font-bold text-hes-blue-main hover:underline flex items-center gap-1 bg-white hover:bg-blue-50/60 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                >
+                                  Ver en Medicamentos <FiChevronRight />
+                                </button>
+                              )}
+
+                              {/* Acción Dietas */}
+                              {evt.action_type === 'tab_diets' && (
+                                <button 
+                                  onClick={() => setActiveTab('Dietas y Cuidados')}
+                                  className="text-xs font-bold text-amber-700 hover:underline flex items-center gap-1 bg-white hover:bg-amber-50/60 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                >
+                                  Ver en Dietas y Cuidados <FiChevronRight />
+                                </button>
+                              )}
+
+                              {/* Acción Signos Vitales */}
+                              {evt.action_type === 'vitals_modal' && (
+                                <button 
+                                  onClick={handleOpenVitalsModal}
+                                  className="text-xs font-bold text-teal-700 hover:underline flex items-center gap-1 bg-white hover:bg-teal-50/60 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                >
+                                  <FiActivity /> Registrar / Modificar Signos
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Botón de Auditoría Forense si está firmado */}
+                            {matchingFirma && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAuditModal(matchingFirma)}
+                                className="text-[10px] font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1 transition-colors ml-auto cursor-pointer"
+                                title="Verificar Sello HMAC y Auditoría NOM-024"
+                              >
+                                <MdFingerprint className="text-emerald-600" /> Sello NOM: {matchingFirma.sello_digital ? `${matchingFirma.sello_digital.slice(0, 14)}...` : 'Verificado'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1095,20 +1364,51 @@ export default function PatientDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
-                      <button
-                        onClick={() => handleOpenNewEvol(evoluciones.evolucion2 ? 3 : (evoluciones.evolucion1 ? 2 : 1))}
-                        className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
-                      >
-                        <FiPlus /> Nueva Evolución
-                      </button>
-                      <a 
-                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
-                      >
-                        <FiDownload /> Imprimir Formato General (3 en 1)
-                      </a>
+                      {selectedFormat.codigo === 'HE-DIRMED-SINPRO-PLT-87/01' && (
+                        <>
+                          <button
+                            onClick={() => handleOpenNewEvol(evoluciones.evolucion2 ? 3 : (evoluciones.evolucion1 ? 2 : 1))}
+                            className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiPlus /> Nueva Evolución
+                          </button>
+                          <a 
+                            href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiDownload /> Imprimir Formato General (3 en 1)
+                          </a>
+                        </>
+                      )}
+                      {selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-32/01' && (
+                        <>
+                          {data?.consentimiento_32_01 ? (
+                            <button 
+                              onClick={handleOpenEditConsent3201}
+                              className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiEdit3 /> Editar Consentimiento
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={handleOpenNewConsent3201}
+                              className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiPlus /> Capturar Consentimiento
+                            </button>
+                          )}
+                          <a 
+                            href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-32-01?tipo_interrogatorio=${encodeURIComponent(consentForm3201.tipo_interrogatorio)}&testigo1=${encodeURIComponent(consentForm3201.testigo1)}&testigo2=${encodeURIComponent(consentForm3201.testigo2)}&paciente_o_representante=${encodeURIComponent(consentForm3201.paciente_o_representante || data?.patient?.name || '')}&representante_legal=${encodeURIComponent(consentForm3201.representante_legal || '')}`} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiDownload /> Imprimir Formato (PDF)
+                          </a>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -1261,6 +1561,260 @@ export default function PatientDashboard() {
                         })}
                       </div>
                     </div>
+                  ) : selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-32/01' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                      <div className="pb-3 border-b border-slate-100 flex flex-col md:flex-row gap-4 justify-between md:items-center">
+                        <div>
+                          <h3 className="font-bold text-slate-800 text-base">Consentimiento y Autorización del Procedimiento</h3>
+                          <p className="text-xs text-slate-500">Documento de consentimiento informado institucional conforme a la NOM-004-SSA3-2012.</p>
+                        </div>
+                      </div>
+
+                      {/* SUB-CARD IDENTICAL TO 87/01 EVOLUCION CARDS */}
+                      <div className="border border-slate-200/80 rounded-xl p-5 hover:border-hes-blue-main/40 transition-all bg-slate-50/40 space-y-4">
+                        {/* HEADER DE LA TARJETA */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/60">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                              data?.consentimiento_32_01 ? 'bg-hes-blue-main text-white' : 'bg-slate-200 text-slate-500'
+                            }`}>
+                              1
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-slate-800 text-sm">Consentimiento Informado para Ecocardiograma Transesofágico</span>
+                                {(() => {
+                                  const firmaConsent = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-32/01');
+                                  return firmaConsent ? (
+                                    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      <FiCheckCircle /> Firmado Biométricamente (NOM)
+                                    </span>
+                                  ) : data?.consentimiento_32_01 ? (
+                                    <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      Pendiente de Firma
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      No registrado
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                                <span>Fecha: {new Date().toLocaleDateString('es-MX')}</span>
+                                <span>•</span>
+                                <span>Interrogatorio: <strong>{consentForm3201.tipo_interrogatorio}</strong></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ACCIONES TOP RIGHT (IDÉNTICO A NOTA DE EVOLUCIÓN 87/01) */}
+                          <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                            {data?.consentimiento_32_01 ? (
+                              <>
+                                {(() => {
+                                  const firmaConsent = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-32/01');
+                                  return (
+                                    <button
+                                      onClick={() => handleOpenBiometricSign(0, 'Consentimiento 32/01', JSON.stringify(consentForm3201), 'HE-DIRMED-CONSUL-PLT-32/01', 'Consentimiento Informado para Ecocardiograma Transesofágico')}
+                                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
+                                        firmaConsent 
+                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100' 
+                                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      }`}
+                                      title="Firmar electrónicamente con lector DigitalPersona"
+                                    >
+                                      <MdFingerprint className="text-base" /> {firmaConsent ? 'Refirmar con Huella' : 'Firmar con Huella (NOM)'}
+                                    </button>
+                                  );
+                                })()}
+                                <button
+                                  onClick={handleOpenEditConsent3201}
+                                  className="flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
+                                >
+                                  <FiEdit3 /> Editar
+                                </button>
+                                <a
+                                  href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-32-01?tipo_interrogatorio=${encodeURIComponent(consentForm3201.tipo_interrogatorio)}&testigo1=${encodeURIComponent(consentForm3201.testigo1)}&testigo2=${encodeURIComponent(consentForm3201.testigo2)}&paciente_o_representante=${encodeURIComponent(consentForm3201.paciente_o_representante || data?.patient?.name || '')}&representante_legal=${encodeURIComponent(consentForm3201.representante_legal || '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1 bg-white hover:bg-blue-50 text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
+                                >
+                                  <FiFileText /> Imprimir Formato
+                                </a>
+                              </>
+                            ) : (
+                              <button
+                                onClick={handleOpenNewConsent3201}
+                                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                              >
+                                <FiPlus /> Capturar Consentimiento 32/01
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* CUERPO READ-ONLY SI YA FUE GENERADO */}
+                        {data?.consentimiento_32_01 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                            {/* (A) DATOS DE INTERROGATORIO */}
+                            <div className="p-3.5 bg-white rounded-xl border border-slate-100 space-y-2">
+                              <span className="font-bold text-hes-blue-main block uppercase mb-1">(A) Datos de Interrogatorio y Autorización</span>
+                              <div className="space-y-1.5 text-slate-700">
+                                <div><span className="font-semibold text-slate-500">Tipo de Interrogatorio:</span> <span className="font-bold text-slate-800">{consentForm3201.tipo_interrogatorio}</span></div>
+                                <div><span className="font-semibold text-slate-500">Paciente (Titular):</span> <span className="font-bold text-slate-800">{consentForm3201.paciente_o_representante || data?.patient?.name}</span></div>
+                                <div><span className="font-semibold text-slate-500">Representante Legal:</span> <span className="font-medium text-slate-800">{consentForm3201.representante_legal || 'No especificado / Directo'}</span></div>
+                              </div>
+                            </div>
+
+                            {/* (B) TESTIGOS Y MÉDICO */}
+                            <div className="p-3.5 bg-white rounded-xl border border-slate-100 space-y-2">
+                              <span className="font-bold text-hes-blue-main block uppercase mb-1">(B) Testigos Presenciales y Médico</span>
+                              <div className="space-y-1.5 text-slate-700">
+                                <div><span className="font-semibold text-slate-500">Testigo 1:</span> <span className="font-bold text-slate-800">{consentForm3201.testigo1 || 'Pendiente'}</span></div>
+                                <div><span className="font-semibold text-slate-500">Testigo 2:</span> <span className="font-bold text-slate-800">{consentForm3201.testigo2 || 'Pendiente'}</span></div>
+                                <div><span className="font-semibold text-slate-500">Médico Autorizado:</span> <span className="font-bold text-slate-800">{data?.patient?.attending || 'DR. MEDICO TRATANTE'}</span> <span className="text-slate-500">(Céd. {data?.patient?.cedula || 'PRUEBA-99281'})</span></div>
+                              </div>
+                            </div>
+
+                            {/* PREVIEW EN VIVO DE LA DECLARACIÓN */}
+                            <div className="col-span-1 md:col-span-2 p-3.5 bg-blue-50/50 rounded-xl border border-blue-100 text-xs text-slate-700 leading-relaxed">
+                              <span className="font-bold text-hes-blue-main block uppercase text-[10px] mb-1">Declaración del Procedimiento:</span>
+                              <p className="italic">
+                                "Yo <strong>{consentForm3201.paciente_o_representante || data?.patient?.name}</strong> en calidad de Paciente 
+                                {consentForm3201.representante_legal ? <span> y <strong>{consentForm3201.representante_legal}</strong> en calidad de Representante Legal</span> : ''}, 
+                                acepto voluntariamente y autorizo al Dr(a). <strong>{data?.patient?.attending}</strong> para que practique en la persona del denominado paciente el Ecocardiograma transesofágico..."
+                              </p>
+                            </div>
+
+                            {/* FOOTER DE FIRMA Y MÉDICO */}
+                            <div className="col-span-1 md:col-span-2 pt-2.5 border-t border-slate-200/60 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-[11px]">
+                              <div>
+                                Médico Responsable: <strong className="text-slate-800">{data?.patient?.attending || 'JOSE JOSE PRUEBA ENRIQUEZ'}</strong> (Céd. {data?.patient?.cedula || 'PRUEBA-99281'})
+                              </div>
+                              {(() => {
+                                const firmaConsent = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-32/01');
+                                return firmaConsent ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAuditModal(firmaConsent)}
+                                    className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer text-left"
+                                    title="Haga clic para consultar el Sello HMAC, Tríada de Seguridad y Auditoría NOM"
+                                  >
+                                    <MdVerifiedUser className="text-emerald-600 shrink-0 text-xs" />
+                                    <span>Sello: {firmaConsent.sello_digital ? `${firmaConsent.sello_digital.slice(0, 24)}...` : 'Verificado'} • {firmaConsent.fecha_hora_firma}</span>
+                                    <span className="text-[9px] font-sans font-bold text-hes-blue-main bg-blue-50 px-1.5 py-0.5 rounded ml-1">Ver Auditoría 🔍</span>
+                                  </button>
+                                ) : null;
+                              })()}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                            <p>No se ha registrado aún el consentimiento informado para este paciente en SQL Server.</p>
+                            <button
+                              onClick={handleOpenNewConsent3201}
+                              className="inline-flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiPlus /> Capturar Consentimiento 32/01
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-EED' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full ring-1 ring-slate-100">
+                      <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                              <FiActivity />
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-slate-800 text-sm">{selectedFormat.nombre}</h3>
+                              <div className="flex items-center gap-2 mt-1">
+                                {(() => {
+                                  const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
+                                  return firma ? (
+                                    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      <MdVerifiedUser /> Firmado
+                                    </span>
+                                  ) : data?.consentimiento_eed ? (
+                                    <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      Pendiente de Firma
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                      No registrado
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                            {data?.consentimiento_eed ? (
+                              <>
+                                {(() => {
+                                  const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
+                                  return (
+                                    <button
+                                      onClick={() => handleOpenBiometricSign(0, 'Ecocardiograma Estrés', JSON.stringify(data.consentimiento_eed), 'HE-DIRMED-CONSUL-PLT-EED', 'Consentimiento Informado')}
+                                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${firma ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                    >
+                                      <MdFingerprint className="text-base" /> {firma ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                    </button>
+                                  );
+                                })()}
+                                <button onClick={handleOpenEditConsentEED} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                  <FiEdit3 /> Editar
+                                </button>
+                                <a href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-eed`} target="_blank" rel="noreferrer" className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                  <FiFileText /> Imprimir
+                                </a>
+                              </>
+                            ) : (
+                              <button onClick={handleOpenNewConsentEED} className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">
+                                <FiPlus /> Capturar EED
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="p-4 sm:p-5 bg-white grow flex flex-col">
+                        {data?.consentimiento_eed ? (
+                          <div className="text-xs space-y-4">
+                            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                               <div><span className="text-slate-500 block">Responsable:</span><span className="font-bold text-slate-800">{data.consentimiento_eed.responsable || data.patient.name}</span></div>
+                               <div><span className="text-slate-500 block">TA / FR / Peso / Talla:</span><span className="font-bold text-slate-800">{data.consentimiento_eed.ta} / {data.consentimiento_eed.fr} / {data.consentimiento_eed.peso} / {data.consentimiento_eed.talla}</span></div>
+                            </div>
+                            <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                               <span className="text-hes-blue-main font-bold block mb-1">Comentarios:</span>
+                               <p className="text-slate-700 italic">{data.consentimiento_eed.comentarios || 'Ninguno'}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                               {(() => {
+                                const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
+                                return firma ? (
+                                    <button onClick={() => handleOpenAuditModal(firma)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
+                                        <MdVerifiedUser /> Sello: {firma.sello_digital.slice(0, 20)}...
+                                    </button>
+                                ) : <div/>;
+                               })()}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                            <p>No se ha registrado el Ecocardiograma de Estrés con Dobutamina.</p>
+                            <button onClick={handleOpenNewConsentEED} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
+                              <FiPlus /> Capturar Formato
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ) : (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center space-y-3">
                       <div className="w-12 h-12 rounded-full bg-blue-50 text-hes-blue-main flex items-center justify-center mx-auto text-xl font-bold">
@@ -1281,27 +1835,41 @@ export default function PatientDashboard() {
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-100">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-slate-800">Catálogo Maestro de Formatos Clínicos</h2>
-                        <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200">+100 Formatos HES</span>
+                        <h2 className="text-lg font-bold text-slate-800">Catálogo de Formatos Clínicos</h2>
+                        <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200">{allFormatos.length} Formatos Activos</span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">Expediente clínico conforme a la norma NOM-004-SSA3-2012 y Calidad Institucional.</p>
                     </div>
 
-                    {/* FILTRO POR AREA */}
-                    <div className="flex gap-1.5 overflow-x-auto w-full md:w-auto pb-1">
-                      {['Todos', 'Urgencias', 'Hospitalización', 'Cirugía y Quirófano', 'Consulta Externa e Interconsultas', 'Servicios Auxiliares y Diagnóstico'].map(area => (
-                        <button
-                          key={area}
-                          onClick={() => setSelectedFormatArea(area)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                            selectedFormatArea === area 
-                              ? 'bg-slate-800 text-white' 
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {area.split(' ')[0]}
-                        </button>
-                      ))}
+                    {/* BUSCADOR Y FILTRO POR AREA */}
+                    <div className="flex flex-col md:items-end gap-3 w-full md:w-auto">
+                      <div className="relative w-full md:w-64">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <FiSearch className="text-slate-400" />
+                        </div>
+                        <input
+                          type="text"
+                          className="block w-full pl-10 pr-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-hes-blue-main focus:border-hes-blue-main"
+                          placeholder="Buscar formato o código..."
+                          value={searchFormatoQuery}
+                          onChange={(e) => setSearchFormatoQuery(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex gap-1.5 overflow-x-auto w-full pb-1">
+                        {availableAreas.map(area => (
+                          <button
+                            key={area}
+                            onClick={() => setSelectedFormatArea(area)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                              selectedFormatArea === area 
+                                ? 'bg-slate-800 text-white' 
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {area}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -1355,7 +1923,7 @@ export default function PatientDashboard() {
                                 <FiEdit3 /> Abrir Formato / Capturar
                               </button>
                               <a
-                                href={`${api.defaults.baseURL}${fmt.url_pdf}`}
+                                href={fmt.url_pdf?.startsWith('/api') ? fmt.url_pdf : `${api.defaults.baseURL}${fmt.url_pdf}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
@@ -2212,6 +2780,240 @@ export default function PatientDashboard() {
         </div>
       )}
 
+      {/* MODAL DE CAPTURA / EDICIÓN DE CONSENTIMIENTO INFORMADO (32/01) */}
+      {consentModalEED.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setConsentModalEED({ ...consentModalEED, open: false })}></div>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-hes-blue-main text-white px-5 py-4 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <FiActivity />
+                {consentModalEED.isEdit ? 'Editar Ecocardiograma de Estrés' : 'Capturar Ecocardiograma de Estrés'}
+              </h3>
+              <button onClick={() => setConsentModalEED({ ...consentModalEED, open: false })} className="text-white/80 hover:text-white transition-colors">
+                <FiX size={24} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveConsentModalEED} className="overflow-y-auto p-5 grow bg-slate-50 space-y-6">
+                
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <h4 className="text-sm font-bold text-hes-blue-main mb-3">Datos Generales</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">Responsable</label>
+                            <input required type="text" value={consentModalEED.responsable} onChange={e => setConsentModalEED({...consentModalEED, responsable: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Nombre del familiar o responsable"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo de Interrogatorio</label>
+                            <select value={consentModalEED.tipo_interrogatorio} onChange={e => setConsentModalEED({...consentModalEED, tipo_interrogatorio: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm">
+                                <option value="Directo">Directo</option>
+                                <option value="Indirecto">Indirecto</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">TA</label>
+                            <input type="text" value={consentModalEED.ta} onChange={e => setConsentModalEED({...consentModalEED, ta: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">FC META</label>
+                            <input type="text" value={consentModalEED.fc_meta} onChange={e => setConsentModalEED({...consentModalEED, fc_meta: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">FR</label>
+                            <input type="text" value={consentModalEED.fr} onChange={e => setConsentModalEED({...consentModalEED, fr: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[10px] font-semibold text-slate-700 mb-1">Peso</label>
+                                <input type="text" value={consentModalEED.peso} onChange={e => setConsentModalEED({...consentModalEED, peso: e.target.value})} className="w-full px-2 py-2 border rounded-lg text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-semibold text-slate-700 mb-1">Talla</label>
+                                <input type="text" value={consentModalEED.talla} onChange={e => setConsentModalEED({...consentModalEED, talla: e.target.value})} className="w-full px-2 py-2 border rounded-lg text-sm" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <h4 className="text-sm font-bold text-hes-blue-main mb-3">Monitoreo Hemodinámico</h4>
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-slate-100 text-xs text-slate-700">
+                            <tr>
+                                <th className="px-3 py-2 rounded-tl-lg">Etapa</th>
+                                <th className="px-3 py-2">TA</th>
+                                <th className="px-3 py-2">FC</th>
+                                <th className="px-3 py-2">SO2 %</th>
+                                <th className="px-3 py-2 rounded-tr-lg">Síntomas</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {['basal', '5mcg', '10mcg', '20mcg', '30mcg', '40mcg', 'antropina'].map(stage => (
+                                <tr key={stage}>
+                                    <td className="px-3 py-2 font-semibold text-slate-600 capitalize">{stage === 'antropina' ? 'Atropina' : stage}</td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`ta_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`ta_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`fc_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`fc_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`so2_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`so2_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`s_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`s_${stage}`]: e.target.value})} className="w-full border rounded px-2 py-1 text-xs"/></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <h5 className="text-xs font-bold text-hes-blue-main mt-4 mb-2">Recuperación</h5>
+                    <table className="w-full text-left text-sm">
+                        <tbody className="divide-y divide-slate-100">
+                            {['2min', '4min'].map(stage => (
+                                <tr key={stage}>
+                                    <td className="px-3 py-2 font-semibold text-slate-600">{stage}</td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`ta_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`ta_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`fc_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`fc_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`so2_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`so2_${stage}`]: e.target.value})} className="w-16 border rounded px-2 py-1 text-xs"/></td>
+                                    <td className="px-2 py-1"><input value={consentModalEED[`sintomas_${stage}`]} onChange={e => setConsentModalEED({...consentModalEED, [`sintomas_${stage}`]: e.target.value})} className="w-full border rounded px-2 py-1 text-xs"/></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <label className="block text-sm font-bold text-hes-blue-main mb-2">Comentarios / Incidencias</label>
+                    <textarea value={consentModalEED.comentarios} onChange={e => setConsentModalEED({...consentModalEED, comentarios: e.target.value})} rows="3" className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Escriba aquí los comentarios..."></textarea>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                    <button type="button" onClick={() => setConsentModalEED({ ...consentModalEED, open: false })} className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200">
+                        Cancelar
+                    </button>
+                    <button type="submit" disabled={consentModalEED.saving} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold">
+                        {consentModalEED.saving ? 'Guardando...' : 'Guardar Formato'}
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {consentModal3201.open && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
+            
+            {/* MODAL HEADER */}
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-blue-50 text-hes-blue-main font-bold px-2.5 py-0.5 rounded border border-blue-100">HE-DIRMED-CONSUL-PLT-32/01</span>
+                  <h3 className="text-lg font-bold text-slate-800">
+                    {consentModal3201.isEdit ? 'Editar Consentimiento Informado' : 'Capturar Consentimiento Informado'}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">Paciente: <strong>{data?.patient?.name}</strong> • Expediente: <strong>{data?.patient?.mrn}</strong></p>
+              </div>
+              <button 
+                onClick={() => setConsentModal3201(prev => ({ ...prev, open: false }))}
+                className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1"
+              >
+                <FiX />
+              </button>
+            </div>
+
+            {/* ADVERTENCIA NOM-024 SI ES EDICIÓN */}
+            {consentModal3201.isEdit && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                <span className="text-base leading-none">⚠️</span>
+                <div>
+                  <strong>Aviso de Integridad (NOM-024-SSA3-2012):</strong>
+                  <p className="text-[11px] mt-0.5">Al modificar y guardar cambios en este documento, cualquier firma electrónica o huella previa quedará revocada automáticamente para preservar la inmutabilidad legal.</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveConsentModal3201} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Tipo de Interrogatorio *</label>
+                  <select 
+                    value={consentModal3201.tipo_interrogatorio}
+                    onChange={(e) => setConsentModal3201({ ...consentModal3201, tipo_interrogatorio: e.target.value })}
+                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-bold text-hes-blue-main"
+                  >
+                    <option value="Directo">Directo (Paciente)</option>
+                    <option value="Indirecto">Indirecto (Familiar / Representante Legal)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre del Paciente (Titular) *</label>
+                  <input 
+                    type="text" 
+                    value={consentModal3201.paciente_o_representante}
+                    onChange={(e) => setConsentModal3201({ ...consentModal3201, paciente_o_representante: e.target.value })}
+                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                    placeholder="Nombre completo del paciente"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre del Representante Legal / Tutor (si aplica)</label>
+                  <input 
+                    type="text" 
+                    value={consentModal3201.representante_legal}
+                    onChange={(e) => setConsentModal3201({ ...consentModal3201, representante_legal: e.target.value })}
+                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs"
+                    placeholder="Nombre del familiar o tutor legal"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 1 (Nombre Completo) *</label>
+                  <input 
+                    type="text" 
+                    value={consentModal3201.testigo1}
+                    onChange={(e) => setConsentModal3201({ ...consentModal3201, testigo1: e.target.value })}
+                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs"
+                    placeholder="Nombre completo de Testigo 1"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 2 (Nombre Completo) *</label>
+                  <input 
+                    type="text" 
+                    value={consentModal3201.testigo2}
+                    onChange={(e) => setConsentModal3201({ ...consentModal3201, testigo2: e.target.value })}
+                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs"
+                    placeholder="Nombre completo de Testigo 2"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* MODAL FOOTER */}
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button 
+                  type="button"
+                  onClick={() => setConsentModal3201(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={consentModal3201.saving}
+                  className="px-6 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                >
+                  <FiSave /> {consentModal3201.saving ? 'Guardando en Vertical...' : 'Guardar en Expediente'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE AUDITORÍA Y VERIFICACIÓN DE INTEGRIDAD FORENSE NOM */}
       {auditModal.open && auditModal.firma && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -2321,6 +3123,48 @@ export default function PatientDashboard() {
 
               </div>
             </div>
+
+            {/* FIRMA ELECTRÓNICA NATIVA DE VERTICAL (EHR HOST) */}
+            {auditModal.verification?.firma_vertical?.disponible && (
+              <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wide">
+                    <FiServer className="text-hes-blue-main" /> Firma Electrónica Nativa Vertical (EHR Host)
+                    <span className="text-[10px] font-black bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
+                      ✓ Sincronizado en Vertical
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(auditModal.verification.firma_vertical.cadena_firma || '');
+                      setAuditModal(prev => ({ ...prev, copied: 'vertical' }));
+                      setTimeout(() => setAuditModal(prev => ({ ...prev, copied: null })), 2000);
+                    }}
+                    className="text-xs font-bold text-hes-blue-main hover:underline flex items-center gap-1"
+                  >
+                    <FiCheckSquare /> {auditModal.copied === 'vertical' ? '¡Copiado!' : 'Copiar Firma Vertical'}
+                  </button>
+                </div>
+                
+                <div className="text-[11px] text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+                  <span>Médico Vertical: <strong className="text-slate-800">{auditModal.verification.firma_vertical.firmado_por}</strong></span>
+                  {auditModal.verification.firma_vertical.fecha_firma && (
+                    <span>Fecha: <strong className="text-slate-800">{auditModal.verification.firma_vertical.fecha_firma}</strong></span>
+                  )}
+                  {auditModal.verification.firma_vertical.controlador && (
+                    <span className="font-mono text-[10px] text-slate-500">[{auditModal.verification.firma_vertical.controlador}]</span>
+                  )}
+                </div>
+
+                <div className="p-2.5 bg-slate-900 text-blue-300 font-mono text-[10px] rounded-xl break-all select-all shadow-inner max-h-24 overflow-y-auto leading-relaxed">
+                  {auditModal.verification.firma_vertical.cadena_firma}
+                </div>
+                <div className="text-[10px] text-slate-500 italic">
+                  Token criptográfico generado por el motor central de Vertical vinculado a este expediente médico.
+                </div>
+              </div>
+            )}
 
             {/* SELLO CRIPTOGRÁFICO DIGITAL */}
             <div className="space-y-1.5">

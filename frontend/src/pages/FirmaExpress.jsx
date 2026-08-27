@@ -6,10 +6,12 @@ import { FiCheckCircle, FiClock, FiFileText, FiUser, FiUsers, FiActivity, FiMapP
 import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
+import AlertBanner from '../components/ui/AlertBanner';
 
 export default function FirmaExpress() {
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial, pacientes
 
+  const [apiError, setApiError] = useState(null);
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
   const [filterPacientesTab, setFilterPacientesTab] = useState('');
@@ -60,11 +62,13 @@ export default function FirmaExpress() {
   }, [navigate]);
 
   const fetchPendientes = async (id) => {
+    setApiError(null);
     try {
       const res = await api.get(`/atenciones/pendientes/${id}`);
       setPendientes(res.data);
     } catch(e) {
-      console.error(e);
+      const msg = e.response?.data?.detail || "Servicio no disponible al cargar atenciones pendientes.";
+      setApiError(msg);
     }
   };
 
@@ -77,11 +81,15 @@ export default function FirmaExpress() {
 
   const fetchHistorial = async (id) => {
     if(!id) return;
+    setApiError(null);
     try {
       const token = localStorage.getItem('token');
       const res = await api.get(`/atenciones/historial/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setHistorial(res.data);
-    } catch (error) { console.error("Error cargando historial", error); }
+    } catch (error) { 
+      const msg = error.response?.data?.detail || "Servicio no disponible al cargar historial de firmas.";
+      setApiError(msg);
+    }
   };
 
   const fetchCatalogos = async () => {
@@ -93,7 +101,8 @@ export default function FirmaExpress() {
       const resP = await api.get('/pacientes');
       setPacientes(resP.data);
     } catch(e) {
-      console.error(e);
+      const msg = e.response?.data?.detail || "Servicio no disponible al cargar catálogos.";
+      setApiError(msg);
     }
   };
 
@@ -279,14 +288,31 @@ export default function FirmaExpress() {
             </h1>
             <button 
               onClick={() => {
-                fetchPendientes(medico.medico_id);
-                fetchHistorial(medico.medico_id);
+                if (medico?.medico_id) {
+                  fetchPendientes(medico.medico_id);
+                  fetchHistorial(medico.medico_id);
+                  fetchCatalogos();
+                }
               }}
               className="text-sm font-bold text-hes-blue-main hover:underline flex items-center gap-1 bg-blue-50 px-3 py-1 rounded-full"
             >
               <FiActivity /> Refrescar
             </button>
           </div>
+
+          {/* Banner de error / 503 */}
+          <AlertBanner 
+            message={apiError} 
+            type="error" 
+            onRetry={() => {
+              if (medico?.medico_id) {
+                fetchPendientes(medico.medico_id);
+                fetchHistorial(medico.medico_id);
+                fetchCatalogos();
+              }
+            }} 
+            onClose={() => setApiError(null)} 
+          />
 
           {activeTab === 'pendientes' && (
             <>

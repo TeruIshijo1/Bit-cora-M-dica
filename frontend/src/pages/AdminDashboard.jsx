@@ -72,6 +72,7 @@ export default function AdminDashboard() {
   const [areas, setAreas] = useState([]);
   const [tipos, setTipos] = useState([]);
   const [tiposAtencion, setTiposAtencion] = useState([]);
+  const [formatosDisponibles, setFormatosDisponibles] = useState([]);
   const [notaModal, setNotaModal] = useState({ open: false, folio: '', text: '' });
   const [newArea, setNewArea] = useState('');
   const [newTipo, setNewTipo] = useState('');
@@ -79,7 +80,17 @@ export default function AdminDashboard() {
   // Search state
   const [medicoSearchTerm, setMedicoSearchTerm] = useState('');
   const [usuarios, setUsuarios] = useState([]);
-  const [newUser, setNewUser] = useState({ username: '', password: '', rol: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', rol: '', nombre_completo: '', permisos_modulos: '{}', formatos_permitidos: '[]' });
+  const [userPermsObj, setUserPermsObj] = useState({
+    admin: false,
+    rh: false,
+    camas: false,
+    agenda: false,
+    ehr: false,
+    captura_enfermeria: false,
+    captura_medica: false
+  });
+  const [userFormatosArr, setUserFormatosArr] = useState([]);
   
   // Edit Medico State
   const [editingMedico, setEditingMedico] = useState(null);
@@ -292,6 +303,8 @@ export default function AdminDashboard() {
       setAreas(resA.data);
       const resT = await api.get('/catalogos/tipos');
       setTipos(resT.data);
+      const resF = await api.get('/catalogos/formatos');
+      setFormatosDisponibles(resF.data);
     } catch(e) { console.error("Error fetching catalogos", e); }
   };
 
@@ -339,8 +352,15 @@ export default function AdminDashboard() {
   const handleAddUser = async () => {
     if(!newUser.username || !newUser.password || !newUser.rol) return;
     try {
-      await api.post('/usuarios', newUser, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setNewUser({ username: '', password: '', rol: '' });
+      const payload = {
+          ...newUser,
+          permisos_modulos: JSON.stringify(userPermsObj),
+          formatos_permitidos: JSON.stringify(userFormatosArr)
+      };
+      await api.post('/usuarios', payload, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setNewUser({ username: '', password: '', rol: '', nombre_completo: '', permisos_modulos: '{}', formatos_permitidos: '' });
+      setUserPermsObj({ admin: false, rh: false, camas: false, agenda: false, ehr: false, captura_enfermeria: false, captura_medica: false });
+      setUserFormatosArr([]);
       fetchUsuarios();
       alert("Usuario creado exitosamente");
     } catch(e) { alert("Error al crear usuario."); }
@@ -558,11 +578,20 @@ export default function AdminDashboard() {
 
   const openEditModal = (m) => {
     setEditingMedico(m.id);
+    let formatosArr = [];
+    if (m.formatos_permitidos) {
+      try {
+        formatosArr = JSON.parse(m.formatos_permitidos);
+      } catch (e) {
+        formatosArr = m.formatos_permitidos.split(',').map(s => s.trim()).filter(s => s);
+      }
+    }
     setEditFormData({
       numero_empleado: m.numero_empleado || '',
       nombre_completo: m.nombre_completo || '',
       especialidad: m.especialidad || '',
-      cedula: m.cedula || ''
+      cedula: m.cedula || '',
+      formatos_permitidos: formatosArr
     });
     setEditFoto(null);
     setEditFotoPreview(m.foto_url ? `${m.foto_url}` : null);
@@ -598,6 +627,7 @@ export default function AdminDashboard() {
     if (editBajoContrato) {
       formDataToSend.append('horario_laboral', JSON.stringify(editHorarioLaboral));
     }
+    formDataToSend.append('formatos_permitidos', JSON.stringify(editFormData.formatos_permitidos || []));
 
     try {
       await api.put(`/medicos/${editingMedico}/datos`, formDataToSend, { headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${getToken()}` } });
@@ -1338,7 +1368,59 @@ export default function AdminDashboard() {
                     {(rolActual === 'admin' || rolActual === 'sistemas') && <option value="rh">Recursos Humanos</option>}
                     {(rolActual === 'admin' || rolActual === 'sistemas') && <option value="admin">Administrador / Sistemas</option>}
                   </select>
-                  <button onClick={handleAddUser} className="w-full bg-hes-blue-main hover:bg-blue-800 text-white font-bold py-2 rounded">Crear Usuario</button>
+                  
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg mt-4">
+                    <h4 className="text-sm font-bold text-slate-700 mb-2">Permisos de Acceso a Módulos</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.admin} onChange={(e) => setUserPermsObj({...userPermsObj, admin: e.target.checked})} className="rounded text-blue-600" /> Dashboard Global (Admin)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.rh} onChange={(e) => setUserPermsObj({...userPermsObj, rh: e.target.checked})} className="rounded text-blue-600" /> Recursos Humanos
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.agenda} onChange={(e) => setUserPermsObj({...userPermsObj, agenda: e.target.checked})} className="rounded text-blue-600" /> Agenda Médica
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.camas} onChange={(e) => setUserPermsObj({...userPermsObj, camas: e.target.checked})} className="rounded text-blue-600" /> Camas / Hospitalización
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.ehr} onChange={(e) => setUserPermsObj({...userPermsObj, ehr: e.target.checked})} className="rounded text-blue-600" /> Expediente Clínico (EHR)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.captura_enfermeria} onChange={(e) => setUserPermsObj({...userPermsObj, captura_enfermeria: e.target.checked})} className="rounded text-blue-600" /> Captura Enfermería
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={userPermsObj.captura_medica} onChange={(e) => setUserPermsObj({...userPermsObj, captura_medica: e.target.checked})} className="rounded text-blue-600" /> Captura Formatos Médicos
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg mt-4 max-h-48 overflow-y-auto">
+                    <h4 className="text-sm font-bold text-slate-700 mb-2">Formatos Clínicos Permitidos (Captura)</h4>
+                    {formatosDisponibles.length === 0 ? (
+                      <p className="text-xs text-slate-500">Cargando formatos...</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {formatosDisponibles.map(f => (
+                          <label key={f.id} className="flex items-center gap-2 text-sm text-slate-600">
+                            <input 
+                              type="checkbox" 
+                              checked={userFormatosArr.includes(f.codigo)}
+                              onChange={(e) => {
+                                if (e.target.checked) setUserFormatosArr([...userFormatosArr, f.codigo]);
+                                else setUserFormatosArr(userFormatosArr.filter(c => c !== f.codigo));
+                              }} 
+                              className="rounded text-blue-600" 
+                            />
+                            {f.nombre} <span className="text-xs text-slate-400">({f.codigo})</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button onClick={handleAddUser} className="w-full bg-hes-blue-main hover:bg-blue-800 text-white font-bold py-2 rounded mt-4">Crear Usuario</button>
                 </div>
               </div>
               <div className="flex flex-col gap-6">
@@ -1424,6 +1506,39 @@ export default function AdminDashboard() {
                   <HorarioBuilder horario={editHorarioLaboral} setHorario={setEditHorarioLaboral} />
                 )}
               </div>
+              
+              <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 shadow-sm mt-4 max-h-64 overflow-y-auto">
+                <label className="block text-sm font-bold text-slate-700 mb-1">Formatos Clínicos Permitidos</label>
+                <p className="text-xs text-slate-500 mb-3">Selecciona los formatos que este médico tiene autorizados firmar. Si desmarcas todos, no podrá generar notas.</p>
+                {formatosDisponibles.length === 0 ? (
+                  <p className="text-xs text-slate-500">Cargando formatos...</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {formatosDisponibles.map(f => {
+                      const isChecked = Array.isArray(editFormData.formatos_permitidos) && editFormData.formatos_permitidos.includes(f.codigo);
+                      return (
+                        <label key={f.id} className="flex items-center gap-2 text-sm text-slate-600">
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const currentArr = Array.isArray(editFormData.formatos_permitidos) ? editFormData.formatos_permitidos : [];
+                              if (e.target.checked) {
+                                setEditFormData({...editFormData, formatos_permitidos: [...currentArr, f.codigo]});
+                              } else {
+                                setEditFormData({...editFormData, formatos_permitidos: currentArr.filter(c => c !== f.codigo)});
+                              }
+                            }} 
+                            className="rounded text-blue-600" 
+                          />
+                          {f.nombre} <span className="text-xs text-slate-400">({f.codigo})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Actualizar Fotografía (Opcional)</label>
                 <div className="flex items-center gap-4">

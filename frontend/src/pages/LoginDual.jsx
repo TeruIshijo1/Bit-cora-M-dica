@@ -20,6 +20,10 @@ export default function LoginDual() {
       const res = await api.post('/auth/login/admin', { username, password });
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('rol', res.data.rol);
+      if (res.data.permisos_modulos) localStorage.setItem('permisos_modulos', res.data.permisos_modulos);
+      else localStorage.removeItem('permisos_modulos');
+      if (res.data.formatos_permitidos) localStorage.setItem('formatos_permitidos', res.data.formatos_permitidos);
+      else localStorage.removeItem('formatos_permitidos');
       const role = res.data.rol;
       if (role === 'admin' || role === 'sistemas') {
         navigate('/admin');
@@ -52,7 +56,9 @@ export default function LoginDual() {
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('rol', res.data.rol);
       localStorage.setItem('medico', JSON.stringify(res.data));
-      navigate('/firma-express');
+      if (res.data.formatos_permitidos) localStorage.setItem('formatos_permitidos', res.data.formatos_permitidos);
+      else localStorage.removeItem('formatos_permitidos');
+      navigate('/agenda');
     } catch (err) {
       setLoginError('Huella no reconocida o médico no registrado.');
       resetFmd();

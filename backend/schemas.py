@@ -12,6 +12,27 @@ class CatalogoResponse(CatalogoBase):
     class Config:
         from_attributes = True
 
+class CatalogoTipoAtencionResponse(BaseModel):
+    id: int
+    nombre: str
+    
+    class Config:
+        from_attributes = True
+
+class CatalogoFormatoCreate(BaseModel):
+    codigo: str
+    nombre: str
+    activo: Optional[bool] = True
+
+class CatalogoFormatoResponse(BaseModel):
+    id: int
+    codigo: str
+    nombre: str
+    activo: bool
+
+    class Config:
+        from_attributes = True
+
 # --- Auth ---
 class LoginAdminRequest(BaseModel):
     username: str
@@ -35,6 +56,8 @@ class Token(BaseModel):
     especialidad: Optional[str] = None
     cedula: Optional[str] = None
     foto_url: Optional[str] = None
+    permisos_modulos: Optional[str] = None
+    formatos_permitidos: Optional[str] = None
 
 # --- Usuarios ---
 class UsuarioCreate(BaseModel):
@@ -42,9 +65,17 @@ class UsuarioCreate(BaseModel):
     password: str
     rol: str
     nombre_completo: Optional[str] = None
+    permisos_modulos: Optional[str] = None
+    formatos_permitidos: Optional[str] = None
 
 class UsuarioPasswordUpdate(BaseModel):
     new_password: str
+
+class UsuarioUpdate(BaseModel):
+    rol: Optional[str] = None
+    nombre_completo: Optional[str] = None
+    permisos_modulos: Optional[str] = None
+    formatos_permitidos: Optional[str] = None
 
 class UsuarioResponse(BaseModel):
     id: int
@@ -52,6 +83,8 @@ class UsuarioResponse(BaseModel):
     nombre_completo: Optional[str] = None
     rol: str
     activo: bool
+    permisos_modulos: Optional[str] = None
+    formatos_permitidos: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -107,6 +140,10 @@ class MedicoCreate(BaseModel):
     horario_laboral: Optional[str] = None
     es_ayudante: bool = False
     medico_asignado_id: Optional[int] = None
+    formatos_permitidos: Optional[str] = None
+
+class MedicoUpdatePermisos(BaseModel):
+    formatos_permitidos: Optional[str] = None
 
 class MedicoResponse(BaseModel):
     id: int
@@ -121,6 +158,7 @@ class MedicoResponse(BaseModel):
     horario_laboral: Optional[str] = None
     es_ayudante: bool
     medico_asignado_id: Optional[int] = None
+    formatos_permitidos: Optional[str] = None
     class Config:
         from_attributes = True
 

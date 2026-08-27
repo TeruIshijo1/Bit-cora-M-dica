@@ -1,9 +1,478 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaUserMd, FaUserAlt } from 'react-icons/fa';
-import { FiFileText, FiArrowRight } from 'react-icons/fi';
+import { FaUserMd, FaUserAlt, FaSearch, FaSync, FaExclamationTriangle, FaInfoCircle, FaBed, FaDoorOpen, FaLock, FaTrashAlt, FaTools, FaBroom, FaBell } from 'react-icons/fa';
+import { FiFileText, FiArrowRight, FiX, FiFilter, FiGrid, FiList, FiBell } from 'react-icons/fi';
 import { getApiUrl } from '../api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+
+const STATUS_CONFIG = {
+  Ocupada: { color: 'red', bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', icon: FaUserAlt, dot: 'bg-red-500', label: 'Ocupada' },
+  Libre: { color: 'emerald', bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-700', icon: FaDoorOpen, dot: 'bg-emerald-500', label: 'Disponible' },
+  Inhabilitada: { color: 'slate', bg: 'bg-slate-50', border: 'border-slate-100', text: 'text-slate-600', icon: FaLock, dot: 'bg-slate-400', label: 'Inhabilitada' },
+};
+
+const CLEANING_STATUS_CONFIG = {
+  'Disponible': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100', icon: FaBroom, label: 'Disponible' },
+  'Limpia': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100', icon: FaBroom, label: 'Limpia' },
+  'Sucia': { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100', icon: FaTrashAlt, label: 'Sucia' },
+  'En proceso de limpieza': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-100', icon: FaBroom, label: 'En limpieza' },
+  'En mantenimiento': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100', icon: FaTools, label: 'Mantenimiento' },
+  'Fuera de servicio': { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200', icon: FaLock, label: 'Fuera de servicio' },
+};
+
+const GROUP_CONFIG = {
+  'PPB (Planta Baja)': { icon: '🏢', color: 'blue' },
+  'PPA (Planta Alta)': { icon: '🏢', color: 'indigo' },
+  'Urgencias': { icon: '🚑', color: 'red' },
+  'Quirófanos': { icon: '🏥', color: 'purple' },
+  'Terapia Intensiva': { icon: '🩺', color: 'pink' },
+  'Corta Estancia': { icon: '⏱️', color: 'orange' },
+  'Otras Áreas': { icon: '📍', color: 'slate' },
+  'Camas Virtuales': { icon: '☁️', color: 'cyan' },
+};
+
+const SkeletonCard = () => (
+  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 animate-pulse h-full">
+    <div className="flex justify-between items-start mb-3">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-slate-200"></div>
+        <div className="h-4 w-24 bg-slate-200 rounded"></div>
+      </div>
+      <div className="h-5 w-20 bg-slate-200 rounded"></div>
+    </div>
+    <div className="space-y-2">
+      <div className="h-4 w-3/4 bg-slate-200 rounded"></div>
+      <div className="h-4 w-1/2 bg-slate-200 rounded"></div>
+      <div className="h-4 w-5/6 bg-slate-200 rounded"></div>
+    </div>
+  </div>
+);
+
+const StatusBadge = ({ status, size = 'sm' }) => {
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.Libre;
+  const Icon = config.icon;
+  const sizes = {
+    sm: 'px-2 py-0.5 text-[10px]',
+    md: 'px-3 py-1 text-xs',
+    lg: 'px-4 py-1.5 text-sm',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full font-semibold border ${sizes[size]} ${config.bg} ${config.border} ${config.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`}></span>
+      {config.label}
+    </span>
+  );
+};
+
+const CleaningBadge = ({ status, size = 'sm' }) => {
+  if (!status) return null;
+  const config = CLEANING_STATUS_CONFIG[status] || CLEANING_STATUS_CONFIG['Disponible'];
+  const Icon = config.icon;
+  const sizes = {
+    sm: 'px-1.5 py-0.5 text-[9px]',
+    md: 'px-2 py-0.5 text-[10px]',
+    lg: 'px-3 py-1 text-xs',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded font-semibold border ${sizes[size]} ${config.bg} ${config.border} ${config.text}`}>
+      <Icon className="w-2.5 h-2.5" />
+      {config.label}
+    </span>
+  );
+};
+
+const BedCard = ({ cama, onClick, isLimpiezaRole, isEnfermeriaRole, navigate }) => {
+  const statusConfig = STATUS_CONFIG[cama.Estatus] || STATUS_CONFIG.Libre;
+  const isOcupada = cama.Estatus === 'Ocupada';
+  const isInhabilitada = cama.Estatus === 'Inhabilitada';
+  const isLibre = cama.Estatus === 'Libre';
+  
+  const cleaningStatus = cama.estado_limpieza;
+  const cleaningConfig = cleaningStatus ? CLEANING_STATUS_CONFIG[cleaningStatus] : null;
+  const isClean = cleaningStatus && (cleaningStatus.toLowerCase() === 'disponible' || cleaningStatus.toLowerCase() === 'limpia');
+  
+  let showCleaningBadge = false;
+  if (cleaningStatus) {
+    if (isClean) {
+      showCleaningBadge = !isOcupada && (isLimpiezaRole || isEnfermeriaRole);
+    } else {
+      showCleaningBadge = true;
+    }
+  }
+
+  const handleClick = (e) => {
+    if (e.target.closest('button, select, a')) return;
+    onClick(cama);
+  };
+
+  const handleEHRClick = (e, ptNum) => {
+    e.stopPropagation();
+    navigate(`/ehr/${ptNum}`);
+  };
+
+  const handleCapturaClick = (e) => {
+    e.stopPropagation();
+    navigate('/captura', {
+      state: {
+        habitacion: cama.RoomName || cama.RoomCode,
+        pacienteNombre: cama.PatientName || '',
+        ptNum: cama.PTNum || '',
+        medicoTratante: cama.DoctorName || '',
+      }
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`relative group bg-white rounded-xl shadow-sm border transition-all duration-200 hover:shadow-lg hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-hes-blue-main/20 focus:ring-offset-2 ${isOcupada ? 'border-red-100' : isInhabilitada ? 'border-slate-200' : 'border-emerald-100'} ${cleaningConfig && !isClean ? cleaningConfig.bg + '/50' : ''}`}
+      style={{ minHeight: '160px' }}
+      aria-label={`Cama ${cama.RoomName}, estado ${cama.Estatus}${cleaningStatus ? `, limpieza ${cleaningStatus}` : ''}`}
+    >
+      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {isOcupada && cama.PTNum && !isLimpiezaRole && (
+          <button
+            onClick={(e) => handleEHRClick(e, cama.PTNum)}
+            className="p-1.5 bg-white/90 hover:bg-slate-100 rounded-lg shadow-sm transition-colors"
+            aria-label="Ver expediente clínico"
+            title="Ver expediente clínico"
+          >
+            <FiFileText className="w-4 h-4 text-slate-500" />
+          </button>
+        )}
+        {isLibre && (
+          <button
+            onClick={handleCapturaClick}
+            className="p-1.5 bg-white/90 hover:bg-slate-100 rounded-lg shadow-sm transition-colors"
+            aria-label="Ingresar paciente"
+            title="Ingresar paciente"
+          >
+            <FiArrowRight className="w-4 h-4 text-emerald-500" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusConfig.dot}`} aria-hidden="true"></span>
+          <h3 className="text-sm font-semibold text-slate-800 truncate max-w-[120px]" title={cama.RoomName}>
+            {cama.RoomName}
+          </h3>
+        </div>
+        <StatusBadge status={cama.Estatus} size="sm" />
+      </div>
+
+      <div className="flex items-center justify-between mb-2">
+        {showCleaningBadge && cleaningConfig && (
+          <CleaningBadge status={cleaningStatus} size="sm" />
+        )}
+        {!showCleaningBadge && cleaningConfig && isClean && !isOcupada && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-emerald-50 text-emerald-700 border-emerald-100">
+            <FaBroom className="w-2.5 h-2.5" />
+            Lista
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center min-h-[60px]">
+        {isOcupada ? (
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <statusConfig.icon className="mt-0.5 flex-shrink-0 text-slate-400 text-[11px]" aria-hidden="true" />
+              <span className="text-xs text-slate-800 font-medium leading-tight truncate block">
+                {isLimpiezaRole ? "*** Paciente Oculto ***" : cama.PatientName || 'Sin nombre'}
+              </span>
+            </div>
+            {cama.DoctorName && !isLimpiezaRole && (
+              <div className="flex items-start gap-2">
+                <FaUserMd className="mt-0.5 flex-shrink-0 text-slate-400 text-[11px]" aria-hidden="true" />
+                <span className="text-[11px] text-slate-500 leading-tight truncate block">{cama.DoctorName}</span>
+              </div>
+            )}
+            {cama.PTNum && !isLimpiezaRole && (
+              <button
+                onClick={(e) => handleEHRClick(e, cama.PTNum)}
+                className="mt-2 flex items-center justify-center gap-1.5 w-full py-1.5 px-2 bg-white hover:bg-slate-50 text-slate-600 rounded-lg text-[11px] font-medium border border-slate-200 hover:border-slate-300 transition-all shadow-sm"
+              >
+                <FiFileText className="text-xs text-slate-400" />
+                <span>Expediente</span>
+              </button>
+            )}
+          </div>
+        ) : isInhabilitada ? (
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 py-2">
+            <FaLock className="text-slate-400 text-[11px]" aria-hidden="true" />
+            <span>No disponible</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 py-2">
+            <FaDoorOpen className="text-emerald-400 text-[11px]" aria-hidden="true" />
+            <span className="font-medium text-emerald-600">Disponible para ingreso</span>
+          </div>
+        )}
+      </div>
+
+      {cama.RoomCode && (
+        <div className="mt-3 pt-2 border-t border-slate-100">
+          <span className="text-[10px] text-slate-400 font-mono">{cama.RoomCode}</span>
+        </div>
+      )}
+    </button>
+  );
+};
+
+const PatientTimelineModal = ({ cama, timelineData, loadingTimeline, onClose, onEHR, onCaptura }) => {
+  if (!cama) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-slide-up">
+        <div className="p-4 bg-gradient-to-r from-hes-blue-main to-hes-blue-cross text-white flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <FaUserAlt className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 id="modal-title" className="text-xl font-bold">{cama.PatientName}</h2>
+              <p className="text-xs text-blue-100">{cama.RoomName} • {cama.Estatus}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors" aria-label="Cerrar">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1">
+          {loadingTimeline ? (
+            <div className="flex justify-center p-8">
+              <div className="animate-spin h-8 w-8 border-4 border-hes-blue-main border-t-transparent rounded-full"></div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {timelineData?.demographics && (
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                      <FiInfoCircle className="w-4 h-4 text-hes-blue-main" />
+                    </div>
+                    <h3 className="font-semibold text-hes-blue-main">Ficha Rápida</h3>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">Edad / Nac.</p>
+                      <p className="font-medium text-slate-800">{timelineData.demographics.BirthDate ? new Date(timelineData.demographics.BirthDate).toLocaleDateString('es-MX') : 'N/D'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">Sexo</p>
+                      <p className="font-medium text-slate-800">{timelineData.demographics.Gender || 'N/D'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">Tipo Sangre</p>
+                      <p className="font-bold text-red-600">{timelineData.demographics.BloodType || 'N/D'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">Religión</p>
+                      <p className="font-medium text-slate-800">{timelineData.demographics.Religion || 'N/D'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {timelineData?.timeline && timelineData.timeline.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                    <FaBed className="w-5 h-5 text-hes-blue-main" />
+                    Línea de Tiempo (Journey)
+                  </h3>
+                  <div className="relative pl-4 border-l border-slate-200">
+                    {timelineData.timeline.map((item, idx) => (
+                      <div key={idx} className="relative pb-6 last:pb-0">
+                        <div className="absolute left-[-8px] top-0 w-3 h-3 rounded-full bg-hes-blue-main border-3 border-white shadow-sm z-10" />
+                        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow ml-1">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="font-bold text-slate-800 text-sm">{item.RoomName}</div>
+                            <span className="text-xs text-slate-400 whitespace-nowrap">
+                              {idx === 0 ? 'Actual' : `#${timelineData.timeline.length - idx}`}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1 text-xs text-slate-500">
+                            <div>
+                              <span className="text-slate-400">Entrada:</span>
+                              <span className="ml-1 font-mono">{new Date(item.EntryDate).toLocaleString('es-MX')}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Salida:</span>
+                              <span className="ml-1 font-mono">{item.ExitDate ? new Date(item.ExitDate).toLocaleString('es-MX') : 'Actual'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!timelineData?.timeline || timelineData.timeline.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <FaInfoCircle className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                  <p className="text-sm">No hay historial de movimientos para este paciente</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t bg-slate-50 flex flex-wrap justify-end gap-2.5">
+          <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors">Cerrar</button>
+          <button onClick={() => { onClose(); onEHR(cama.PTNum); }} className="px-4 py-2 bg-hes-blue-main text-white font-bold hover:bg-hes-blue-cross rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+            <FiFileText className="w-4 h-4" />
+            <span>Ver Expediente (EHR)</span>
+          </button>
+          <button onClick={() => { onClose(); onCaptura(cama); }} className="px-4 py-2 bg-hes-green text-white font-medium hover:bg-green-700 rounded-lg shadow-sm transition-colors">
+            Continuar a Captura
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CleaningModal = ({ cama, estadoLimpieza, setEstadoLimpieza, notasLimpieza, setNotasLimpieza, savingLimpieza, onSave, onClose }) => {
+  if (!cama) return null;
+
+  const config = CLEANING_STATUS_CONFIG[estadoLimpieza] || CLEANING_STATUS_CONFIG['Disponible'];
+  const requiresNotes = ['En mantenimiento', 'Fuera de servicio'].includes(estadoLimpieza);
+  const Icon = config.icon;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="cleaning-modal-title">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+        <div className="p-4 bg-gradient-to-r from-yellow-500 to-amber-500 text-white flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <Icon className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 id="cleaning-modal-title" className="text-xl font-bold">Estado de Limpieza</h2>
+              <p className="text-xs text-yellow-100">{cama.RoomName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors" aria-label="Cerrar">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Estado de la cama</label>
+          <div className="relative">
+            <select
+              value={estadoLimpieza}
+              onChange={(e) => setEstadoLimpieza(e.target.value)}
+              className="w-full appearance-none border border-slate-300 rounded-xl py-3 pl-4 pr-10 bg-white focus:outline-none focus:ring-2 focus:ring-hes-blue-main focus:border-transparent transition-all text-sm"
+            >
+              {Object.entries(CLEANING_STATUS_CONFIG).map(([key, cfg]) => (
+                <option key={key} value={key}>
+                  {cfg.icon ? <span key={key} className="inline-block mr-2" role="img" aria-label={cfg.label}>{cfg.icon === FaBroom ? '🧹' : cfg.icon === FaTrashAlt ? '🗑️' : cfg.icon === FaTools ? '🔧' : cfg.icon === FaLock ? '🔒' : ''}</span> : ''} {key}
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <FiFilter className="w-4 h-4" />
+            </div>
+          </div>
+
+          {requiresNotes && (
+            <div className="mt-4 animate-slide-down">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Motivo ({estadoLimpieza}): <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={notasLimpieza}
+                onChange={(e) => setNotasLimpieza(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-hes-blue-main focus:border-transparent transition-all text-sm resize-none"
+                rows="3"
+                placeholder="Describa el motivo del mantenimiento o por qué está fuera de servicio..."
+                required
+                aria-required="true"
+              />
+              <p className="text-xs text-slate-400 mt-1">Mínimo 10 caracteres</p>
+            </div>
+          )}
+
+          {!requiresNotes && cleaningStatus && (
+            <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <p className="text-sm text-slate-600">
+                <span className="font-medium">Estado actual:</span> {cleaningStatus}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t bg-slate-50 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
+          <button
+            onClick={onSave}
+            disabled={savingLimpieza || (requiresNotes && notasLimpieza.trim().length < 10)}
+            className="px-4 py-2 bg-yellow-500 text-white font-medium hover:bg-yellow-600 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {savingLimpieza ? (
+              <>
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Guardando...
+              </>
+            ) : (
+              'Guardar cambios'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const GroupHeader = ({ groupName, count }) => {
+  const config = GROUP_CONFIG[groupName] || { icon: '📍', color: 'slate' };
+  const colorClasses = {
+    blue: 'bg-blue-50 text-blue-700 border-blue-100',
+    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+    red: 'bg-red-50 text-red-700 border-red-100',
+    purple: 'bg-purple-50 text-purple-700 border-purple-100',
+    pink: 'bg-pink-50 text-pink-700 border-pink-100',
+    orange: 'bg-orange-50 text-orange-700 border-orange-100',
+    slate: 'bg-slate-50 text-slate-700 border-slate-100',
+    cyan: 'bg-cyan-50 text-cyan-700 border-cyan-100',
+  };
+  const classes = colorClasses[config.color] || colorClasses.slate;
+
+  return (
+    <div className="mb-6">
+      <h2 className="flex items-center gap-3 mb-4">
+        <span className="text-xl">{config.icon}</span>
+        <span className="text-lg font-semibold text-slate-800">{groupName}</span>
+        <span className={`ml-auto px-3 py-1 text-xs font-bold rounded-full border ${classes}`}>
+          {count} cama{count !== 1 ? 's' : ''}
+        </span>
+      </h2>
+    </div>
+  );
+};
+
+const EmptyState = ({ title, description, icon: Icon, action }) => (
+  <div className="col-span-full flex flex-col items-center justify-center py-16 px-4 text-center">
+    <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
+      <Icon className="w-8 h-8 text-slate-400" />
+    </div>
+    <h3 className="text-lg font-semibold text-slate-700 mb-1">{title}</h3>
+    <p className="text-sm text-slate-500 mb-6 max-w-sm">{description}</p>
+    {action && (
+      <button onClick={action} className="px-4 py-2 bg-hes-blue-main text-white font-medium rounded-lg hover:bg-hes-blue-cross transition-colors flex items-center gap-2">
+        <FiSync className="w-4 h-4" />
+        {action.label || 'Reintentar'}
+      </button>
+    )}
+  </div>
+);
 
 const CamasDashboard = () => {
   const [camas, setCamas] = useState([]);
@@ -11,15 +480,15 @@ const CamasDashboard = () => {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  
-  // Timeline Modal State
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [viewMode, setViewMode] = useState('grid');
+  const [selectedGroup, setSelectedGroup] = useState(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCama, setSelectedCama] = useState(null);
   const [timelineData, setTimelineData] = useState(null);
   const [loadingTimeline, setLoadingTimeline] = useState(false);
 
-  // Limpieza Modal State
   const [modalLimpiezaOpen, setModalLimpiezaOpen] = useState(false);
   const [estadoLimpieza, setEstadoLimpieza] = useState("Disponible");
   const [notasLimpieza, setNotasLimpieza] = useState("");
@@ -31,38 +500,39 @@ const CamasDashboard = () => {
 
   const navigate = useNavigate();
 
-  // CIERRE DE MODALES CON TECLA ESC
   useEscapeKey(modalOpen && selectedCama, () => setModalOpen(false));
   useEscapeKey(modalLimpiezaOpen && selectedCama, () => setModalLimpiezaOpen(false));
 
   useEffect(() => {
-    fetchCamas();
-    const interval = setInterval(() => {
-      fetchCamas();
-    }, 30000); // Actualizar cada 30 segundos
-    return () => clearInterval(interval);
-  }, []);
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  const fetchCamas = async () => {
+  const fetchCamas = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${getApiUrl()}/camas`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Error al cargar camas');
       const data = await response.json();
       setCamas(Array.isArray(data) ? data : []);
       setLastUpdate(new Date());
-      setLoading(false);
+      setError(null);
     } catch (err) {
       setError(err.message);
+    } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCamaClick = async (cama) => {
+  useEffect(() => {
+    fetchCamas();
+    const interval = setInterval(fetchCamas, 30000);
+    return () => clearInterval(interval);
+  }, [fetchCamas]);
+
+  const handleCamaClick = useCallback(async (cama) => {
     if (isLimpiezaRole) {
       setSelectedCama(cama);
       setEstadoLimpieza(cama.estado_limpieza || "Disponible");
@@ -87,16 +557,23 @@ const CamasDashboard = () => {
       }
       setLoadingTimeline(false);
     } else {
-      proceedToCaptura(cama);
+      navigate('/captura', {
+        state: {
+          habitacion: cama.RoomName || cama.RoomCode,
+          pacienteNombre: cama.PatientName || '',
+          ptNum: cama.PTNum || '',
+          medicoTratante: cama.DoctorName || '',
+        }
+      });
     }
-  };
+  }, [isLimpiezaRole, navigate]);
 
-  const handleGuardarLimpieza = async () => {
-    if ((estadoLimpieza === "En mantenimiento" || estadoLimpieza === "Fuera de servicio") && !notasLimpieza.trim()) {
-      alert(`Debe escribir un motivo si el estado es '${estadoLimpieza}'`);
+  const handleGuardarLimpieza = useCallback(async () => {
+    if ((estadoLimpieza === "En mantenimiento" || estadoLimpieza === "Fuera de servicio") && notasLimpieza.trim().length < 10) {
+      alert(`Debe escribir un motivo (mín. 10 caracteres) si el estado es '${estadoLimpieza}'`);
       return;
     }
-    
+
     setSavingLimpieza(true);
     try {
       const token = localStorage.getItem('token');
@@ -113,7 +590,7 @@ const CamasDashboard = () => {
       });
       if (res.ok) {
         setModalLimpiezaOpen(false);
-        fetchCamas(); // refrescar
+        fetchCamas();
       } else {
         alert("Error al actualizar estado");
       }
@@ -122,21 +599,9 @@ const CamasDashboard = () => {
       alert("Error de red");
     }
     setSavingLimpieza(false);
-  };
+  }, [estadoLimpieza, notasLimpieza, selectedCama, fetchCamas]);
 
-  const proceedToCaptura = (cama) => {
-    navigate('/captura', {
-      state: {
-        habitacion: cama.RoomName || cama.RoomCode,
-        pacienteNombre: cama.PatientName || '',
-        ptNum: cama.PTNum || '',
-        medicoTratante: cama.DoctorName || '',
-      }
-    });
-  };
-
-  // Función para agrupar camas por piso o área
-  const groupCamas = (camasList) => {
+  const groupCamas = useCallback((camasList) => {
     const groups = {
       'PPB (Planta Baja)': [],
       'PPA (Planta Alta)': [],
@@ -171,365 +636,245 @@ const CamasDashboard = () => {
       }
     });
 
-    // Ordenar camas dentro de cada grupo por nombre
     for (const key in groups) {
       groups[key].sort((a, b) => (a.RoomName || '').localeCompare(b.RoomName || ''));
     }
 
     return groups;
-  };
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-full min-h-[500px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  const filteredCamas = camas.filter(c => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
+  const filteredCamas = useMemo(() => {
+    if (!debouncedSearch) return camas;
+    const term = debouncedSearch.toLowerCase();
+    return camas.filter(c => 
       (c.RoomName && c.RoomName.toLowerCase().includes(term)) ||
       (c.RoomCode && c.RoomCode.toLowerCase().includes(term)) ||
       (c.PatientName && c.PatientName.toLowerCase().includes(term)) ||
       (c.PTNum && c.PTNum.toLowerCase().includes(term))
     );
-  });
+  }, [camas, debouncedSearch]);
 
-  const groupedCamas = groupCamas(filteredCamas);
-  const totalCamas = camas.length;
-  const libres = camas.filter(c => c.Estatus === 'Libre').length;
-  const ocupadas = camas.filter(c => c.Estatus === 'Ocupada').length;
-  const inhabilitadas = camas.filter(c => c.Estatus === 'Inhabilitada').length;
+  const groupedCamas = useMemo(() => groupCamas(filteredCamas), [groupCamas, filteredCamas]);
+  
+  const stats = useMemo(() => ({
+    total: camas.length,
+    libres: camas.filter(c => c.Estatus === 'Libre').length,
+    ocupadas: camas.filter(c => c.Estatus === 'Ocupada').length,
+    inhabilitadas: camas.filter(c => c.Estatus === 'Inhabilitada').length,
+    sucias: camas.filter(c => c.estado_limpieza?.toLowerCase() === 'sucia').length,
+    mantenimiento: camas.filter(c => c.estado_limpieza?.toLowerCase() === 'en mantenimiento').length,
+  }), [camas]);
 
-  const camasProblematicas = camas.filter(c => {
-    if (!c.estado_limpieza) return false;
-    const estado = c.estado_limpieza.toLowerCase();
-    return c.Estatus === 'Ocupada' && estado !== 'disponible' && estado !== 'limpia';
-  });
+  const camasProblematicas = useMemo(() => 
+    camas.filter(c => {
+      if (!c.estado_limpieza) return false;
+      const estado = c.estado_limpieza.toLowerCase();
+      return c.Estatus === 'Ocupada' && estado !== 'disponible' && estado !== 'limpia';
+    })
+  , [camas]);
+
+  const visibleGroups = useMemo(() => 
+    Object.entries(groupedCamas).filter(([, list]) => list.length > 0)
+  , [groupedCamas]);
+
+  if (loading && camas.length === 0) {
+    return (
+      <div className="w-full p-6 pb-10 bg-slate-50/50 min-h-screen">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {[...Array(10)].map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full p-6 pb-10 bg-slate-50">
-      {/* Header Metrics */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+    <div className="w-full p-6 pb-10 bg-slate-50/50 min-h-screen">
+      <style jsx>{`
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slide-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fade-in 0.2s ease-out; }
+        .animate-slide-up { animation: slide-up 0.25s ease-out; }
+        .animate-slide-down { animation: slide-down 0.2s ease-out; }
+      `}</style>
+
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Ocupación de Camas</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Fuente: V_MRPT &amp; PC &nbsp;•&nbsp;
-            <span className="text-green-600 font-medium">● Auto-refresh cada 30s</span>
+          <h1 className="text-2xl font-semibold text-slate-800 tracking-tight flex items-center gap-2">
+            <FaBed className="w-6 h-6 text-hes-blue-main" />
+            Ocupación de Camas
+          </h1>
+          <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+            <span className="flex items-center gap-1">
+              <FaInfoCircle className="w-3 h-3" />
+              Fuente: V_MRPT & PC
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="flex items-center gap-1 text-emerald-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Auto-refresh (30s)
+            </span>
             {lastUpdate && (
-              <span className="ml-2 text-gray-400">
-                · Actualizado: {lastUpdate.toLocaleTimeString('es-MX')}
-              </span>
+              <>
+                <span className="text-slate-300">•</span>
+                <span>Actualizado: {lastUpdate.toLocaleTimeString('es-MX', { hour: '2-digit', minute:'2-digit' })}</span>
+              </>
             )}
           </p>
         </div>
         
-        <div className="flex flex-col md:flex-row items-end gap-4">
-          <div className="relative w-full md:w-64">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-              </svg>
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+          <div className="relative w-full sm:w-72">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <FaSearch className="w-4 h-4" />
             </div>
             <input
               type="text"
-              placeholder="Buscar cama, paciente..."
-              className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-full leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm transition-shadow shadow-sm"
+              placeholder="Buscar cama, paciente, código..."
+              className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-xl text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-hes-blue-main/20 focus:border-hes-blue-main transition-all shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              aria-label="Buscar camas"
             />
           </div>
 
-          <div className="flex gap-3 font-medium">
-          <div className="bg-gray-200 text-gray-700 px-4 py-2 rounded-full shadow-sm">
-            Total: {totalCamas}
-          </div>
-          <div className="bg-green-100 text-green-800 px-4 py-2 rounded-full shadow-sm">
-            Libres: {libres}
-          </div>
-          <div className="bg-red-100 text-red-800 px-4 py-2 rounded-full shadow-sm">
-            Ocupadas: {ocupadas}
-          </div>
-          {inhabilitadas > 0 && (
-            <div className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full shadow-sm">
-              Inhabilitadas: {inhabilitadas}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1" role="group" aria-label="Vista">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-hes-blue-main text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                aria-label="Vista cuadrícula"
+                aria-pressed={viewMode === 'grid'}
+              >
+                <FiGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-hes-blue-main text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                aria-label="Vista lista"
+                aria-pressed={viewMode === 'list'}
+              >
+                <FiList className="w-4 h-4" />
+              </button>
             </div>
-          )}
+
+            <div className="flex gap-1.5 text-xs font-medium overflow-x-auto pb-1">
+              <StatPill label="Total" value={stats.total} variant="default" />
+              <StatPill label="Libres" value={stats.libres} variant="success" />
+              <StatPill label="Ocupadas" value={stats.ocupadas} variant="danger" />
+              {stats.inhabilitadas > 0 && <StatPill label="Inhab." value={stats.inhabilitadas} variant="secondary" />}
+              {stats.sucias > 0 && <StatPill label="Sucias" value={stats.sucias} variant="warning" />}
+              {stats.mantenimiento > 0 && <StatPill label="Mant." value={stats.mantenimiento} variant="warning" />}
+            </div>
           </div>
         </div>
       </div>
-      
+
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 shadow-sm">
-          {error}
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl mb-6 shadow-sm text-sm flex items-center gap-2" role="alert">
+          <FaExclamationTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+          <button onClick={fetchCamas} className="ml-auto px-3 py-1 text-xs bg-red-100 hover:bg-red-200 rounded-lg font-medium">Reintentar</button>
         </div>
       )}
 
       {camasProblematicas.length > 0 && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 mb-6 shadow-sm flex items-center justify-between rounded-r">
-          <div className="flex items-center">
-            <span className="text-2xl mr-3">⚠️</span>
-            <div>
-              <p className="font-bold">Notificación de Mantenimiento / Limpieza</p>
-              <p className="text-sm">Hay {camasProblematicas.length} cama(s) con paciente registrado cuyo estado de limpieza NO es "Disponible".</p>
-            </div>
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 mb-6 shadow-sm rounded-xl flex items-start gap-3" role="alert">
+          <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+            <FaBell className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="font-semibold text-sm">Notificación de Mantenimiento / Limpieza</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Hay <strong>{camasProblematicas.length}</strong> cama{camasProblematicas.length !== 1 ? 's' : ''} con paciente registrado 
+              cuyo estado de limpieza <strong>NO es "Disponible"</strong>.
+            </p>
           </div>
         </div>
       )}
 
       {/* Bed Groups */}
-      {Object.entries(groupedCamas).map(([groupName, groupCamasList]) => {
-        if (groupCamasList.length === 0) return null;
-        
-        return (
-          <div key={groupName} className="mb-10">
-            <h2 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b-2 border-gray-200">
-              {groupName} ({groupCamasList.length})
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {groupCamasList.map((cama, index) => {
-                const isLibre = cama.Estatus === 'Libre';
-                const isOcupada = cama.Estatus === 'Ocupada';
-                const isInhabilitada = cama.Estatus === 'Inhabilitada';
-                
-                let borderColor = 'border-green-500';
-                let statusBg = 'bg-green-100 text-green-800';
-                
-                if (isOcupada) {
-                  borderColor = 'border-red-500';
-                  statusBg = 'bg-red-100 text-red-800';
-                } else if (isInhabilitada) {
-                  borderColor = 'border-gray-500';
-                  statusBg = 'bg-gray-200 text-gray-700';
-                }
-
-                const isCleanState = cama.estado_limpieza === 'Disponible' || cama.estado_limpieza?.toLowerCase() === 'limpia';
-                
-                let showBadge = false;
-                let cardBg = 'bg-white';
-                let cleaningBadgeColor = '';
-
-                if (cama.estado_limpieza) {
-                  const estadoLower = cama.estado_limpieza.toLowerCase();
-                  if (estadoLower === 'sucia') {
-                    cardBg = 'bg-orange-50';
-                    cleaningBadgeColor = 'bg-orange-200 text-orange-800 border-orange-300';
-                  } else if (estadoLower === 'en mantenimiento') {
-                    cardBg = 'bg-yellow-50';
-                    cleaningBadgeColor = 'bg-yellow-200 text-yellow-800 border-yellow-300';
-                  } else if (estadoLower === 'fuera de servicio') {
-                    cardBg = 'bg-gray-100 opacity-80';
-                    cleaningBadgeColor = 'bg-gray-300 text-gray-800 border-gray-400';
-                  } else if (estadoLower === 'disponible' || estadoLower === 'limpia') {
-                    cleaningBadgeColor = 'bg-green-50 text-green-700 border-green-200';
-                  } else {
-                    cardBg = 'bg-yellow-50/50';
-                    cleaningBadgeColor = 'bg-yellow-100 text-yellow-800 border-yellow-200';
-                  }
-
-                  if (isCleanState) {
-                    // Solo Enfermeria y Limpieza ven "Limpia/Disponible" si la cama NO está ocupada
-                    if (!isOcupada && (isLimpiezaRole || isEnfermeriaRole)) {
-                      showBadge = true;
-                    }
-                  } else {
-                    // Todos ven otros estados (Sucia, Mantenimiento, etc.)
-                    showBadge = true;
-                  }
-                }
-
-                return (
-                  <div 
-                    key={index} 
-                    onClick={() => handleCamaClick(cama)}
-                    className={`${cardBg} rounded-lg shadow-sm border-t-4 ${borderColor} p-4 hover:shadow-md transition-all cursor-pointer flex flex-col h-full relative`}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <h3 className="text-sm font-bold text-gray-800 truncate pr-2">
-                        {cama.RoomName}
-                      </h3>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider ${statusBg}`}>
-                          {cama.Estatus}
-                        </span>
-                        {showBadge && (
-                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border shadow-sm text-center ${cleaningBadgeColor}`}>
-                             {cama.estado_limpieza}
-                           </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="flex-grow flex flex-col justify-center">
-                      {isOcupada ? (
-                        <div className="space-y-2">
-                          <div className="flex items-start gap-2 text-sm text-gray-800 font-semibold">
-                            <FaUserAlt className="mt-1 flex-shrink-0 text-indigo-900" />
-                            <span className="leading-tight">
-                              {isLimpiezaRole ? "*** Paciente Oculto ***" : cama.PatientName}
-                            </span>
-                          </div>
-                          {cama.DoctorName && !isLimpiezaRole && (
-                            <div className="flex items-start gap-2 text-xs text-blue-600 font-medium">
-                              <FaUserMd className="mt-0.5 flex-shrink-0" />
-                              <span className="leading-tight">{cama.DoctorName}</span>
-                            </div>
-                          )}
-                          {cama.PTNum && !isLimpiezaRole && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/ehr/${cama.PTNum}`);
-                              }}
-                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-2 bg-blue-50 hover:bg-blue-800 text-blue-800 hover:text-white rounded-lg text-xs font-bold border border-blue-200 hover:border-transparent transition-all shadow-2xs"
-                              title="Abrir Expediente Clínico Completo"
-                            >
-                              <FiFileText className="text-xs" />
-                              <span>Ver Expediente EHR</span>
-                              <FiArrowRight className="text-[10px]" />
-                            </button>
-                          )}
-                        </div>
-                      ) : isInhabilitada ? (
-                        <div className="flex items-center gap-2 text-sm text-gray-500 italic">
-                          <span>⚠️ Cama no disponible</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm text-green-600 font-medium">
-                          <span className="text-lg">✓</span> 
-                          <span>Disponible para ingreso</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+      <div className="space-y-8">
+        {visibleGroups.length === 0 ? (
+          <EmptyState
+            title="No se encontraron camas"
+            description={debouncedSearch ? `No hay camas que coincidan con "${debouncedSearch}"` : 'No hay camas registradas en el sistema'}
+            icon={FaBed}
+            action={{ label: 'Limpiar búsqueda', onClick: () => setSearchTerm('') }}
+          />
+        ) : (
+          visibleGroups.map(([groupName, groupCamasList]) => (
+            <div key={groupName}>
+              <GroupHeader groupName={groupName} count={groupCamasList.length} />
+              
+              <div className={`grid gap-3 ${
+                viewMode === 'grid' 
+                  ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' 
+                  : 'grid-cols-1'
+              }`}>
+                {groupCamasList.map((cama, index) => (
+                  <BedCard
+                    key={`${cama.RoomName}-${index}`}
+                    cama={cama}
+                    onClick={handleCamaClick}
+                    isLimpiezaRole={isLimpiezaRole}
+                    isEnfermeriaRole={isEnfermeriaRole}
+                    navigate={navigate}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
-      {modalOpen && selectedCama && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 bg-blue-800 text-white flex justify-between items-center">
-              <h2 className="text-xl font-bold">{selectedCama.PatientName}</h2>
-              <button onClick={() => setModalOpen(false)} className="text-white hover:text-blue-200 font-bold text-xl">&times;</button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto flex-1">
-              {loadingTimeline ? (
-                <div className="flex justify-center p-8"><div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Ficha Rapida */}
-                  {timelineData?.demographics && (
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                      <h3 className="font-semibold text-blue-900 mb-2">Ficha Rápida</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <p><span className="text-slate-500">Edad/Nac.:</span> {timelineData.demographics.BirthDate ? new Date(timelineData.demographics.BirthDate).toLocaleDateString() : 'N/D'}</p>
-                        <p><span className="text-slate-500">Sexo:</span> {timelineData.demographics.Gender || 'N/D'}</p>
-                        <p><span className="text-slate-500">Sangre:</span> <span className="font-bold text-red-600">{timelineData.demographics.BloodType || 'N/D'}</span></p>
-                        <p><span className="text-slate-500">Religión:</span> {timelineData.demographics.Religion || 'N/D'}</p>
-                      </div>
-                    </div>
-                  )}
+          ))
+        )}
+      </div>
 
-                  {/* Timeline */}
-                  {timelineData?.timeline && (
-                    <div>
-                      <h3 className="font-semibold text-slate-800 mb-4">Línea de Tiempo (Journey)</h3>
-                      <div className="space-y-4 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-                        {timelineData.timeline.map((item, idx) => (
-                          <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                            <div className="flex items-center justify-center w-5 h-5 rounded-full border border-white bg-blue-500 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10"></div>
-                            <div className="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.25rem)] bg-white p-3 rounded border border-slate-200 shadow-sm">
-                              <div className="flex justify-between mb-1">
-                                <div className="font-bold text-slate-700 text-sm">{item.RoomName}</div>
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                Entrada: {new Date(item.EntryDate).toLocaleString()}<br/>
-                                Salida: {item.ExitDate ? new Date(item.ExitDate).toLocaleString() : 'Actual'}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border-t bg-slate-50 flex flex-wrap justify-end gap-2.5">
-              <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Cerrar</button>
-              <button 
-                onClick={() => {
-                  setModalOpen(false);
-                  navigate(`/ehr/${selectedCama.PTNum}`);
-                }} 
-                className="px-4 py-2 bg-blue-900 text-white font-bold hover:bg-blue-950 rounded-lg shadow-sm flex items-center gap-1.5"
-              >
-                <FiFileText className="text-base" />
-                <span>Ver Expediente Clínico (EHR)</span>
-              </button>
-              <button onClick={() => proceedToCaptura(selectedCama)} className="px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg shadow-sm">
-                Continuar a Captura
-              </button>
-            </div>
-          </div>
-        </div>
+      {modalOpen && (
+        <PatientTimelineModal
+          cama={selectedCama}
+          timelineData={timelineData}
+          loadingTimeline={loadingTimeline}
+          onClose={() => { setModalOpen(false); setSelectedCama(null); setTimelineData(null); }}
+          onEHR={(ptNum) => navigate(`/ehr/${ptNum}`)}
+          onCaptura={(cama) => navigate('/captura', {
+            state: {
+              habitacion: cama.RoomName || cama.RoomCode,
+              pacienteNombre: cama.PatientName || '',
+              ptNum: cama.PTNum || '',
+              medicoTratante: cama.DoctorName || '',
+            }
+          })}
+        />
       )}
 
-      {modalLimpiezaOpen && selectedCama && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
-            <div className="p-4 bg-yellow-500 text-white flex justify-between items-center">
-              <h2 className="text-xl font-bold">Estado Limpieza: {selectedCama.RoomName}</h2>
-              <button onClick={() => setModalLimpiezaOpen(false)} className="text-white hover:text-yellow-100 font-bold text-xl">&times;</button>
-            </div>
-            
-            <div className="p-6">
-              <label className="block text-sm font-bold text-gray-700 mb-2">Estado:</label>
-              <select 
-                value={estadoLimpieza}
-                onChange={e => setEstadoLimpieza(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-3 mb-4 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
-              >
-                <option value="Disponible">Disponible</option>
-                <option value="Sucia">Sucia</option>
-                <option value="En proceso de limpieza">En proceso de limpieza</option>
-                <option value="En mantenimiento">En mantenimiento</option>
-                <option value="Fuera de servicio">Fuera de servicio</option>
-              </select>
-
-              { (estadoLimpieza === 'En mantenimiento' || estadoLimpieza === 'Fuera de servicio') && (
-                <div className="mb-4">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Motivo ({estadoLimpieza}):</label>
-                  <textarea 
-                    value={notasLimpieza}
-                    onChange={e => setNotasLimpieza(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                    rows="3"
-                    placeholder="Escriba el motivo aquí..."
-                  ></textarea>
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border-t bg-slate-50 flex justify-end gap-3">
-              <button onClick={() => setModalLimpiezaOpen(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Cancelar</button>
-              <button onClick={handleGuardarLimpieza} disabled={savingLimpieza} className="px-4 py-2 bg-yellow-600 text-white font-medium hover:bg-yellow-700 rounded-lg shadow-sm disabled:opacity-50">
-                {savingLimpieza ? "Guardando..." : "Guardar"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {modalLimpiezaOpen && (
+        <CleaningModal
+          cama={selectedCama}
+          estadoLimpieza={estadoLimpieza}
+          setEstadoLimpieza={setEstadoLimpieza}
+          notasLimpieza={notasLimpieza}
+          setNotasLimpieza={setNotasLimpieza}
+          savingLimpieza={savingLimpieza}
+          onSave={handleGuardarLimpieza}
+          onClose={() => { setModalLimpiezaOpen(false); setSelectedCama(null); }}
+        />
       )}
+    </div>
+  );
+};
+
+const StatPill = ({ label, value, variant }) => {
+  const variants = {
+    default: 'bg-slate-50 border-slate-200 text-slate-600',
+    success: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+    danger: 'bg-red-50 border-red-100 text-red-700',
+    warning: 'bg-amber-50 border-amber-100 text-amber-700',
+    secondary: 'bg-slate-100 border-slate-200 text-slate-700',
+  };
+  return (
+    <div className={`px-2.5 py-1.5 rounded-lg border whitespace-nowrap ${variants[variant]}`} role="status" aria-live="polite">
+      <span className="font-semibold">{value}</span>
+      <span className="ml-1 text-[10px] opacity-75">{label}</span>
     </div>
   );
 };

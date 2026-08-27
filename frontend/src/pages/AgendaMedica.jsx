@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { 
   FiCalendar, FiClock, FiUser, FiPlus, FiFilter, FiCheckCircle, 
-  FiAlertCircle, FiSearch, FiMapPin, FiFileText, FiRefreshCw 
+  FiAlertCircle, FiSearch, FiMapPin, FiFileText, FiRefreshCw, FiEdit3
 } from 'react-icons/fi';
 import { MdOutlineMedicalServices } from 'react-icons/md';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export default function AgendaMedica() {
+  const rolActual = localStorage.getItem('rol');
   const [medicos, setMedicos] = useState([]);
   const [selectedMedicoId, setSelectedMedicoId] = useState('');
   const [citas, setCitas] = useState([]);
@@ -33,14 +34,30 @@ export default function AgendaMedica() {
         const res = await api.get('/medicos/list');
         if (res.data && Array.isArray(res.data)) {
           setMedicos(res.data);
-          // Preseleccionar a JOSE JOSE PRUEBA ENRIQUEZ por defecto si existe
-          const jose = res.data.find(m => m.nombre.includes('JOSE JOSE PRUEBA'));
-          if (jose) {
-            setSelectedMedicoId(jose.id.toString());
-            setFormData(prev => ({ ...prev, medico_id: jose.id }));
-          } else if (res.data.length > 0) {
-            setSelectedMedicoId(res.data[0].id.toString());
-            setFormData(prev => ({ ...prev, medico_id: res.data[0].id }));
+          let defaultMedico = null;
+          
+          // 1. Intentar seleccionar al médico logueado
+          const loggedMedicoStr = localStorage.getItem('medico');
+          if (loggedMedicoStr) {
+            try {
+              const loggedMedico = JSON.parse(loggedMedicoStr);
+              defaultMedico = res.data.find(m => m.id === loggedMedico.medico_id || m.id.toString() === loggedMedico.medico_id?.toString());
+            } catch(e) {}
+          }
+          
+          // 2. Fallback a JOSE JOSE PRUEBA
+          if (!defaultMedico) {
+            defaultMedico = res.data.find(m => m.nombre.includes('JOSE JOSE PRUEBA'));
+          }
+          
+          // 3. Fallback al primer médico de la lista
+          if (!defaultMedico && res.data.length > 0) {
+            defaultMedico = res.data[0];
+          }
+
+          if (defaultMedico) {
+            setSelectedMedicoId(defaultMedico.id.toString());
+            setFormData(prev => ({ ...prev, medico_id: defaultMedico.id }));
           }
         }
       } catch (err) {
@@ -50,6 +67,8 @@ export default function AgendaMedica() {
     fetchMedicos();
   }, []);
 
+  const [pendientesCount, setPendientesCount] = useState(0);
+
   // Cargar citas cuando cambia el médico seleccionado
   const fetchCitas = async () => {
     try {
@@ -58,6 +77,16 @@ export default function AgendaMedica() {
       const res = await api.get(url);
       if (res.data && Array.isArray(res.data)) {
         setCitas(res.data);
+      }
+      
+      // Fetch pending signatures for the selected doctor
+      if (selectedMedicoId) {
+        const penRes = await api.get(`/atenciones/pendientes/${selectedMedicoId}`);
+        if (penRes.data && Array.isArray(penRes.data)) {
+          setPendientesCount(penRes.data.length);
+        } else {
+          setPendientesCount(0);
+        }
       }
     } catch (err) {
       console.error("Error fetching citas:", err);
@@ -117,6 +146,13 @@ export default function AgendaMedica() {
         </div>
 
         <div className="flex items-center gap-3 w-full md:w-auto">
+          <a
+            href="/camas"
+            className="flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-4 py-2.5 rounded-xl font-semibold text-sm shadow-sm transition-all"
+            title="Ver mapa de camas"
+          >
+            <MdOutlineMedicalServices className="text-lg" /> Ver Camas
+          </a>
           <button 
             onClick={() => setShowModal(true)}
             className="flex items-center gap-2 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2.5 rounded-xl font-semibold text-sm shadow-sm transition-all"
@@ -141,21 +177,28 @@ export default function AgendaMedica() {
           <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <MdOutlineMedicalServices /> Médico Especialista
           </label>
-          <select 
-            value={selectedMedicoId}
-            onChange={(e) => {
-              setSelectedMedicoId(e.target.value);
-              setFormData(prev => ({ ...prev, medico_id: e.target.value }));
-            }}
-            className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-hes-blue-main transition-colors"
-          >
-            <option value="">-- Todos los Médicos --</option>
-            {medicos.map(m => (
-              <option key={m.id} value={m.id}>
-                {m.nombre} ({m.especialidad})
-              </option>
-            ))}
-          </select>
+          
+          {rolActual === 'medico' ? (
+            <div className="w-full border border-slate-200 bg-slate-100 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 cursor-not-allowed">
+              {currentDoctor ? `${currentDoctor.nombre} (${currentDoctor.especialidad})` : 'Cargando su perfil...'}
+            </div>
+          ) : (
+            <select 
+              value={selectedMedicoId}
+              onChange={(e) => {
+                setSelectedMedicoId(e.target.value);
+                setFormData(prev => ({ ...prev, medico_id: e.target.value }));
+              }}
+              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-hes-blue-main transition-colors"
+            >
+              <option value="">-- Todos los Médicos --</option>
+              {medicos.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.nombre} ({m.especialidad})
+                </option>
+              ))}
+            </select>
+          )}
 
           {currentDoctor && (
             <div className="pt-3 border-t border-slate-100 text-xs space-y-1">
@@ -177,17 +220,17 @@ export default function AgendaMedica() {
           </div>
         </div>
 
-        {/* STATS 2 */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+        {/* STATS 2 (Pendientes de Firma) */}
+        <a href="/firma-express" className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between hover:border-orange-300 hover:shadow-md transition-all cursor-pointer group">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Paciente Demo</div>
-            <div className="text-base font-bold text-hes-blue-main mt-1">COMODIN COMODIN (PT-5704)</div>
-            <div className="text-xs text-slate-500 mt-0.5">Cama Urgencias 1 (Virtual)</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 group-hover:text-orange-500 transition-colors">Capturas por Firmar</div>
+            <div className="text-3xl font-extrabold text-slate-800 mt-1">{pendientesCount}</div>
+            <div className="text-xs text-orange-600 font-medium mt-0.5">Requieren firma biométrica</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-hes-blue-main flex items-center justify-center text-2xl font-bold">
-            <FiUser />
+          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center text-2xl font-bold group-hover:bg-orange-100 group-hover:scale-110 transition-all">
+            <FiEdit3 />
           </div>
-        </div>
+        </a>
 
       </div>
 
@@ -234,12 +277,14 @@ export default function AgendaMedica() {
                 </div>
 
                 <div className="flex items-center gap-2 self-end md:self-center">
-                  <a
-                    href={`/ehr/5704`}
-                    className="text-xs font-semibold text-hes-blue-main hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors flex items-center gap-1"
-                  >
-                    <FiFileText /> Ver Expediente
-                  </a>
+                  {c.paciente_id && (
+                    <a
+                      href={`/ehr/${c.paciente_id}`}
+                      className="text-xs font-semibold text-hes-blue-main hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors flex items-center gap-1"
+                    >
+                      <FiFileText /> Ver Expediente
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

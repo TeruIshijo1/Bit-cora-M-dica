@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, DateTime, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, DateTime, Text, Index
 from sqlalchemy.orm import relationship
 import datetime
 
@@ -26,6 +26,14 @@ class Cama(Base):
     notas_limpieza = Column(String, nullable=True)
     activo = Column(Boolean, default=True)
 
+class CatalogoFormato(Base):
+    __tablename__ = "catalogo_formatos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String, index=True)
+    nombre = Column(String)
+    activo = Column(Boolean, default=True)
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
@@ -35,6 +43,8 @@ class Usuario(Base):
     password_hash = Column(String)
     rol = Column(String, default="enfermeria") # enfermeria, admin, rh, sistemas
     activo = Column(Boolean, default=True)
+    permisos_modulos = Column(Text, nullable=True) # JSON object (ej. {"camas": "escritura", "agenda": "lectura"})
+    formatos_permitidos = Column(Text, nullable=True) # JSON list (ej. ["HE-DIRMED-SINPRO-PLT-87/01"])
     
     atenciones_creadas = relationship("AtencionMedica", back_populates="creador")
 
@@ -58,6 +68,8 @@ class Medico(Base):
     # Asymmetric Keys (FEA - NOM-004)
     public_key_pem = Column(Text, nullable=True) # ECDSA Public Key (SECP256R1)
     private_key_enc = Column(Text, nullable=True) # ECDSA Private Key (Encrypted with Fernet KEK)
+    
+    formatos_permitidos = Column(Text, nullable=True) # JSON list of formats allowed to fill
     
     medico_asignado = relationship("Medico", remote_side=[id])
     
@@ -123,6 +135,10 @@ class AtencionMedica(Base):
     medico = relationship("Medico", back_populates="atenciones")
     paciente = relationship("Paciente", back_populates="atenciones")
     notas = relationship("NotaEnfermeria", back_populates="atencion", cascade="all, delete")
+
+    __table_args__ = (
+        Index("idx_atenciones_med_fecha_pago", "medico_id", "fecha_realizacion", "estatus_pago"),
+    )
 
 class NotaEnfermeria(Base):
     __tablename__ = "notas_enfermeria"
@@ -230,6 +246,10 @@ class FirmaDocumentoClinico(Base):
 
     medico = relationship("Medico")
 
+    __table_args__ = (
+        Index("idx_firmas_pt_formato_slot_estado", "pt_num", "codigo_formato", "evolution_slot", "estado"),
+    )
+
 class HistoricoNotaClinica(Base):
     """
     Registro inmutable de versiones de notas clínicas (Append-Only Ledger) conforme a la NOM-024.
@@ -254,6 +274,10 @@ class HistoricoNotaClinica(Base):
     version = Column(Integer, default=1)
 
     medico = relationship("Medico")
+
+    __table_args__ = (
+        Index("idx_historico_pt_formato_fecha", "pt_num", "codigo_formato", "fecha_registro"),
+    )
 
 
 class DietaCuidadosPrescripcion(Base):
