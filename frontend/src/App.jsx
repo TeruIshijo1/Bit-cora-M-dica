@@ -4,7 +4,6 @@ import CapturaEnfermeria from './pages/CapturaEnfermeria';
 import FirmaExpress from './pages/FirmaExpress';
 import AdminDashboard from './pages/AdminDashboard';
 import CamasDashboard from './pages/CamasDashboard';
-import ServerConfig from './pages/ServerConfig';
 import PatientDashboard from './pages/PatientDashboard';
 import AgendaMedica from './pages/AgendaMedica';
 import Layout from './components/Layout';
@@ -13,18 +12,10 @@ import useAutoLogout from './hooks/useAutoLogout';
 
 function AppContent() {
   useAutoLogout();
-  const location = useLocation();
-  let serverUrl = localStorage.getItem('server_url');
-
-  if (serverUrl === null || serverUrl !== 'default') {
-    localStorage.setItem('server_url', 'default');
-    serverUrl = 'default';
-  }
 
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="/config-servidor" element={<ServerConfig />} />
       <Route path="/login" element={<LoginDual />} />
       
       {/* Protected Routes wrapped in Layout */}

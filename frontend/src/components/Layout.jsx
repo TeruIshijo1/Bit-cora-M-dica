@@ -156,13 +156,6 @@ export default function Layout() {
             {/* Actions */}
             <div className="flex items-center gap-1">
               <button 
-                onClick={() => navigate('/config-servidor')}
-                className="text-slate-400 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors flex items-center justify-center"
-                title="Configuración de Servidor"
-              >
-                <FiSettings className="text-lg" />
-              </button>
-              <button 
                 onClick={handleLogout}
                 className="text-slate-400 hover:text-red-400 hover:bg-red-400/10 p-2 rounded-lg transition-colors flex items-center justify-center"
                 title="Cerrar Sesión"
