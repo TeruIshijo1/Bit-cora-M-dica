@@ -8,12 +8,18 @@ import { FiCalendar, FiEdit3, FiFileText, FiUser, FiList, FiClock, FiActivity, F
 import { FaStethoscope } from 'react-icons/fa';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 import AlertBanner from '../components/ui/AlertBanner';
+import Button from '../components/ui/Button';
 
 export default function CapturaEnfermeria() {
   const navigate = useNavigate();
   const location = useLocation();
   
   const [apiError, setApiError] = useState(null);
+  const [actionFeedback, setActionFeedback] = useState(null); // { message, type }
+  const [savingCaptura, setSavingCaptura] = useState(false);
+  const [creatingPaciente, setCreatingPaciente] = useState(false);
+  const [creatingPacienteTab, setCreatingPacienteTab] = useState(false);
+  const [submittingNota, setSubmittingNota] = useState(false);
   const [pacientes, setPacientes] = useState([]);
   const [camas, setCamas] = useState([]);
   const [medicos, setMedicos] = useState([]);
@@ -164,13 +170,18 @@ export default function CapturaEnfermeria() {
   const handleAddNota = async () => {
     if(!notaModal.text.trim()) return;
     try {
+      setSubmittingNota(true);
       await api.post(`/atenciones/${notaModal.folio}/notas`, { nota: notaModal.text }, { headers: { Authorization: `Bearer ${getToken()}` } });
       setNotaModal({ open: false, folio: '', text: '' });
+      setActionFeedback({ message: "Nota de enfermería guardada exitosamente.", type: "success" });
       if (activeTab === 'mis_registros') fetchMisRegistros();
       if (activeTab === 'registros') fetchHistorialGlobal();
+      setTimeout(() => setActionFeedback(null), 3500);
     } catch(e) {
-      if (e.response && e.response.status === 400) alert(e.response.data.detail);
-      else alert("Error al añadir nota");
+      const msg = e.response?.data?.detail || "Error al añadir nota a la atención.";
+      setActionFeedback({ message: msg, type: "error" });
+    } finally {
+      setSubmittingNota(false);
     }
   };
 
@@ -223,9 +234,11 @@ export default function CapturaEnfermeria() {
 
   const handleCreatePaciente = async () => {
     if (!newPacienteNombre || !habitacion || !newPacienteAreaInline) {
-      alert("Ingrese nombre, habitación y área hospitalaria"); return;
+      setActionFeedback({ message: "Ingrese nombre, habitación y área hospitalaria obligatorios.", type: "error" });
+      return;
     }
     try {
+      setCreatingPaciente(true);
       const res = await api.post('/pacientes', {
         nombre_completo: newPacienteNombre,
         num_habitacion: habitacion,
@@ -233,23 +246,29 @@ export default function CapturaEnfermeria() {
         codigo_barras: newPacienteCodigoInline || null
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       
-      alert("Paciente ingresado exitosamente");
+      setActionFeedback({ message: `Paciente ${res.data.nombre_completo} ingresado exitosamente a cama ${habitacion}.`, type: "success" });
       setNewPacienteNombre('');
       setNewPacienteAreaInline('');
       setNewPacienteCodigoInline('');
       setIsCreatingPaciente(false);
       fetchData(); // Recargar lista de pacientes
       setPacienteSeleccionado(res.data);
+      setTimeout(() => setActionFeedback(null), 3500);
     } catch(e) {
-      alert("Error al ingresar paciente");
+      const msg = e.response?.data?.detail || "Error al ingresar paciente.";
+      setActionFeedback({ message: msg, type: "error" });
+    } finally {
+      setCreatingPaciente(false);
     }
   };
 
   const handleCreatePacienteTab = async () => {
     if (!newPacienteNombreTab || !newPacienteHabitacionTab || !newPacienteAreaTab) {
-      alert("Ingrese nombre, habitación y área hospitalaria"); return;
+      setActionFeedback({ message: "Ingrese nombre, habitación y área hospitalaria obligatorios.", type: "error" });
+      return;
     }
     try {
+      setCreatingPacienteTab(true);
       const res = await api.post('/pacientes', {
         nombre_completo: newPacienteNombreTab,
         num_habitacion: newPacienteHabitacionTab,
@@ -257,35 +276,46 @@ export default function CapturaEnfermeria() {
         codigo_barras: newPacienteCodigoTab || null
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       
-      alert("Paciente registrado exitosamente");
+      setActionFeedback({ message: `Paciente ${res.data.nombre_completo} registrado exitosamente.`, type: "success" });
       setNewPacienteNombreTab('');
       setNewPacienteHabitacionTab('');
       setNewPacienteAreaTab('');
       setNewPacienteCodigoTab('');
       fetchData(); // Recargar lista de pacientes
+      setTimeout(() => setActionFeedback(null), 3500);
     } catch(e) {
-      alert("Error al registrar paciente");
+      const msg = e.response?.data?.detail || "Error al registrar paciente.";
+      setActionFeedback({ message: msg, type: "error" });
+    } finally {
+      setCreatingPacienteTab(false);
     }
   };
 
   const handleAltaPaciente = async (id) => {
+    if (!window.confirm("¿Confirma que desea dar de alta al paciente seleccionado?")) return;
     try {
       await api.put(`/pacientes/${id}/alta`, {}, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setActionFeedback({ message: "Alta hospitalaria procesada exitosamente.", type: "success" });
       fetchData();
       if(pacienteSeleccionado?.id === id) {
         setPacienteSeleccionado(null);
         setHabitacion('');
       }
-    } catch(e) { alert("Error al dar de alta al paciente"); }
+      setTimeout(() => setActionFeedback(null), 3500);
+    } catch(e) {
+      const msg = e.response?.data?.detail || "Error al dar de alta al paciente.";
+      setActionFeedback({ message: msg, type: "error" });
+    }
   };
 
   const handleGuardarCaptura = async () => {
     if (!pacienteSeleccionado || !medicoId || !tipoAtencion || !nombreProcedimiento || !fecha || !hora) {
-      alert("Faltan datos obligatorios");
+      setActionFeedback({ message: "Complete todos los campos obligatorios del formulario.", type: "error" });
       return;
     }
 
     try {
+      setSavingCaptura(true);
       let finalPacienteId = pacienteSeleccionado.id;
       
       // Si el paciente fue auto-detectado del tablero de camas (isTemp), lo creamos primero
@@ -323,17 +353,31 @@ export default function CapturaEnfermeria() {
       }, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
+
       if (res.data.estatus_pago === 'Pendiente Autorización') {
-        alert(`El médico ya tiene un registro de atención el día de hoy para este paciente. La solicitud se creó pero requiere autorización de Sistemas (Folio: ${res.data.folio}).`);
+        setActionFeedback({
+          message: `El médico ya tiene un registro hoy para este paciente. Se creó la solicitud pero requiere autorización de Sistemas (Folio: ${res.data.folio}).`,
+          type: "warning"
+        });
       } else {
-        alert(`Registro creado con éxito. Folio: ${res.data.folio}`);
+        setActionFeedback({
+          message: `Registro creado con éxito. Folio: ${res.data.folio}`,
+          type: "success"
+        });
       }
-      setHabitacion(''); setPacienteSeleccionado(null); setTipoAtencion(''); setNombreProcedimiento('');
-      setProcedimientoDetalle(''); setMedicoId('');
+
+      setHabitacion('');
+      setPacienteSeleccionado(null);
+      setTipoAtencion('');
+      setNombreProcedimiento('');
+      setProcedimientoDetalle('');
+      setMedicoId('');
+      setTimeout(() => setActionFeedback(null), 5000);
     } catch (error) {
-      if (error.response && error.response.status === 400) {
-        alert(`ERROR DUPLICADO: ${error.response.data.detail}`);
-      } else { alert("Error al guardar el registro"); }
+      const msg = error.response?.data?.detail || "Error al guardar el registro de atención.";
+      setActionFeedback({ message: msg, type: "error" });
+    } finally {
+      setSavingCaptura(false);
     }
   };
 
@@ -360,6 +404,15 @@ export default function CapturaEnfermeria() {
           onRetry={fetchData} 
           onClose={() => setApiError(null)} 
         />
+
+        {/* Banner de notificación para operaciones exitosas o advertencias */}
+        {actionFeedback && (
+          <AlertBanner 
+            message={actionFeedback.message} 
+            type={actionFeedback.type} 
+            onClose={() => setActionFeedback(null)} 
+          />
+        )}
 
         {/* Tabs */}
       <div className="flex gap-4 mb-6 border-b border-slate-200">
@@ -434,8 +487,8 @@ export default function CapturaEnfermeria() {
                            <option value="">Área...</option>
                            {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                         </select>
-                        <button onClick={handleCreatePaciente} className="bg-orange-600 text-white px-4 py-2 rounded font-bold hover:bg-orange-700 text-sm">Guardar</button>
-                        <button onClick={() => setIsCreatingPaciente(false)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded font-bold text-sm">Cancelar</button>
+                        <Button variant="primary" size="sm" isLoading={creatingPaciente} onClick={handleCreatePaciente}>Guardar</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setIsCreatingPaciente(false)}>Cancelar</Button>
                      </div>
                   )}
                 </div>
@@ -534,9 +587,16 @@ export default function CapturaEnfermeria() {
             </div>
           </section>
 
-          <button onClick={handleGuardarCaptura} className="w-full bg-hes-blue-main hover:bg-[#003870] text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2">
-            <FiCheckCircle className="text-2xl" /> Guardar Pre-Captura
-          </button>
+          <Button 
+            variant="primary" 
+            size="lg" 
+            isLoading={savingCaptura} 
+            onClick={handleGuardarCaptura} 
+            icon={<FiCheckCircle className="text-2xl" />}
+            className="w-full py-4 text-lg font-semibold rounded-xl shadow-md"
+          >
+            Guardar Pre-Captura
+          </Button>
         </div>
       )}
 
@@ -659,9 +719,15 @@ export default function CapturaEnfermeria() {
                       </select>
                     </div>
                   </div>
-                  <button onClick={handleCreatePacienteTab} className="bg-hes-blue-main text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-800 transition-colors h-[42px] mt-4">
-                    Ingresar
-                  </button>
+                  <Button 
+                    variant="primary" 
+                    isLoading={creatingPacienteTab} 
+                    onClick={handleCreatePacienteTab} 
+                    icon={<FiPlusCircle />}
+                    className="h-[42px] mt-4"
+                  >
+                    Ingresar Paciente
+                  </Button>
               </div>
 
               <div>
@@ -766,19 +832,27 @@ export default function CapturaEnfermeria() {
       
       {/* Modal Añadir Nota */}
       {notaModal.open && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-96 max-w-full">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><FiEdit3 /> Añadir Nota de Enfermería</h3>
-            <p className="text-sm text-slate-600 mb-2">Para el folio: <strong>{notaModal.folio}</strong></p>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-96 max-w-full space-y-4">
+            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <FiEdit3 className="text-hes-blue-main" /> Añadir Nota de Enfermería
+            </h3>
+            <p className="text-xs text-slate-600">
+              Para el folio: <strong className="font-mono text-hes-blue-main">{notaModal.folio}</strong>
+            </p>
             <textarea 
-              className="w-full h-32 border border-slate-300 rounded-lg p-3 resize-none focus:ring-2 focus:ring-blue-500 mb-4"
-              placeholder="Escribe la nota..."
+              className="w-full h-32 border border-slate-300 rounded-xl p-3 text-xs focus:border-hes-blue-main outline-none resize-none"
+              placeholder="Escribe la nota de enfermería..."
               value={notaModal.text}
               onChange={e => setNotaModal({...notaModal, text: e.target.value})}
             ></textarea>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setNotaModal({ open: false, folio: '', text: '' })} className="px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200">Cancelar</button>
-              <button onClick={handleAddNota} className="px-4 py-2 text-sm font-bold text-white bg-hes-blue-main rounded hover:bg-blue-800">Guardar Nota</button>
+              <Button variant="ghost" size="sm" onClick={() => setNotaModal({ open: false, folio: '', text: '' })}>
+                Cancelar
+              </Button>
+              <Button variant="primary" size="sm" isLoading={submittingNota} onClick={handleAddNota}>
+                Guardar Nota
+              </Button>
             </div>
           </div>
         </div>

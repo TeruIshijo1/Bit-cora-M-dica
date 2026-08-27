@@ -1,14 +1,20 @@
-# Pase a Producción
+﻿# Pase a Producción
 
-Esta sección cubre todos los pasos, scripts y configuraciones necesarios para poner el proyecto en marcha y desplegarlo en un entorno productivo real.
+Protocolo oficial de despliegue y empaquetado seguro para el Hospital Escandón.
 
-## Elementos y Herramientas
-- Scripts de preparación y migración: `preparar_produccion.py`.
-- Scripts batch para facilitar el despliegue en servidores Windows: `iniciar.bat`, `instalar.bat`, `instalar server.bat`.
-- Uso de Ngrok (`ngrok.exe`) para exponer los puertos locales temporalmente durante pruebas o integraciones iniciales.
-- Directorio de `pase_a_produccion/` con configuraciones específicas.
+## Reglas de Oro
+1. **El archivo `.env` es Sagrado:** Nunca se sobrescribe en el servidor ni se incluye en el control de versiones.
+2. **Sin compilación en el servidor:** El código visual se compila en el entorno de desarrollo (`npm run build`) y se envía como assets estáticos empaquetados.
+3. **Multiplataforma Linux / Docker:** El backend no contiene librerías dependientes de Windows COM ni Microsoft Word.
 
-## Relaciones en el Proyecto
-- Encargado de tomar el código fuente del [[Frontend]] y compilarlo en archivos estáticos (`dist`).
-- Configura e inicializa los servicios del [[Backend]] asegurándose de que estén listos para recibir tráfico.
-- Verifica la integridad y aplica los últimos cambios a la [[Database]] antes del arranque de los servicios en vivo.
+## Proceso Automatizado
+Ejecutar el script en la raíz del proyecto:
+```powershell
+python preparar_produccion.py
+```
+
+### Lo que hace el script:
+1. Compila el [[Frontend]] con Vite hacia `dist/`.
+2. Empaqueta el [[Backend]] en `pase_a_produccion/` excluyendo `venv/`, `.env` y archivos temporales.
+3. Verifica la integridad de las plantillas y motores PDF.
+4. Genera el directorio listo para ser sincronizado con el servidor de producción.

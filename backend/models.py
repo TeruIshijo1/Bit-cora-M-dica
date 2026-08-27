@@ -78,6 +78,19 @@ class Medico(Base):
         return bool(self.fmd_template)
     
     atenciones = relationship("AtencionMedica", back_populates="medico")
+    historial_llaves = relationship("HistorialLlaveFEA", back_populates="medico", order_by="HistorialLlaveFEA.fecha_creacion.desc()")
+
+class HistorialLlaveFEA(Base):
+    __tablename__ = "historial_llaves_fea"
+
+    id = Column(Integer, primary_key=True, index=True)
+    medico_id = Column(Integer, ForeignKey("medicos.id"), index=True, nullable=False)
+    public_key_pem = Column(Text, nullable=False)
+    fecha_creacion = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    fecha_inactivacion = Column(DateTime, nullable=True)
+    activo = Column(Boolean, default=True)
+
+    medico = relationship("Medico", back_populates="historial_llaves")
 
 class Paciente(Base):
     __tablename__ = "pacientes"

@@ -7,9 +7,6 @@ passlib[bcrypt]
 bcrypt==4.0.1
 python-jose[cryptography]
 Pillow
-docxtpl
-docx2pdf
-pywin32
 openpyxl
 requests
 qrcode

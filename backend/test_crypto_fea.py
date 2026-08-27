@@ -65,13 +65,14 @@ def main():
     assert crypto_fea.verificar_firma(None, cadena, legacy) is False
     print('6. Medico None manejado sin crash')
 
-    # 7. Rotacion de KEK: re-firma OK, sello pre-rotacion fail-closed
+    # 7. Rotacion de KEK: re-firma OK, y sello pre-rotacion preservado mediante historial de llaves
     m.huella_token = 'token-nuevo-tras-re-registro'
     sello2 = crypto_fea.firmar_documento(db, m, cadena)
     assert sello2.startswith('ECDSA:')
     assert crypto_fea.verificar_firma(m, cadena, sello2) is True
-    assert crypto_fea.verificar_firma(m, cadena, sello) is False
-    print('7. Rotacion de KEK: re-firma OK, sello pre-rotacion fail-closed')
+    # Con el historial de llaves, la firma pasada sigue siendo verificable (no-repudio)
+    assert crypto_fea.verificar_firma(m, cadena, sello) is True
+    print('7. Rotacion de KEK: re-firma OK y firma historica verificada via historial')
 
     # 8. Fail duro sin secreto
     respaldado = os.environ.pop('HES_HMAC_SECRET')

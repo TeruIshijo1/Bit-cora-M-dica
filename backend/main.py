@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
-
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from sqlalchemy.orm import Session
@@ -49,37 +48,20 @@ from slowapi.errors import RateLimitExceeded
 
 
 from database import engine, SessionLocal, get_db, Base
-
 from pydantic import BaseModel, field_validator
-
 import models
-
 import schemas
-
 from seed import get_password_hash, pwd_context
-
 from jose import JWTError, jwt
-
 from pdf_generator import generate_pdf
-
-
-
-from docxtpl import DocxTemplate
-
-from docx2pdf import convert as docx2pdf_convert
-
-import pythoncom
+from routers import catalogos
+from services import pdf_service
 
 from openpyxl import Workbook
-
 from openpyxl.styles import PatternFill, Font, Alignment
-
 from openpyxl.drawing.image import Image as ExcelImage
-
 from fastapi.responses import FileResponse
-
 import kh_database
-
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
@@ -93,10 +75,17 @@ if not SECRET_KEY:
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
+# Orígenes CORS y Hosts Permitidos en Intranet Hospitalaria
+DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000,http://192.168.254.249:5173,http://192.168.254.249:8000"
+ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", DEFAULT_ORIGINS)
+ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+
+DEFAULT_HOSTS = "localhost,127.0.0.1,192.168.254.249,*.local,*.ts.net,testserver"
+ALLOWED_HOSTS_RAW = os.getenv("ALLOWED_HOSTS", DEFAULT_HOSTS)
+ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS_RAW.split(",") if h.strip()]
+
 UPLOADS_DIR = "static/uploads"
-
 GENERADOS_DIR = "generados"
-
 PLANTILLAS_DIR = "plantillas"
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
@@ -241,23 +230,23 @@ app.add_middleware(GlobalAuthMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-
-# CORS
+# CORS & Trusted Hosts Middleware (Seguridad Intranet)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+)
 
 app.add_middleware(
-
-    CORSMiddleware,
-
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://192.168.254.249:8000"],
-
-    allow_credentials=True,
-
-    allow_methods=["*"],
-
-    allow_headers=["*"],
-
+    TrustedHostMiddleware,
+    allowed_hosts=ALLOWED_HOSTS
 )
+
+# === REGISTRO MODULAR DE ROUTERS ===
+app.include_router(catalogos.router)
+
 
 
 
@@ -580,124 +569,8 @@ def impersonate(req: schemas.ImpersonateRequest, db: Session = Depends(get_db), 
             "access_token": access_token, 
 
             "token_type": "bearer", 
-
             "rol": user.rol
-
         }
-
-
-
-# --- Catálogos ---
-
-@app.get("/api/catalogos/areas", response_model=List[schemas.CatalogoResponse])
-
-def get_areas(db: Session = Depends(get_db)):
-
-    return db.query(models.CatalogoArea).filter(models.CatalogoArea.activo == True).all()
-
-
-
-@app.post("/api/catalogos/areas", response_model=schemas.CatalogoResponse)
-
-def create_area(area: schemas.CatalogoBase, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))):
-
-    nueva_area = models.CatalogoArea(nombre=area.nombre, activo=area.activo)
-
-    db.add(nueva_area)
-
-    db.commit()
-
-    db.refresh(nueva_area)
-
-    return nueva_area
-
-
-
-@app.delete("/api/catalogos/areas/{id}")
-
-def delete_area(id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "sistemas"]))):
-
-    area = db.query(models.CatalogoArea).filter(models.CatalogoArea.id == id).first()
-
-    if not area:
-
-        raise HTTPException(status_code=404, detail="Area no encontrada")
-
-    area.activo = False
-
-    db.commit()
-
-    return {"status": "ok", "message": "Area desactivada"}
-
-
-
-@app.get("/api/catalogos/tipos", response_model=List[schemas.CatalogoResponse])
-
-def get_tipos(db: Session = Depends(get_db)):
-
-    return db.query(models.CatalogoTipoAtencion).filter(models.CatalogoTipoAtencion.activo == True).all()
-
-
-
-@app.post("/api/catalogos/tipos", response_model=schemas.CatalogoResponse)
-
-def create_tipo(tipo: schemas.CatalogoBase, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "rh", "sistemas"]))):
-
-    nuevo_tipo = models.CatalogoTipoAtencion(nombre=tipo.nombre, activo=tipo.activo)
-
-    db.add(nuevo_tipo)
-
-    db.commit()
-
-    db.refresh(nuevo_tipo)
-
-    return nuevo_tipo
-
-
-
-
-
-@app.get("/api/catalogos/formatos", response_model=List[schemas.CatalogoFormatoResponse])
-
-def get_formatos(db: Session = Depends(get_db)):
-
-    return db.query(models.CatalogoFormato).filter(models.CatalogoFormato.activo == True).order_by(models.CatalogoFormato.nombre).all()
-
-
-
-@app.post("/api/catalogos/formatos", response_model=schemas.CatalogoFormatoResponse)
-
-def create_formato(req: schemas.CatalogoFormatoCreate, db: Session = Depends(get_db)):
-
-    nuevo = models.CatalogoFormato(nombre=req.nombre, codigo=req.codigo, activo=req.activo)
-
-    db.add(nuevo)
-
-    db.commit()
-
-    db.refresh(nuevo)
-
-    return nuevo
-
-
-
-@app.delete("/api/catalogos/tipos/{id}")
-
-def delete_tipo(id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(require_role(["admin", "sistemas"]))):
-
-    tipo = db.query(models.CatalogoTipoAtencion).filter(models.CatalogoTipoAtencion.id == id).first()
-
-    if not tipo:
-
-        raise HTTPException(status_code=404, detail="Tipo de Atención no encontrado")
-
-    tipo.activo = False
-
-    db.commit()
-
-    return {"status": "ok", "message": "Tipo de atención desactivado"}
-
-
 
 # --- Pacientes ---
 
@@ -1914,104 +1787,18 @@ def update_atencion(folio: str, tipo_atencion: str, db: Session = Depends(get_db
 
 
 @app.get("/api/atenciones/{folio}/pdf")
-
 def generar_comprobante_pdf(folio: str, db: Session = Depends(get_db)):
-
     atencion = db.query(models.AtencionMedica).filter(models.AtencionMedica.folio == folio).first()
-
     if not atencion:
-
         raise HTTPException(status_code=404, detail="Atención no encontrada")
-
         
-
-    template_path = os.path.join(PLANTILLAS_DIR, "comprobante_base.docx")
-
-    if not os.path.exists(template_path):
-
-        raise HTTPException(status_code=500, detail="Plantilla no encontrada")
-
+    pdf_rel_path = generate_pdf(atencion, atencion.medico, atencion.paciente)
+    pdf_full_path = os.path.join(os.path.dirname(__file__), "static", "pdfs", f"{folio}.pdf")
+    
+    if not os.path.exists(pdf_full_path):
+        raise HTTPException(status_code=500, detail="Error al generar el comprobante PDF")
         
-
-    doc = DocxTemplate(template_path)
-
-    
-
-    context = {
-
-        "folio": atencion.folio,
-
-        "medico_nombre": atencion.medico.nombre_completo if atencion.medico else "",
-
-        "medico_especialidad": atencion.medico.especialidad if atencion.medico else "",
-
-        "medico_cedula": atencion.medico.cedula if atencion.medico else "",
-
-        "medico_num_empleado": atencion.medico.numero_empleado if atencion.medico else "",
-
-        "paciente_nombre": atencion.paciente.nombre_completo if atencion.paciente else "",
-
-        "paciente_habitacion": atencion.habitacion_capturada or (atencion.paciente.num_habitacion if atencion.paciente else ""),
-
-        "tipo_servicio": atencion.tipo_atencion,
-
-        "fecha_atencion": atencion.fecha_realizacion.strftime("%Y-%m-%d %H:%M") if atencion.fecha_realizacion else "",
-
-        "fecha_registro": (atencion.fecha_firma or atencion.fecha_realizacion or datetime.datetime.now()).strftime("%Y-%m-%d %H:%M"),
-
-        "procedimiento": atencion.nombre_procedimiento,
-
-        "detalle": atencion.procedimiento_detalle or "Sin notas clínicas",
-
-        "hash_seguridad": atencion.hash_seguridad or "Pendiente"
-
-    }
-
-    
-
-    doc.render(context)
-
-    
-
-    temp_docx = os.path.join(GENERADOS_DIR, f"{folio}.docx")
-
-    temp_pdf = os.path.join(GENERADOS_DIR, f"{folio}.pdf")
-
-    
-
-    doc.save(temp_docx)
-
-    
-
-    pythoncom.CoInitialize()
-
-    try:
-
-        docx2pdf_convert(os.path.abspath(temp_docx), os.path.abspath(temp_pdf))
-
-    except Exception as e:
-
-        print(f"Error docx2pdf: {e}")
-
-        # FALLBACK: Return DOCX instead of failing
-
-        return FileResponse(temp_docx, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=f"Comprobante_{folio}.docx")
-
-    finally:
-
-        pythoncom.CoUninitialize()
-
-        
-
-    if not os.path.exists(temp_pdf):
-
-        # FALLBACK: Return DOCX if PDF wasn't created
-
-        return FileResponse(temp_docx, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=f"Comprobante_{folio}.docx")
-
-        
-
-    return FileResponse(temp_pdf, media_type="application/pdf", filename=f"Comprobante_{folio}.pdf")
+    return FileResponse(pdf_full_path, media_type="application/pdf", filename=f"Comprobante_{folio}.pdf")
 
 
 

@@ -7,6 +7,8 @@ import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { PatientJourneyModal } from '../components/PatientModals';
+import AuditLogsTab from '../features/admin/AuditLogsTab';
+import UsersManagerTab from '../features/admin/UsersManagerTab';
 
 const COLORS = ['#004687', '#0088c9', '#005fa9', '#00974a', '#FFBB28'];
 
@@ -1310,164 +1312,17 @@ export default function AdminDashboard() {
           )}
 
           {activeTab === 'auditoria' && (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
-                      <th className="p-4 font-semibold">Fecha y Hora</th>
-                      <th className="p-4 font-semibold">Usuario</th>
-                      <th className="p-4 font-semibold">Acción</th>
-                      <th className="p-4 font-semibold">Detalles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditoriaLogs.map((log) => (
-                      <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="p-4 text-sm text-slate-700 whitespace-nowrap">
-                          {new Date(log.fecha_hora + "Z").toLocaleString()}
-                        </td>
-                        <td className="p-4 text-sm font-medium text-slate-700">
-                          {log.usuario ? log.usuario.username : 'Sistema'}
-                        </td>
-                        <td className="p-4 text-sm font-medium text-slate-800">
-                          {log.accion}
-                        </td>
-                        <td className="p-4 text-sm text-slate-600 max-w-md">
-                          {log.detalles_json}
-                        </td>
-                      </tr>
-                    ))}
-                    {auditoriaLogs.length === 0 && (
-                      <tr>
-                        <td colSpan="4" className="p-8 text-center text-slate-500">
-                          No hay registros de auditoría aún.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AuditLogsTab logs={auditoriaLogs} />
           )}
 
           {activeTab === 'usuarios' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                <h3 className="text-lg font-bold text-slate-700 mb-4">Añadir Usuario</h3>
-                <div className="space-y-4">
-                  <input type="text" placeholder="Nombre de usuario" className="w-full border p-2 rounded" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
-                  <input type="password" placeholder="Contraseña" className="w-full border p-2 rounded" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-                  <select className="w-full border p-2 rounded" value={newUser.rol} onChange={e => setNewUser({...newUser, rol: e.target.value})}>
-                    <option value="">Selecciona un Rol</option>
-                    <option value="enfermeria">Enfermería</option>
-                    <option value="nutricion">Nutrición</option>
-                    <option value="limpieza">Limpieza / Mantenimiento</option>
-                    <option value="laboratorio">Laboratorio</option>
-                    <option value="banco_sangre">Banco de Sangre</option>
-                    {(rolActual === 'admin' || rolActual === 'sistemas') && <option value="rh">Recursos Humanos</option>}
-                    {(rolActual === 'admin' || rolActual === 'sistemas') && <option value="admin">Administrador / Sistemas</option>}
-                  </select>
-                  
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg mt-4">
-                    <h4 className="text-sm font-bold text-slate-700 mb-2">Permisos de Acceso a Módulos</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.admin} onChange={(e) => setUserPermsObj({...userPermsObj, admin: e.target.checked})} className="rounded text-blue-600" /> Dashboard Global (Admin)
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.rh} onChange={(e) => setUserPermsObj({...userPermsObj, rh: e.target.checked})} className="rounded text-blue-600" /> Recursos Humanos
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.agenda} onChange={(e) => setUserPermsObj({...userPermsObj, agenda: e.target.checked})} className="rounded text-blue-600" /> Agenda Médica
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.camas} onChange={(e) => setUserPermsObj({...userPermsObj, camas: e.target.checked})} className="rounded text-blue-600" /> Camas / Hospitalización
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.ehr} onChange={(e) => setUserPermsObj({...userPermsObj, ehr: e.target.checked})} className="rounded text-blue-600" /> Expediente Clínico (EHR)
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.captura_enfermeria} onChange={(e) => setUserPermsObj({...userPermsObj, captura_enfermeria: e.target.checked})} className="rounded text-blue-600" /> Captura Enfermería
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        <input type="checkbox" checked={userPermsObj.captura_medica} onChange={(e) => setUserPermsObj({...userPermsObj, captura_medica: e.target.checked})} className="rounded text-blue-600" /> Captura Formatos Médicos
-                      </label>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg mt-4 max-h-48 overflow-y-auto">
-                    <h4 className="text-sm font-bold text-slate-700 mb-2">Formatos Clínicos Permitidos (Captura)</h4>
-                    {formatosDisponibles.length === 0 ? (
-                      <p className="text-xs text-slate-500">Cargando formatos...</p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {formatosDisponibles.map(f => (
-                          <label key={f.id} className="flex items-center gap-2 text-sm text-slate-600">
-                            <input 
-                              type="checkbox" 
-                              checked={userFormatosArr.includes(f.codigo)}
-                              onChange={(e) => {
-                                if (e.target.checked) setUserFormatosArr([...userFormatosArr, f.codigo]);
-                                else setUserFormatosArr(userFormatosArr.filter(c => c !== f.codigo));
-                              }} 
-                              className="rounded text-blue-600" 
-                            />
-                            {f.nombre} <span className="text-xs text-slate-400">({f.codigo})</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <button onClick={handleAddUser} className="w-full bg-hes-blue-main hover:bg-blue-800 text-white font-bold py-2 rounded mt-4">Crear Usuario</button>
-                </div>
-              </div>
-              <div className="flex flex-col gap-6">
-                {(rolActual === 'admin' || rolActual === 'sistemas') && (
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                    <h3 className="text-lg font-bold text-slate-700 mb-4">Respaldo de Base de Datos</h3>
-                    <p className="text-sm text-slate-500 mb-4">Descarga una copia completa de la base de datos (SQLite) a tu computadora para seguridad y auditoría.</p>
-                    <button onClick={handleDownloadBackup} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded flex justify-center items-center gap-2">
-                      <FiDatabase /> Descargar Respaldo Ahora
-                    </button>
-                  </div>
-                )}
-
-                {(rolActual === 'admin' || rolActual === 'sistemas') && (
-                  <div className="bg-red-50 rounded-xl shadow-sm border border-red-200 p-6 mt-4">
-                    <h3 className="text-lg font-bold text-red-700 mb-2 flex items-center gap-2"><FiAlertCircle /> Limpieza de Base de Datos</h3>
-                    <p className="text-sm text-red-600 mb-4">Elimina permanentemente registros operativos sin afectar usuarios ni catálogos.</p>
-                    <button onClick={() => setCleanModal({...cleanModal, open: true})} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded flex justify-center items-center gap-2">
-                      <FiTrash2 /> Iniciar Limpieza de Registros
-                    </button>
-                  </div>
-                )}
-                
-                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex-1 mt-4">
-                  <h3 className="text-lg font-bold text-slate-700 mb-4">Lista de Usuarios</h3>
-                  <ul className="space-y-2">
-                    {usuarios.map(u => (
-                      <li key={u.id} className="bg-slate-50 p-3 rounded-lg border flex justify-between items-center text-sm">
-                        <div>
-                          <p className="font-bold text-slate-800">{u.username}</p>
-                          <p className="text-slate-500 uppercase text-xs">{u.rol}</p>
-                        </div>
-                        {(rolActual === 'admin' || rolActual === 'sistemas') && (
-                          <div className="flex gap-4 items-center">
-                            <button onClick={() => handleImpersonate(u.id, u.rol)} className="text-blue-500 hover:underline text-xs font-semibold">Entrar como...</button>
-                            <button onClick={() => handleChangePassword(u.id, u.rol)} className="text-orange-500 hover:underline text-xs font-semibold">Cambiar Contraseña</button>
-                            {rolActual === 'sistemas' && (
-                              <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:underline text-xs font-semibold">Eliminar</button>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <UsersManagerTab
+              usuarios={usuarios}
+              formatosDisponibles={formatosDisponibles}
+              rolActual={rolActual}
+              onRefresh={fetchUsuarios}
+              onDownloadBackup={handleDownloadBackup}
+            />
           )}
         </div>
       </div>
