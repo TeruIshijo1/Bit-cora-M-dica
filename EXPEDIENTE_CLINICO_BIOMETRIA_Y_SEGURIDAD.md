@@ -13,8 +13,8 @@
 La **Bitácora Médica del Hospital Escandón** es la plataforma institucional diseñada para la gestión, captura, validación clínica y firma electrónica de los actos médicos que integran el **Expediente Clínico Electrónico (ECE)**.
 
 ### Objetivos Principales:
-1. **Garantizar la Autenticidad y el No Repudio:** Certeza jurídica absoluta de que el médico tratante estuvo físicamente presente y autorizó el acto médico (mediante biometría dactilar).
-2. **Blindaje Legal Institucional:** Integridad criptográfica inalterable; cualquier intento de modificar una nota médica ya firmada invalida automáticamente el documento.
+1. **Autenticación Biométrica y Atribución Presencial:** La firma requiere autenticación biométrica presencial del médico y no contempla un bypass mediante contraseña. El mecanismo está diseñado para fortalecer la atribución de la firma y la trazabilidad de las acciones clínicas, sujeto a la validación jurídica y normativa correspondiente.
+2. **Integridad Documental Criptográfica:** Integridad criptográfica verificable; cualquier intento de modificar una nota médica ya firmada invalida la firma y alerta de alteración.
 3. **Eficiencia y Cero Papel:** Emisión instantánea de formatos oficiales vectoriales de alta calidad (Notas de Evolución, Consentimientos Informados, Recetas y Dietas) con sello digital y código QR de validación.
 
 ```mermaid
@@ -54,11 +54,11 @@ Por estricto apego a la **Ley Federal de Protección de Datos Personales (LFPDPP
 * Lo que se procesa es una **plantilla matemática abstracta (FMD bajo norma ANSI/NIST 378)** compuesta por coordenadas de minucias dactilares.
 * A partir de esa plantilla matemática es **imposible reconstruir la imagen del dedo**, protegiendo la privacidad del personal de salud ante cualquier eventualidad.
 
-### B. Principio de No Repudio Estricto (Sin bypass de contraseña)
+### B. Autenticación Biométrica Presencial y Atribución Clínica (Sin bypass de contraseña)
 * **¿Por qué la firma exige huella obligatoria?**  
-  En muchos hospitales, los sistemas que permiten firmar con *usuario y contraseña* fracasan legalmente porque los médicos comparten sus claves con enfermeros o médicos internos por comodidad. En caso de una demanda médica, el médico puede argumentar: *"Yo no firmé eso, alguien usó mi contraseña"*.
-* **La Solución en HES:**  
-  La firma electrónica está **100% condicionada a la lectura biométrica física**. Esto garantiza ante COFEPRIS, jueces y aseguradoras que **el médico adscrito fue quien autorizó personalmente el procedimiento**.
+  En muchos entornos hospitalarios, los esquemas que permiten firmar con *usuario y contraseña* conllevan el riesgo operativo de que las credenciales sean compartidas con terceros (enfermería, médicos internos o asistentes) por practicidad, debilitando la trazabilidad de la autoría.
+* **El Enfoque Técnico de la Bitácora HES:**  
+  La firma requiere autenticación biométrica presencial del médico y no contempla un bypass mediante contraseña. El mecanismo está diseñado para fortalecer la atribución de la firma y la trazabilidad de las acciones clínicas, respaldando que el médico adscrito estuvo presente al autorizar la nota, sujeto a la validación jurídica y normativa correspondiente.
 
 ### C. Auto-Refresco y Continuidad Operativa
 Para evitar que problemas comunes (sensor con gel antibacterial, dedo colocado con poca presión) frenen la atención médica:
@@ -138,15 +138,15 @@ Para proteger la información confidencial de los pacientes:
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                    BENEFICIOS CLAVE PARA LA INSTITUCIÓN                    │
 ├─────────────────────────┬──────────────────────────┬───────────────────────┤
-│    BLINDAJE LEGAL       │    EFICIENCIA CLÍNICA    │    CONTROL Y COBRO    │
+│    RESPALDO NORMATIVO   │    EFICIENCIA CLÍNICA    │    CONTROL Y COBRO    │
 │                         │                          │                       │
-│ • Cumplimiento total    │ • Eliminación de notas   │ • Conciliación de     │
+│ • Alineación técnica a  │ • Eliminación de notas   │ • Conciliación de     │
 │   NOM-004 y NOM-024.    │   ilegibles a mano.      │   honorarios médicos  │
-│ • Cero riesgo de firmas │ • Consulta inmediata del │   solo sobre notas    │
-│   falsificadas.         │   historial en cualquier │   debidamente         │
-│ • Documentos listos     │   piso del hospital.     │   firmadas con FEA.   │
-│   para peritajes de     │ • Ahorro del 100% en     │ • Cero pérdidas de    │
-│   aseguradoras o juzgado│   papelería extraviada.  │   formatos físicos.   │
+│ • Atribución biométrica │ • Consulta inmediata del │   solo sobre notas    │
+│   presencial robusta.   │   historial en cualquier │   debidamente         │
+│ • Evidencia documental │   piso del hospital.     │   firmadas con FEA.   │
+│   estructurada para     │ • Ahorro del 100% en     │ • Cero pérdidas de    │
+│   auditorías y peritajes│   papelería extraviada.  │   formatos físicos.   │
 └─────────────────────────┴──────────────────────────┴───────────────────────┘
 ```
 
@@ -154,4 +154,4 @@ Para proteger la información confidencial de los pacientes:
 
 ## 8. Conclusión
 
-La arquitectura de la **Bitácora Médica HES** sitúa al Hospital Escandón a la vanguardia tecnológica y jurídica hospitalaria. Al combinar **biometría dactilar física, criptografía de curva elíptica P-256 y formatos normativos oficiales**, el hospital garantiza la máxima seguridad para sus pacientes, certeza legal para su cuerpo médico y solidez institucional ante cualquier autoridad sanitaria.
+La arquitectura de la **Bitácora Médica HES** fortalece la seguridad tecnológica y la calidad documental del Hospital Escandón. Al combinar **autenticación biométrica dactilar presencial, criptografía de curva elíptica P-256 y formatos normativos oficiales**, la institución robustece la protección de los datos clínicos, aporta trazabilidad sólida a la labor del cuerpo médico y consolida un expediente electrónico moderno, sujeto a las validaciones jurídicas y regulatorias aplicables.
