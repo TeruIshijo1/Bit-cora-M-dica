@@ -101,6 +101,18 @@ def main():
     assert crypto_fea.verificar_firma(m, cadena, sello2, dt.datetime(2030, 1, 1)) is True
     print('11. ECDSA no caduca por fecha')
 
+    # 12. Rechazo de firma sin huella_token (prohibido fallback a cedula)
+    m_sin_huella = FakeMedico()
+    m_sin_huella.huella_token = None
+    m_sin_huella.cedula = 'CED-SOLA-999'
+    try:
+        crypto_fea.firmar_documento(db, m_sin_huella, cadena)
+        print('12. FALLO: no lanzo excepcion al intentar firmar sin huella_token')
+        sys.exit(1)
+    except ValueError as e:
+        assert 'material biométrico' in str(e) or 'huella_token' in str(e)
+        print('12. Rechazo de firma sin huella_token (sin fallback a cedula) OK')
+
     print('TODO OK')
 
 

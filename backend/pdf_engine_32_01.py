@@ -9,12 +9,12 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 
 try:
     from backend.pdf_engine_v2 import (
-        RDLCCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
+        RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
-        RDLCCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
+        RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
     )
 
@@ -22,11 +22,11 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     if output_path and os.path.dirname(output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    content_x = FRAME_X + 5.0
-    content_w = FRAME_W - 5.0 - 16.0 # ~548.76 pt
+    content_x = FRAME_X + 16.0
+    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
 
     frame_bottom = FRAME_Y + 41.0
-    frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
+    frame_top_p1 = (FRAME_Y + FRAME_H) - 64.0
     frame_h_p1 = frame_top_p1 - frame_bottom
 
     frame_top_later = (FRAME_Y + FRAME_H) - 38.0
@@ -51,8 +51,8 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=TEXT_DARK)
     style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=RED_ALERT)
     
-    style_title = ParagraphStyle('Title', fontName='Helvetica-Bold', fontSize=12, leading=14, textColor=PRIMARY_BLUE, alignment=TA_LEFT, spaceAfter=10)
-    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=9, leading=11.5, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=8)
+    style_title = ParagraphStyle('Title', fontName='Helvetica-Bold', fontSize=11, leading=13, textColor=PRIMARY_BLUE, alignment=TA_LEFT, spaceAfter=8)
+    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=8.5, leading=11.5, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=6)
     
     story = []
 
@@ -107,7 +107,7 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
         ]
     ]
 
-    t_meta = Table(meta_table_data, colWidths=[82, 195, 60, 115, 44, 52])
+    t_meta = Table(meta_table_data, colWidths=[78, 180, 58, 105, 42, content_w - (78 + 180 + 58 + 105 + 42)])
     t_meta.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 0.8),
@@ -158,6 +158,8 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     
     sig_col_w = (content_w - 50) / 2  # Two columns with a clean gap
     
+    has_tutor = bool(rep_nom) or (not pt_data.get('paciente_capaz', True))
+
     # --- Row 1: Paciente / Representante Legal ---
     sig_row1 = [
         [
@@ -168,26 +170,29 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
         [
             Paragraph(f"<b>{paciente_nom}</b>", sig_name) if paciente_nom else Paragraph("&nbsp;", ParagraphStyle('SpBlank', fontSize=8, leading=9)),
             '',
-            Paragraph(f"<b>{rep_nom}</b>", sig_name) if rep_nom else Paragraph("&nbsp;", ParagraphStyle('SpBlank', fontSize=8, leading=9)),
+            Paragraph(f"<b>{rep_nom}</b>", sig_name) if has_tutor else Paragraph("&nbsp;", ParagraphStyle('SpBlank', fontSize=8, leading=9)),
         ],
         [
             Paragraph("Nombre y firma del paciente", sig_label),
             '',
-            Paragraph("Nombre y firma del representante legal del paciente", sig_label),
+            Paragraph("Nombre y firma del representante legal del paciente" if has_tutor else "&nbsp;", sig_label),
         ]
     ]
-    t_r1 = Table(sig_row1, colWidths=[sig_col_w, 50, sig_col_w])
-    t_r1.setStyle(TableStyle([
+    t_r1_styles = [
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-        ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
         ('BOTTOMPADDING', (0,0), (-1,0), 1),
         ('TOPPADDING', (0,1), (-1,1), 3),
         ('BOTTOMPADDING', (0,1), (-1,1), 1),
         ('TOPPADDING', (0,2), (-1,2), 1),
         ('BOTTOMPADDING', (0,2), (-1,2), 1),
-    ]))
+    ]
+    if has_tutor:
+        t_r1_styles.append(('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE))
+
+    t_r1 = Table(sig_row1, colWidths=[sig_col_w, 50, sig_col_w])
+    t_r1.setStyle(TableStyle(t_r1_styles))
     story.append(t_r1)
     story.append(Spacer(1, 6))
     
@@ -274,8 +279,17 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     ]))
     story.append(KeepTogether([wrapper]))
     
+    doc_info = {
+        'title': 'CONSENTIMIENTO INFORMADO PARA ECOCARDIOGRAMA TRANSESOFÁGICO',
+        'title_lines': [
+            'CONSENTIMIENTO INFORMADO PARA',
+            'ECOCARDIOGRAMA TRANSESOFÁGICO'
+        ],
+        'code': 'HE-DIRMED-SINPRO-PLT-32/01',
+    }
+
     def make_canvas(*args, **kwargs):
-        c = RDLCCanvas(*args, **kwargs)
+        c = CleanConsentCanvas(*args, doc_info=doc_info, **kwargs)
         c.fecha_ingreso = pt_data.get('fecha_ingreso', '')
         c.hora_ingreso = pt_data.get('hora_ingreso', '')
         return c

@@ -138,16 +138,20 @@ export default function FirmaExpress() {
         const res = await api.post('/atenciones/firmar-lote', {
             huella_token: "digitalpersona", 
             fmd_template,
+            medico_id: medico?.medico_id,
             folios: [selectedFolio]
         });
-        alert(res.data.message);
+        alert(res.data.message || "Atención médica firmada exitosamente.");
         setSelectedFolio(null);
         fetchPendientes(medico.medico_id);
         fetchHistorial(medico.medico_id);
         resetFmd();
     } catch (err) {
-        alert("Huella no válida para firmar esta atención");
+        alert(err.response?.data?.detail || "Huella no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.");
         resetFmd();
+        setTimeout(() => {
+          startCapture();
+        }, 800);
     } finally {
         setIsProcessing(false);
     }

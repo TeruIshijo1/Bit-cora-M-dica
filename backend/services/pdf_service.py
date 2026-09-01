@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from typing import Optional, Dict, Any, Tuple
 
@@ -58,3 +58,20 @@ def generate_consentimiento_eed_pdf(pt_num: str, pt_data: dict) -> Tuple[str, st
     pdf_path = pdf_engine_eed.generar_pdf_eed(pt_data)
     pdf_filename = f"CI_EED_{pt_num}.pdf"
     return pdf_path, pdf_filename
+
+def generate_consentimiento_34_01_pdf(pt_num: str, pt_data: dict, firma_data: dict = None) -> Tuple[str, str]:
+    """Genera el PDF de consentimiento informado para Estudio de Mesa Inclinada (Tilt Test)."""
+    import pdf_engine_34_01
+    pdf_filename = f"CI_34_01_{pt_num}.pdf"
+    pdf_path = os.path.join(STATIC_PDFS_DIR, pdf_filename)
+    pdf_engine_34_01.generate_consentimiento_34_01(pt_data, pdf_path, firma_data=firma_data)
+    return pdf_path, pdf_filename
+
+def generate_consentimiento_12_pdf(pt_num: str, pt_data: dict, firma_data: dict = None) -> Tuple[str, str]:
+    """Genera el PDF de consentimiento informado para Revisión Ginecológica y Obstétrica (Hosp/Urg)."""
+    import pdf_engine_12
+    pdf_filename = f"CI_12_{pt_num}.pdf"
+    pdf_path = os.path.join(STATIC_PDFS_DIR, pdf_filename)
+    pdf_engine_12.generate_consentimiento_12(pt_data, pdf_path, firma_data=firma_data)
+    return pdf_path, pdf_filename
+

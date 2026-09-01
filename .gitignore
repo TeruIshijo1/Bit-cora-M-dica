@@ -42,7 +42,11 @@ backend/pruebas/
 backend/*.png
 backend/*.pdf
 backend/*_temp.html
-git_log.txt
 pase_a_produccion/
 backups/
+scratch/
+test_*.py
+test_*.pdf
+view_images.html
+svg_helper.py
 

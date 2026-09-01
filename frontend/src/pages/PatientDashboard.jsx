@@ -39,18 +39,164 @@ export default function PatientDashboard() {
   const [consentModal3201, setConsentModal3201] = useState({
     open: false,
     isEdit: false,
+    isNew: true,
     tipo_interrogatorio: 'Directo',
     testigo1: '',
     testigo2: '',
+    paciente_capaz: true,
     paciente_o_representante: '',
     representante_legal: '',
     saving: false
   });
 
-  const [consentModalEED, setConsentModalEED] = useState({
+  // Candado de Seguridad y Autoría Médica (NOM-004 / NOM-024)
+  const storedUser = (() => {
+    try { return JSON.parse(localStorage.getItem('user')); } catch(e) { return null; }
+  })();
+  const storedMedico = (() => {
+    try { return JSON.parse(localStorage.getItem('medico')); } catch(e) { return null; }
+  })();
+  const userRole = localStorage.getItem('rol') || storedUser?.rol || '';
+  const currentDoctorName = storedMedico?.nombre_completo || storedUser?.nombre_completo || '';
+  const currentDoctorCedula = storedMedico?.cedula || storedUser?.cedula || '';
+  const isAdminOrSistemas = ['admin', 'sistemas'].includes(userRole);
+
+  const isPatientAdult = (patientObj) => {
+    if (!patientObj) return true;
+    const ageVal = parseInt(patientObj.age, 10);
+    if (!isNaN(ageVal)) return ageVal >= 18;
+    if (patientObj.dob) {
+      try {
+        const parts = String(patientObj.dob).split(/[\/\-\s]/);
+        if (parts.length >= 3) {
+          const yearPart = parseInt(parts[2], 10);
+          if (yearPart > 1900) {
+            const currentYear = new Date().getFullYear();
+            return (currentYear - yearPart) >= 18;
+          }
+        }
+      } catch (e) {}
+    }
+    return true;
+  };
+
+  const canModifyOrSignDocument = (docDoctorName) => {
+    if (isAdminOrSistemas) return true;
+    if (!docDoctorName || docDoctorName.trim() === '') return true;
+    if (!currentDoctorName) return false;
+
+    const normalize = (name) => {
+      return (name || '')
+        .toUpperCase()
+        .replace(/^DR(A)?\.?\s+/, '')
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^A-Z0-9]/g, "")
+        .trim();
+    };
+
+    const normDoc = normalize(docDoctorName);
+    const normUser = normalize(currentDoctorName);
+
+    return normDoc === normUser || normDoc.includes(normUser) || normUser.includes(normDoc);
+  };
+
+  const [selectedMrnum25, setSelectedMrnum25] = useState(null);
+  const [selectedMrnum32, setSelectedMrnum32] = useState(null);
+  const [selectedMrnumEED, setSelectedMrnumEED] = useState(null);
+  const [selectedMrnum3401, setSelectedMrnum3401] = useState(null);
+  const [selectedMrnum12, setSelectedMrnum12] = useState(null);
+  const [selectedMrnum04, setSelectedMrnum04] = useState(null);
+
+  const [consentModal04, setConsentModal04] = useState({
     open: false,
     isEdit: false,
+    isNew: true,
+    medico_tratante: '',
+    cedula: '',
+    paciente_capaz: true,
+    pariente: '',
+    testigo1: '',
+    saving: false
+  });
+
+  const [consentModal12, setConsentModal12] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
+    medico_tratante: '',
+    cedula: '',
+    diagnostico: '',
+    servicio: 'URGENCIAS',
+    beneficios: 'Evaluación integral de la condición materno-fetal, resolución adecuada del evento obstétrico.',
+    alternativas: 'Manejo médico expectante, tratamiento farmacológico alternativo o diferimiento según evolución clínica.',
+    paciente_capaz: true,
+    pariente: '',
+    testigo1: '',
+    testigo2: '',
+    saving: false
+  });
+
+  const [consentModal3401, setConsentModal3401] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
+    medico_tratante: '',
+    cedula: '',
+    tipo_interrogatorio: 'DIRECTO',
+    paciente_capaz: true,
+    pariente: '',
+    testigo1: '',
+    testigo2: '',
+    gruporh: 'O POSITIVO',
+    alergias: 'NEGADAS',
+    ta: '', fc_meta: '', f_resp: '', temperatura: '', peso: '', talla: '',
+    irm: '', fbpr: '', fpr: '',
+    conclusiones: '', conclusiones_2: '', conclusiones_3: '',
+    ta_basal: '', fc_basal: '', obs_basal: '',
+    ta_p_inicio: '', fc_p_inicio: '', obs_p_inicio: '',
+    ta_p_2: '', fc_p_2: '', obs_p_2: '',
+    ta_p_4: '', fc_p_4: '', obs_p_4: '',
+    ta_p_6: '', fc_p_6: '', obs_p_6: '',
+    ta_p_8: '', fc_p_8: '', obs_p_8: '',
+    ta_p_10: '', fc_p_10: '', obs_p_10: '',
+    ta_p_12: '', fc_p_12: '', obs_p_12: '',
+    ta_p_14: '', fc_p_14: '', obs_p_14: '',
+    ta_p_16: '', fc_p_16: '', obs_p_16: '',
+    ta_p_18: '', fc_p_18: '', obs_p_18: '',
+    ta_p_20: '', fc_p_20: '', obs_p_20: '',
+    ta_a_inicio: '', fc_a_inicio: '', obs_a_inicio: '',
+    ta_a_2: '', fc_a_2: '', obs_a_2: '',
+    ta_a_4: '', fc_a_4: '', obs_a_4: '',
+    ta_a_6: '', fc_a_6: '', obs_a_6: '',
+    ta_a_8: '', fc_a_8: '', obs_a_8: '',
+    ta_a_10: '', fc_a_10: '', obs_a_10: '',
+    ta_a_12: '', fc_a_12: '', obs_a_12: '',
+    ta_a_14: '', fc_a_14: '', obs_a_14: '',
+    ta_final: '', fc_final: '', obs_final: '',
+    saving: false
+  });
+
+    const [consentModal25, setConsentModal25] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
+    medico_tratante: '',
+    cedula: '',
+    testigo1: '',
+    testigo2: '',
+    paciente_capaz: true,
+    pariente: '',
+    paciente_o_representante: '',
+    saving: false
+  });
+
+    const [consentModalEED, setConsentModalEED] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
     tipo_interrogatorio: 'Directo',
+    paciente_capaz: true,
     responsable: '',
     comentarios: '',
     ta: '', fc_meta: '', fr: '', talla: '', peso: '',
@@ -101,7 +247,28 @@ export default function PatientDashboard() {
   });
 
   // Modal de Toma y Modificación de Signos Vitales (PTVS - SQL Server)
-  const [vitalsModal, setVitalsModal] = useState({
+  const [vitalsHistoryModal, setVitalsHistoryModal] = useState({
+    open: false,
+    loading: false,
+    history: []
+  });
+
+  const handleOpenVitalsHistory = async () => {
+    setVitalsHistoryModal({ open: true, loading: true, history: [] });
+    try {
+      const res = await api.get(`/ehr/paciente/${patientId}/historial-signos-vitales`);
+      setVitalsHistoryModal({
+        open: true,
+        loading: false,
+        history: res.data || []
+      });
+    } catch (err) {
+      console.error("Error fetching vitals history:", err);
+      setVitalsHistoryModal({ open: true, loading: false, history: [] });
+    }
+  };
+
+    const [vitalsModal, setVitalsModal] = useState({
     open: false,
     systolic: '120',
     diastolic: '80',
@@ -172,7 +339,8 @@ export default function PatientDashboard() {
       firma: firma,
       loading: true,
       verification: null,
-      copied: null
+      copied: null,
+      showVerticalQR: true
     });
 
     try {
@@ -350,6 +518,8 @@ export default function PatientDashboard() {
     dpStopCapture();
   });
   useEscapeKey(auditModal.open && auditModal.firma, () => setAuditModal({ open: false, firma: null, loading: false, verification: null, copied: null }));
+  useEscapeKey(vitalsHistoryModal.open, () => setVitalsHistoryModal(prev => ({ ...prev, open: false })));
+  useEscapeKey(consentModal25.open, () => setConsentModal25(prev => ({ ...prev, open: false })));
   useEscapeKey(vitalsModal.open, () => setVitalsModal(prev => ({ ...prev, open: false })));
   useEscapeKey(prescriptionModal.open, () => setPrescriptionModal(prev => ({ ...prev, open: false, waitingFingerprint: false })));
   useEscapeKey(discontinueModal.open, () => setDiscontinueModal(prev => ({ ...prev, open: false })));
@@ -694,15 +864,8 @@ export default function PatientDashboard() {
 
   // Abrir modal para nueva evolución
   const handleOpenNewEvol = (slotNum = 1) => {
-    let doctorName = 'JOSE JOSE PRUEBA ENRIQUEZ';
-    let doctorCed = 'PRUEBA-99281';
-    try {
-      const storedMed = JSON.parse(localStorage.getItem('medico'));
-      if (storedMed && storedMed.nombre_completo) {
-        doctorName = storedMed.nombre_completo;
-        doctorCed = storedMed.cedula || doctorCed;
-      }
-    } catch(e){}
+    let doctorName = currentDoctorName || 'JOSE JOSE PRUEBA ENRIQUEZ';
+    let doctorCed = currentDoctorCedula || 'PRUEBA-99281';
 
     const ptvs = data?.ptvs || {};
     const defaultTa = ptvs.ta || '120/80';
@@ -787,29 +950,115 @@ export default function PatientDashboard() {
     }
   };
 
-  const handleOpenNewConsent3201 = () => {
+  const handleOpenNewConsent25 = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    setConsentModal25({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      mrnum: null,
+      medico_tratante: currentDoctorName || 'JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: currentDoctorCedula || '7876310/5265849',
+      testigo1: data?.consentimiento_25?.testigo1 || '',
+      testigo2: data?.consentimiento_25?.testigo2 || '',
+      paciente_capaz: isAdult,
+      pariente: '',
+      paciente_o_representante: isAdult ? (p.name || '') : '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent25 = (record) => {
+    const c = record || data?.consentimiento_25 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedRep = c.paciente_o_representante || '';
+    const hasOtherRep = savedRep && savedRep !== p.name;
+    setConsentModal25({
+      open: true,
+      isEdit: true,
+      isNew: false,
+      mrnum: c.mrnum || null,
+      medico_tratante: c.medico_tratante || currentDoctorName || 'JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: currentDoctorCedula || '7876310/5265849',
+      testigo1: c.testigo1 || '',
+      testigo2: c.testigo2 || '',
+      paciente_capaz: isAdult ? !hasOtherRep : false,
+      pariente: hasOtherRep ? savedRep : '',
+      paciente_o_representante: savedRep || p.name || '',
+      saving: false
+    });
+  };
+
+  const handleSaveConsentModal25 = async (e) => {
+    e.preventDefault();
+    setConsentModal25(prev => ({ ...prev, saving: true }));
+    try {
+      const p = data?.patient || patient || {};
+      const payload = {
+        is_new: Boolean(consentModal25.isNew),
+        mrnum: consentModal25.mrnum,
+        medico_tratante: currentDoctorName || consentModal25.medico_tratante || 'JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: currentDoctorCedula || consentModal25.cedula || '7876310/5265849',
+        testigo1: consentModal25.testigo1 || '',
+        testigo2: consentModal25.testigo2 || '',
+        paciente_o_representante: consentModal25.paciente_capaz ? (p.name || '') : (consentModal25.pariente || consentModal25.paciente_o_representante || '')
+      };
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-25`, payload);
+      if (res.data?.status === 'success' || res.data?.success || !res.data?.error) {
+        setConsentModal25(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        if (res.data?.mrnum) {
+          setSelectedMrnum25(res.data.mrnum);
+        }
+        alert('¡Consentimiento Formato 25 guardado con éxito en el expediente SQL Server!\n(Conforme a la NOM-024, el documento ha quedado registrado bajo tu autoría)');
+      } else {
+        alert(res.data?.error || 'Error al guardar el consentimiento.');
+        setConsentModal25(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error('Error saving consent 25:', err);
+      alert('Error al conectar con el servidor para guardar el consentimiento.');
+      setConsentModal25(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+
+    const handleOpenNewConsent3201 = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
     setConsentModal3201({
       open: true,
       isEdit: false,
-      tipo_interrogatorio: 'Directo',
+      isNew: true,
+      tipo_interrogatorio: isAdult ? 'Directo' : 'Indirecto',
       testigo1: '',
       testigo2: '',
-      paciente_o_representante: data?.patient?.name || '',
+      paciente_capaz: isAdult,
       representante_legal: '',
+      paciente_o_representante: p.name || '',
       saving: false
     });
   };
 
   const handleOpenEditConsent3201 = () => {
     const c = data?.consentimiento_32_01 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedRep = c.representante_legal || '';
+    const hasOtherRep = savedRep && savedRep !== p.name;
     setConsentModal3201({
       open: true,
       isEdit: true,
-      tipo_interrogatorio: c.tipo_interrogatorio || consentForm3201.tipo_interrogatorio || 'Directo',
+      isNew: false,
+      tipo_interrogatorio: c.tipo_interrogatorio || consentForm3201.tipo_interrogatorio || (isAdult ? 'Directo' : 'Indirecto'),
       testigo1: c.testigo1 || consentForm3201.testigo1 || '',
       testigo2: c.testigo2 || consentForm3201.testigo2 || '',
-      paciente_o_representante: c.paciente_o_representante || consentForm3201.paciente_o_representante || data?.patient?.name || '',
-      representante_legal: c.representante_legal || consentForm3201.representante_legal || '',
+      paciente_capaz: isAdult ? !hasOtherRep : false,
+      representante_legal: savedRep,
+      paciente_o_representante: c.paciente_o_representante || consentForm3201.paciente_o_representante || p.name || '',
       saving: false
     });
   };
@@ -818,14 +1067,17 @@ export default function PatientDashboard() {
     e.preventDefault();
     setConsentModal3201(prev => ({ ...prev, saving: true }));
     try {
+      const p = data?.patient || patient || {};
       const payload = {
-        tipo_interrogatorio: consentModal3201.tipo_interrogatorio,
+        is_new: Boolean(consentModal3201.isNew),
+        mrnum: consentModal3201.mrnum,
+        tipo_interrogatorio: consentModal3201.paciente_capaz ? 'Directo' : 'Indirecto',
         testigo1: consentModal3201.testigo1,
         testigo2: consentModal3201.testigo2,
-        paciente_o_representante: consentModal3201.paciente_o_representante || data?.patient?.name || '',
-        representante_legal: consentModal3201.representante_legal || '',
-        medico_tratante: data?.patient?.attending || 'JOSE JOSE PRUEBA ENRIQUEZ',
-        cedula: data?.patient?.cedula || 'PRUEBA-99281',
+        paciente_o_representante: p.name || '',
+        representante_legal: consentModal3201.paciente_capaz ? '' : (consentModal3201.representante_legal || ''),
+        medico_tratante: currentDoctorName || data?.patient?.attending || 'JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: currentDoctorCedula || data?.patient?.cedula || 'PRUEBA-99281',
         alergias: data?.patient?.allergies || 'NEGADAS',
         diagnostico: data?.patient?.diagnostico || 'VALORACIÓN CARDIOLÓGICA'
       };
@@ -835,7 +1087,7 @@ export default function PatientDashboard() {
         setConsentModal3201(prev => ({ ...prev, open: false, saving: false }));
         await fetchData();
         await fetchFirmas();
-        alert("¡Consentimiento 32/01 guardado con éxito en el expediente SQL Server!\n(Al modificar el documento, cualquier firma digital previa se revocó conforme a la NOM-024)");
+        alert("¡Consentimiento 32/01 guardado con éxito en el expediente SQL Server!\n(Conforme a la NOM-024, el documento ha quedado registrado bajo tu autoría)");
       } else {
         alert(res.data?.error || "Error al guardar el consentimiento.");
         setConsentModal3201(prev => ({ ...prev, saving: false }));
@@ -847,9 +1099,16 @@ export default function PatientDashboard() {
     }
   };
 
-  const handleOpenNewConsentEED = () => {
+
+    const handleOpenNewConsentEED = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
     setConsentModalEED({
-      open: true, isEdit: false, tipo_interrogatorio: 'Directo', responsable: '', comentarios: '',
+      open: true, isEdit: false, isNew: true,
+      tipo_interrogatorio: isAdult ? 'Directo' : 'Indirecto',
+      paciente_capaz: isAdult,
+      responsable: isAdult ? (p.name || '') : '',
+      comentarios: '',
       ta: '', fc_meta: '', fr: '', talla: '', peso: '',
       ta_basal: '', fc_basal: '', so2_basal: '', s_basal: '',
       ta_5mcg: '', fc_5mcg: '', so2_5mcg: '', s_5mcg: '',
@@ -866,10 +1125,15 @@ export default function PatientDashboard() {
 
   const handleOpenEditConsentEED = () => {
     const c = data?.consentimiento_eed || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedResp = c.responsable || '';
+    const hasOtherResp = savedResp && savedResp !== p.name;
     setConsentModalEED({
-      open: true, isEdit: true, saving: false,
-      tipo_interrogatorio: c.tipo_interrogatorio || 'Directo',
-      responsable: c.responsable || '',
+      open: true, isEdit: true, isNew: false, saving: false,
+      tipo_interrogatorio: c.tipo_interrogatorio || (isAdult ? 'Directo' : 'Indirecto'),
+      paciente_capaz: isAdult ? !hasOtherResp : false,
+      responsable: savedResp || p.name || '',
       comentarios: c.comentarios || '',
       ta: c.ta || '', fc_meta: c.fc_meta || '', fr: c.fr || '', talla: c.talla || '', peso: c.peso || '',
       ta_basal: c.ta_basal || '', fc_basal: c.fc_basal || '', so2_basal: c.so2_basal || '', s_basal: c.s_basal || '',
@@ -888,12 +1152,21 @@ export default function PatientDashboard() {
     e.preventDefault();
     setConsentModalEED(prev => ({ ...prev, saving: true }));
     try {
-      const payload = { ...consentModalEED };
+      const p = data?.patient || patient || {};
+      const payload = { 
+        ...consentModalEED,
+        is_new: Boolean(consentModalEED.isNew),
+        medico: currentDoctorName || consentModalEED.medico || 'JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: currentDoctorCedula || consentModalEED.cedula || 'PRUEBA-99281',
+        responsable: consentModalEED.paciente_capaz ? (p.name || '') : (consentModalEED.responsable || ''),
+        tipo_interrogatorio: consentModalEED.paciente_capaz ? 'Directo' : 'Indirecto'
+      };
       delete payload.open;
       delete payload.isEdit;
+      delete payload.isNew;
       delete payload.saving;
       const token = localStorage.getItem('token');
-        const res = await api.post('/ehr/paciente/'+patientId+'/consentimiento-eed', payload, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.post('/ehr/paciente/'+patientId+'/consentimiento-eed', payload, { headers: { Authorization: `Bearer ${token}` } });
       if (res.data?.success || !res.data?.error) {
         setConsentModalEED(prev => ({ ...prev, open: false, saving: false }));
         await fetchData();
@@ -905,7 +1178,280 @@ export default function PatientDashboard() {
       }
     } catch (err) {
       console.error(err);
+      alert('Error al guardar.');
       setConsentModalEED(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleOpenNewConsent3401 = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const defaultTA = '120/80';
+    const defaultFC = '75';
+    setConsentModal3401({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      medico_tratante: currentDoctorName || p.attending || 'DR. CARLOS MENDEZ CARDIOLOGO',
+      cedula: currentDoctorCedula || '7876310/5265849',
+      tipo_interrogatorio: isAdult ? 'DIRECTO' : 'INDIRECTO',
+      paciente_capaz: isAdult,
+      pariente: '',
+      testigo1: data?.consentimiento_34_01?.testigo1 || data?.consentimiento_25?.testigo1 || '',
+      testigo2: data?.consentimiento_34_01?.testigo2 || data?.consentimiento_25?.testigo2 || '',
+      gruporh: p.grupo_rh || 'O POSITIVO',
+      alergias: p.allergies || 'NEGADAS',
+      ta: defaultTA,
+      fc_meta: '150',
+      f_resp: '18',
+      temperatura: '36.5',
+      peso: p.weight || '70',
+      talla: p.height || '1.70',
+      irm: 'Negativo para isquemia',
+      fbpr: 'Respuesta vasodepresora',
+      fpr: 'Normal',
+      conclusiones: 'Prueba de inclinación diagnóstica para Síncope Vasovagal.',
+      conclusiones_2: 'Monitoreo hemodinámico continuo satisfactorio sin arritmias ventriculares.',
+      conclusiones_3: 'Se recomienda hidratación oral abundante, incremento de sal y maniobras de contrapresión.',
+      ta_basal: defaultTA, fc_basal: defaultFC, obs_basal: 'Decúbito supino',
+      ta_p_inicio: defaultTA, fc_p_inicio: defaultFC, obs_p_inicio: 'Inclinación a 70°',
+      ta_p_2: defaultTA, fc_p_2: defaultFC, obs_p_2: 'Estable',
+      ta_p_4: defaultTA, fc_p_4: defaultFC, obs_p_4: 'Estable',
+      ta_p_6: defaultTA, fc_p_6: defaultFC, obs_p_6: 'Estable',
+      ta_p_8: defaultTA, fc_p_8: defaultFC, obs_p_8: 'Estable',
+      ta_p_10: defaultTA, fc_p_10: defaultFC, obs_p_10: 'Estable',
+      ta_p_12: defaultTA, fc_p_12: defaultFC, obs_p_12: 'Estable',
+      ta_p_14: defaultTA, fc_p_14: defaultFC, obs_p_14: 'Estable',
+      ta_p_16: defaultTA, fc_p_16: defaultFC, obs_p_16: 'Estable',
+      ta_p_18: defaultTA, fc_p_18: defaultFC, obs_p_18: 'Estable',
+      ta_p_20: defaultTA, fc_p_20: defaultFC, obs_p_20: 'Estable',
+      ta_a_inicio: defaultTA, fc_a_inicio: defaultFC, obs_a_inicio: 'Fase farmacológica (Aerosol)',
+      ta_a_2: defaultTA, fc_a_2: defaultFC, obs_a_2: 'Estable',
+      ta_a_4: defaultTA, fc_a_4: defaultFC, obs_a_4: 'Estable',
+      ta_a_6: defaultTA, fc_a_6: defaultFC, obs_a_6: 'Estable',
+      ta_a_8: defaultTA, fc_a_8: defaultFC, obs_a_8: 'Estable',
+      ta_a_10: defaultTA, fc_a_10: defaultFC, obs_a_10: 'Estable',
+      ta_a_12: defaultTA, fc_a_12: defaultFC, obs_a_12: 'Estable',
+      ta_a_14: defaultTA, fc_a_14: defaultFC, obs_a_14: 'Estable',
+      ta_final: defaultTA, fc_final: defaultFC, obs_final: 'Retorno a decúbito supino',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent3401 = () => {
+    const c = data?.consentimiento_34_01 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedPariente = c.pariente || '';
+    const hasOtherPariente = savedPariente && savedPariente !== p.name;
+    setConsentModal3401({
+      open: true,
+      isEdit: true,
+      saving: false,
+      medico_tratante: c.medico_tratante || currentDoctorName || 'DR. CARLOS MENDEZ CARDIOLOGO',
+      cedula: c.cedula || currentDoctorCedula || '7876310/5265849',
+      tipo_interrogatorio: c.tipo_interrogatorio || (isAdult ? 'DIRECTO' : 'INDIRECTO'),
+      paciente_capaz: isAdult ? !hasOtherPariente : false,
+      pariente: savedPariente,
+      testigo1: c.testigo1 || '',
+      testigo2: c.testigo2 || '',
+      gruporh: c.gruporh || 'O POSITIVO',
+      alergias: c.alergias || 'NEGADAS',
+      ta: c.ta || '', fc_meta: c.fc_meta || '', f_resp: c.f_resp || '', temperatura: c.temperatura || '', peso: c.peso || '', talla: c.talla || '',
+      irm: c.irm || '', fbpr: c.fbpr || '', fpr: c.fpr || '',
+      conclusiones: c.conclusiones || '', conclusiones_2: c.conclusiones_2 || '', conclusiones_3: c.conclusiones_3 || '',
+      ta_basal: c.ta_basal || '', fc_basal: c.fc_basal || '', obs_basal: c.obs_basal || '',
+      ta_p_inicio: c.ta_p_inicio || '', fc_p_inicio: c.fc_p_inicio || '', obs_p_inicio: c.obs_p_inicio || '',
+      ta_p_2: c.ta_p_2 || '', fc_p_2: c.fc_p_2 || '', obs_p_2: c.obs_p_2 || '',
+      ta_p_4: c.ta_p_4 || '', fc_p_4: c.fc_p_4 || '', obs_p_4: c.obs_p_4 || '',
+      ta_p_6: c.ta_p_6 || '', fc_p_6: c.fc_p_6 || '', obs_p_6: c.obs_p_6 || '',
+      ta_p_8: c.ta_p_8 || '', fc_p_8: c.fc_p_8 || '', obs_p_8: c.obs_p_8 || '',
+      ta_p_10: c.ta_p_10 || '', fc_p_10: c.fc_p_10 || '', obs_p_10: c.obs_p_10 || '',
+      ta_p_12: c.ta_p_12 || '', fc_p_12: c.fc_p_12 || '', obs_p_12: c.obs_p_12 || '',
+      ta_p_14: c.ta_p_14 || '', fc_p_14: c.fc_p_14 || '', obs_p_14: c.obs_p_14 || '',
+      ta_p_16: c.ta_p_16 || '', fc_p_16: c.fc_p_16 || '', obs_p_16: c.obs_p_16 || '',
+      ta_p_18: c.ta_p_18 || '', fc_p_18: c.fc_p_18 || '', obs_p_18: c.obs_p_18 || '',
+      ta_p_20: c.ta_p_20 || '', fc_p_20: c.fc_p_20 || '', obs_p_20: c.obs_p_20 || '',
+      ta_a_inicio: c.ta_a_inicio || '', fc_a_inicio: c.fc_a_inicio || '', obs_a_inicio: c.obs_a_inicio || '',
+      ta_a_2: c.ta_a_2 || '', fc_a_2: c.fc_a_2 || '', obs_a_2: c.obs_a_2 || '',
+      ta_a_4: c.ta_a_4 || '', fc_a_4: c.fc_a_4 || '', obs_a_4: c.obs_a_4 || '',
+      ta_a_6: c.ta_a_6 || '', fc_a_6: c.fc_a_6 || '', obs_a_6: c.obs_a_6 || '',
+      ta_a_8: c.ta_a_8 || '', fc_a_8: c.fc_a_8 || '', obs_a_8: c.obs_a_8 || '',
+      ta_a_10: c.ta_a_10 || '', fc_a_10: c.fc_a_10 || '', obs_a_10: c.obs_a_10 || '',
+      ta_a_12: c.ta_a_12 || '', fc_a_12: c.fc_a_12 || '', obs_a_12: c.obs_a_12 || '',
+      ta_a_14: c.ta_a_14 || '', fc_a_14: c.fc_a_14 || '', obs_a_14: c.obs_a_14 || '',
+      ta_final: c.ta_final || '', fc_final: c.fc_final || '', obs_final: c.obs_final || ''
+    });
+  };
+
+  const handleSaveConsentModal3401 = async (e) => {
+    e.preventDefault();
+    setConsentModal3401(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = { 
+        ...consentModal3401,
+        medico_tratante: currentDoctorName || consentModal3401.medico_tratante || 'DR. CARLOS MENDEZ CARDIOLOGO',
+        cedula: currentDoctorCedula || consentModal3401.cedula || '7876310/5265849',
+        pariente: consentModal3401.paciente_capaz ? '' : (consentModal3401.pariente || ''),
+        tipo_interrogatorio: consentModal3401.paciente_capaz ? 'DIRECTO' : 'INDIRECTO'
+      };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-34-01`, payload);
+      if (res.data?.status === 'success' || res.data?.success || !res.data?.error) {
+        setConsentModal3401(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert('¡Consentimiento Formato 34/01 (Mesa Inclinada) guardado con éxito en el expediente SQL Server!');
+      } else {
+        alert(res.data?.error || 'Error al guardar el formato.');
+        setConsentModal3401(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al conectar con el servidor.');
+      setConsentModal3401(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleOpenNewConsent12 = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    setConsentModal12({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      medico_tratante: currentDoctorName || p.attending || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: currentDoctorCedula || '7876310/5265849',
+      diagnostico: p.diagnostico || 'REVISIÓN GINECOLÓGICA Y OBSTÉTRICA',
+      servicio: 'URGENCIAS',
+      beneficios: 'Evaluación integral de la condición materno-fetal, resolución adecuada del evento obstétrico.',
+      alternativas: 'Manejo médico expectante, tratamiento farmacológico alternativo o diferimiento según evolución clínica.',
+      paciente_capaz: isAdult,
+      pariente: '',
+      testigo1: data?.consentimiento_12?.testigo1 || data?.consentimiento_25?.testigo1 || '',
+      testigo2: data?.consentimiento_12?.testigo2 || data?.consentimiento_25?.testigo2 || '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent12 = (item) => {
+    const c = item || data?.consentimiento_12 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedPariente = c.pariente || '';
+    const hasOtherPariente = savedPariente && savedPariente !== p.name;
+    setConsentModal12({
+      open: true,
+      isEdit: true,
+      isNew: false,
+      medico_tratante: c.medico_tratante || c.n_medico || currentDoctorName || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: c.cedula || currentDoctorCedula || '7876310/5265849',
+      diagnostico: c.diagnostico || p.diagnostico || 'REVISIÓN GINECOLÓGICA Y OBSTÉTRICA',
+      servicio: c.servicio || 'URGENCIAS',
+      beneficios: c.beneficios || 'Evaluación integral de la condición materno-fetal, resolución adecuada del evento obstétrico.',
+      alternativas: c.alternativas || 'Manejo médico expectante, tratamiento farmacológico alternativo o diferimiento según evolución clínica.',
+      paciente_capaz: isAdult ? !hasOtherPariente : false,
+      pariente: savedPariente,
+      testigo1: c.testigo1 || '',
+      testigo2: c.testigo2 || '',
+      saving: false
+    });
+  };
+
+  const handleSaveConsentModal12 = async (e) => {
+    e.preventDefault();
+    setConsentModal12(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = { 
+        ...consentModal12,
+        medico_tratante: currentDoctorName || consentModal12.medico_tratante || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: currentDoctorCedula || consentModal12.cedula || '7876310/5265849',
+        pariente: consentModal12.paciente_capaz ? '' : (consentModal12.pariente || '')
+      };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-12`, payload);
+      if (res.data?.status === 'success' || res.data?.success || !res.data?.error) {
+        setConsentModal12(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert('¡Consentimiento Formato 12 (Gineco Hosp/Urg) guardado con éxito en el expediente SQL Server!');
+      } else {
+        alert(res.data?.error || 'Error al guardar el formato.');
+        setConsentModal12(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al conectar con el servidor.');
+      setConsentModal12(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleOpenNewConsent04 = () => {
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    setConsentModal04({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      medico_tratante: currentDoctorName || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: currentDoctorCedula || '7876310/5265849',
+      paciente_capaz: isAdult,
+      pariente: '',
+      testigo1: data?.consentimiento_04?.testigo1 || data?.consentimiento_12?.testigo1 || '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent04 = (item) => {
+    const c = item || data?.consentimiento_04 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const savedPariente = c.pariente || '';
+    const hasOtherPariente = savedPariente && savedPariente !== p.name;
+    setConsentModal04({
+      open: true,
+      isEdit: true,
+      isNew: false,
+      medico_tratante: c.medico_tratante || c.n_medico || currentDoctorName || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+      cedula: c.cedula || currentDoctorCedula || '7876310/5265849',
+      paciente_capaz: isAdult ? !hasOtherPariente : false,
+      pariente: savedPariente,
+      testigo1: c.testigo1 || '',
+      saving: false
+    });
+  };
+
+  const handleSaveConsentModal04 = async (e) => {
+    e.preventDefault();
+    setConsentModal04(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = { 
+        ...consentModal04,
+        medico_tratante: currentDoctorName || consentModal04.medico_tratante || 'DR. JOSE JOSE PRUEBA ENRIQUEZ',
+        cedula: currentDoctorCedula || consentModal04.cedula || '7876310/5265849',
+        pariente: consentModal04.paciente_capaz ? '' : (consentModal04.pariente || '')
+      };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-04`, payload);
+      if (res.data?.status === 'success' || res.data?.success || !res.data?.error) {
+        setConsentModal04(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert('¡Consentimiento Formato 04 (Catéter Venoso Central) guardado con éxito en SQL Server!');
+      } else {
+        alert(res.data?.error || 'Error al guardar el formato.');
+        setConsentModal04(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al conectar con el servidor.');
+      setConsentModal04(prev => ({ ...prev, saving: false }));
     }
   };
 
@@ -1024,14 +1570,24 @@ export default function PatientDashboard() {
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleOpenVitalsModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hes-blue-light/60 hover:bg-hes-blue-light text-hes-blue-main text-xs font-bold transition-all border border-hes-blue-main/20 shadow-sm"
-            title="Capturar o modificar signos vitales"
-          >
-            <FiEdit3 /> Registrar / Modificar Signos Vitales
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenVitalsHistory}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all border border-slate-300 shadow-sm"
+              title="Ver historial cronológico de todas las tomas"
+            >
+              <FiClock /> Ver Historial de Signos
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenVitalsModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hes-blue-light/60 hover:bg-hes-blue-light text-hes-blue-main text-xs font-bold transition-all border border-hes-blue-main/20 shadow-sm"
+              title="Capturar o modificar signos vitales"
+            >
+              <FiEdit3 /> Nueva Toma de Signos
+            </button>
+          </div>
         </div>
 
         {/* VITALS ROW */}
@@ -1301,6 +1857,86 @@ export default function PatientDashboard() {
                           >
                             <FiDownload /> Imprimir Formato (PDF)
                           </a>
+                        </>
+                      )}
+                      {selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-34' && (
+                        <>
+                          <button
+                            onClick={handleOpenNewConsent3401}
+                            className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiPlus /> Capturar Nuevo Consentimiento
+                          </button>
+                          {(data?.consentimiento_34_01 || (data?.historial_34_01 && data.historial_34_01.length > 0)) && (
+                            <a 
+                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-34-01${selectedMrnum3401 ? `?mrnum=${selectedMrnum3401}` : ''}`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiDownload /> Imprimir Formato (PDF)
+                            </a>
+                          )}
+                        </>
+                      )}
+                      {selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-25' && (
+                        <>
+                          <button
+                            onClick={handleOpenNewConsent25}
+                            className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiPlus /> Capturar Nuevo Consentimiento
+                          </button>
+                          {(data?.consentimiento_25 || (data?.historial_25 && data.historial_25.length > 0)) && (
+                            <a 
+                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-25${selectedMrnum25 ? `?mrnum=${selectedMrnum25}` : ''}`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiDownload /> Imprimir Formato (PDF)
+                            </a>
+                          )}
+                        </>
+                      )}
+                      {selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-12' && (
+                        <>
+                          <button
+                            onClick={handleOpenNewConsent12}
+                            className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiPlus /> Capturar Nuevo Consentimiento
+                          </button>
+                          {(data?.consentimiento_12 || (data?.historial_12 && data.historial_12.length > 0)) && (
+                            <a 
+                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-12${selectedMrnum12 ? `?mrnum=${selectedMrnum12}` : ''}`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiDownload /> Imprimir Formato (PDF)
+                            </a>
+                          )}
+                        </>
+                      )}
+                      {selectedFormat.codigo === 'HE-DIRMED-CONSUL-PLT-04' && (
+                        <>
+                          <button
+                            onClick={handleOpenNewConsent04}
+                            className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                          >
+                            <FiPlus /> Capturar Nuevo Consentimiento
+                          </button>
+                          {(data?.consentimiento_04 || (data?.historial_04 && data.historial_04.length > 0)) && (
+                            <a 
+                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-04${selectedMrnum04 ? `?mrnum=${selectedMrnum04}` : ''}`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              <FiDownload /> Imprimir Formato (PDF)
+                            </a>
+                          )}
                         </>
                       )}
                     </div>
@@ -1616,7 +2252,189 @@ export default function PatientDashboard() {
                         )}
                       </div>
                     </div>
-                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-EED' ? (
+                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-25' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial25 = (data?.historial_25 && data.historial_25.length > 0)
+                          ? data.historial_25
+                          : (data?.consentimiento_25 ? [data.consentimiento_25] : []);
+
+                        const activeDoc25 = (selectedMrnum25 ? historial25.find(h => h.mrnum === selectedMrnum25) : null)
+                          || (historial25.length > 0 ? historial25[0] : null)
+                          || data?.consentimiento_25;
+
+                        const docDoctor25 = activeDoc25?.medico_tratante || activeDoc25?.n_medico || '';
+                        const isOwner25 = canModifyOrSignDocument(docDoctor25);
+                        const firmaDoc25 = firmas.find(f => 
+                          f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-25' && 
+                          (
+                            (activeDoc25?.mrnum && f.evolution_slot === activeDoc25.mrnum) ||
+                            (!activeDoc25?.mrnum && f.evolution_slot === 0) ||
+                            (historial25.length === 1 && f.evolution_slot === 0)
+                          )
+                        );
+                        const isSigned25 = Boolean(activeDoc25?.firmado || activeDoc25?.signed_by || firmaDoc25);
+
+                        return (
+                          <>
+                            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/70 via-slate-50 to-indigo-50/60 border-b border-slate-200">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                                    <FiFolder />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <h3 className="font-bold text-slate-800 text-sm">{selectedFormat.nombre}</h3>
+                                      <span className="text-[10px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                        {historial25.length} {historial25.length === 1 ? 'registro' : 'registros'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {isSigned25 ? (
+                                        <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          <MdVerifiedUser /> Firmado
+                                        </span>
+                                      ) : activeDoc25 ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          Pendiente de Firma
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          No registrado
+                                        </span>
+                                      )}
+                                      {!isOwner25 && docDoctor25 && (
+                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full shadow-xs">
+                                          <FiLock /> Bloqueado ({docDoctor25})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                  <button
+                                    onClick={handleOpenNewConsent25}
+                                    className="flex items-center gap-1.5 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                  >
+                                    <FiPlus /> Capturar Nuevo Consentimiento
+                                  </button>
+
+                                  {activeDoc25 && (
+                                    <>
+                                      {isOwner25 ? (
+                                        <>
+                                          <button
+                                            onClick={() => handleOpenBiometricSign(activeDoc25.mrnum || 0, 'Consentimiento Revisión Ginecológica', JSON.stringify(activeDoc25), 'HE-DIRMED-CONSUL-PLT-25', 'Consentimiento Informado')}
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${isSigned25 ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                          >
+                                            <MdFingerprint className="text-base" /> {isSigned25 ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                          </button>
+                                          <button onClick={() => handleOpenEditConsent25(activeDoc25)} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                            <FiEdit3 /> Editar
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold" title="Documento elaborado por otro médico">
+                                          <FiLock /> Solo Lectura
+                                        </span>
+                                      )}
+                                      <a
+                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-25${activeDoc25.mrnum ? `?mrnum=${activeDoc25.mrnum}` : ''}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF
+                                      </a>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
+                              {/* SELECTOR DE HISTORIAL DE VERSIONES / DOCUMENTOS PREVIOS */}
+                              {historial25.length > 0 && (
+                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase">
+                                    <span>Historial de Registros ({historial25.length})</span>
+                                    <span className="text-[10px] font-medium text-slate-400">Selecciona un documento para visualizarlo o imprimirlo</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                    {historial25.map((item, idx) => {
+                                      const isSelected = (!selectedMrnum25 && idx === 0) || selectedMrnum25 === item.mrnum;
+                                      const itemOwner = canModifyOrSignDocument(item.medico_tratante);
+                                      return (
+                                        <button
+                                          key={item.mrnum || idx}
+                                          type="button"
+                                          onClick={() => setSelectedMrnum25(item.mrnum)}
+                                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all flex items-center gap-2 border text-left ${
+                                            isSelected 
+                                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs' 
+                                              : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                          }`}
+                                        >
+                                          <span>#{historial25.length - idx} • {item.created_on || 'Sin fecha'}</span>
+                                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${isSelected ? 'bg-blue-700 text-blue-100' : 'bg-slate-100 text-slate-600'}`}>
+                                            {item.medico_tratante || 'Dr. Médico'}
+                                          </span>
+                                          {!itemOwner && (
+                                            <FiLock className={isSelected ? 'text-blue-200' : 'text-amber-600'} title="Solo Lectura (Otro Médico)" />
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {!isOwner25 && docDoctor25 && (
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-amber-800 text-xs font-semibold">
+                                  <FiLock className="text-amber-600 text-base shrink-0" />
+                                  <span>Candado de Seguridad NOM-004: Este registro #{activeDoc25?.mrnum || 1} pertenece al <strong>{docDoctor25}</strong>. Al ser de otro profesional, está protegido en modo Solo Lectura. Puedes crear tu propio registro dando clic en "+ Capturar Nuevo Consentimiento".</span>
+                                </div>
+                              )}
+
+                              {activeDoc25 ? (
+                                <div className="text-xs space-y-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                     <div><span className="text-slate-500 block">Médico Tratante:</span><span className="font-bold text-slate-800">{activeDoc25.medico_tratante || 'DR. MEDICO TRATANTE'}</span></div>
+                                     <div><span className="text-slate-500 block">Fecha y Hora de Registro:</span><span className="font-bold text-slate-800">{activeDoc25.created_on || '--'}</span></div>
+                                     <div><span className="text-slate-500 block">Identificador SQL (MRNum):</span><span className="font-mono font-bold text-hes-blue-main">{activeDoc25.mrnum || '1'}</span></div>
+                                  </div>
+                                  <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                                     <span className="text-hes-blue-main font-bold block mb-1">Procedimiento Proyectado:</span>
+                                     <p className="text-slate-700">Revisión ginecológica u obstétrica (tacto vaginal, tacto rectal, exploración mamaria), hospitalización, colocación de sondas y catéteres, aplicación de medicamentos, transfusiones sanguíneas, estudios de gabinete.</p>
+                                  </div>
+                                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                                     {firmaDoc25 ? (
+                                          <button onClick={() => handleOpenAuditModal(firmaDoc25)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors">
+                                              <MdVerifiedUser /> Sello: {firmaDoc25.sello_digital ? `${firmaDoc25.sello_digital.slice(0, 20)}...` : 'Verificado'}
+                                          </button>
+                                     ) : (activeDoc25?.signed_by || activeDoc25?.signed_on) ? (
+                                          <span className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
+                                              <MdVerifiedUser /> Firmado en Vertical: {activeDoc25.signed_by} ({activeDoc25.signed_on})
+                                          </span>
+                                     ) : <div/>}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                                  <p>No se ha registrado ningún consentimiento para este paciente.</p>
+                                  <button onClick={handleOpenNewConsent25} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
+                                    <FiPlus /> Capturar Primer Consentimiento Formato 25
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-EED' ? (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full ring-1 ring-slate-100">
                       <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-5">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1648,31 +2466,40 @@ export default function PatientDashboard() {
                           </div>
                           
                           <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
-                            {data?.consentimiento_eed ? (
-                              <>
-                                {(() => {
-                                  const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
-                                  return (
-                                    <button
-                                      onClick={() => handleOpenBiometricSign(0, 'Ecocardiograma Estrés', JSON.stringify(data.consentimiento_eed), 'HE-DIRMED-CONSUL-PLT-EED', 'Consentimiento Informado')}
-                                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${firma ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
-                                    >
-                                      <MdFingerprint className="text-base" /> {firma ? 'Refirmar con Huella' : 'Firmar con Huella'}
-                                    </button>
-                                  );
-                                })()}
-                                <button onClick={handleOpenEditConsentEED} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
-                                  <FiEdit3 /> Editar
+                            {(() => {
+                              const docDoctorEED = data?.consentimiento_eed?.medico || data?.patient?.attending || '';
+                              const isOwnerEED = canModifyOrSignDocument(docDoctorEED);
+                              const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
+
+                              return data?.consentimiento_eed ? (
+                                <>
+                                  {isOwnerEED ? (
+                                    <>
+                                      <button
+                                        onClick={() => handleOpenBiometricSign(0, 'Ecocardiograma Estrés', JSON.stringify(data.consentimiento_eed), 'HE-DIRMED-CONSUL-PLT-EED', 'Consentimiento Informado')}
+                                        className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${firma ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                      >
+                                        <MdFingerprint className="text-base" /> {firma ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                      </button>
+                                      <button onClick={handleOpenEditConsentEED} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                        <FiEdit3 /> Editar
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold" title="Documento elaborado por otro médico">
+                                      <FiLock /> Solo Lectura
+                                    </span>
+                                  )}
+                                  <a href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-eed`} target="_blank" rel="noreferrer" className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                    <FiFileText /> Imprimir PDF Oficial
+                                  </a>
+                                </>
+                              ) : (
+                                <button onClick={handleOpenNewConsentEED} className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">
+                                  <FiPlus /> Capturar EED
                                 </button>
-                                <a href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-eed`} target="_blank" rel="noreferrer" className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
-                                  <FiFileText /> Imprimir
-                                </a>
-                              </>
-                            ) : (
-                              <button onClick={handleOpenNewConsentEED} className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">
-                                <FiPlus /> Capturar EED
-                              </button>
-                            )}
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -1703,11 +2530,656 @@ export default function PatientDashboard() {
                           <div className="py-8 text-center text-xs text-slate-400 space-y-3">
                             <p>No se ha registrado el Ecocardiograma de Estrés con Dobutamina.</p>
                             <button onClick={handleOpenNewConsentEED} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
-                              <FiPlus /> Capturar Formato
+                              <FiPlus /> Capturar Formato EED
                             </button>
                           </div>
                         )}
                       </div>
+                    </div>
+                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-34' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial34 = (data?.historial_34_01 && data.historial_34_01.length > 0)
+                          ? data.historial_34_01
+                          : (data?.consentimiento_34_01 ? [data.consentimiento_34_01] : []);
+
+                        const activeDoc34 = (selectedMrnum3401 ? historial34.find(h => h.mrnum === selectedMrnum3401) : null)
+                          || (historial34.length > 0 ? historial34[0] : null)
+                          || data?.consentimiento_34_01;
+
+                        const docDoctor34 = activeDoc34?.medico_tratante || activeDoc34?.nombre_medico_mi || '';
+                        const isOwner34 = canModifyOrSignDocument(docDoctor34);
+                        const firmaDoc34 = firmas.find(f => 
+                          (f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-34' || f.codigo_formato?.includes('34')) && 
+                          (
+                            (activeDoc34?.mrnum && f.evolution_slot === activeDoc34.mrnum) ||
+                            (!activeDoc34?.mrnum && f.evolution_slot === 0) ||
+                            (historial34.length === 1 && f.evolution_slot === 0)
+                          )
+                        );
+                        const isSigned34 = Boolean(activeDoc34?.firmado || activeDoc34?.signed_by || firmaDoc34);
+
+                        return (
+                          <>
+                            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/70 via-slate-50 to-indigo-50/60 border-b border-slate-200">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                                    <FiActivity />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <h3 className="font-bold text-slate-800 text-sm">{selectedFormat.nombre}</h3>
+                                      <span className="text-[10px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                        {historial34.length} {historial34.length === 1 ? 'registro' : 'registros'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {isSigned34 ? (
+                                        <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          <MdVerifiedUser /> Firmado
+                                        </span>
+                                      ) : activeDoc34 ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          Pendiente de Firma
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          No registrado
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                  {activeDoc34 ? (
+                                    <>
+                                      {isOwner34 ? (
+                                        <>
+                                          <button
+                                            onClick={() => handleOpenBiometricSign(activeDoc34.mrnum || 0, 'Mesa Inclinada (Tilt Test)', JSON.stringify(activeDoc34), 'HE-DIRMED-CONSUL-PLT-34', 'Consentimiento Informado')}
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${isSigned34 ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                          >
+                                            <MdFingerprint className="text-base" /> {isSigned34 ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleOpenEditConsent3401(activeDoc34)}
+                                            className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                          >
+                                            <FiEdit3 /> Editar
+                                          </button>
+                                          <button
+                                            onClick={handleOpenNewConsent3401}
+                                            className="flex items-center gap-1 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold" title="Documento elaborado por otro médico">
+                                            <FiLock /> Solo Lectura
+                                          </span>
+                                          <button
+                                            onClick={handleOpenNewConsent3401}
+                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      )}
+                                      <a
+                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-34-01${activeDoc34.mrnum ? `?mrnum=${activeDoc34.mrnum}` : ''}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </a>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={handleOpenNewConsent3401}
+                                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                    >
+                                      <FiPlus /> Capturar Mesa Inclinada
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
+                              {/* SELECTOR DE HISTORIAL DE VERSIONES / DOCUMENTOS PREVIOS */}
+                              {historial34.length > 0 && (
+                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase">
+                                    <span>Historial de Registros ({historial34.length})</span>
+                                    <span className="text-[10px] font-medium text-slate-400">Selecciona un documento para visualizarlo o imprimirlo</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                    {historial34.map((item, idx) => {
+                                      const isSelected = (!selectedMrnum3401 && idx === 0) || selectedMrnum3401 === item.mrnum;
+                                      const itemOwner = canModifyOrSignDocument(item.medico_tratante || item.nombre_medico_mi);
+                                      return (
+                                        <button
+                                          key={item.mrnum || idx}
+                                          type="button"
+                                          onClick={() => setSelectedMrnum3401(item.mrnum)}
+                                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all flex items-center gap-2 border text-left ${
+                                            isSelected 
+                                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs' 
+                                              : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                          }`}
+                                        >
+                                          <span>#{historial34.length - idx} • {item.created_on || 'Sin fecha'}</span>
+                                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${isSelected ? 'bg-blue-700 text-blue-100' : 'bg-slate-100 text-slate-600'}`}>
+                                            {item.medico_tratante || item.nombre_medico_mi || 'Dr. Médico'}
+                                          </span>
+                                          {!itemOwner && (
+                                            <FiLock className={isSelected ? 'text-blue-200' : 'text-amber-600'} title="Solo Lectura (Otro Médico)" />
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {!isOwner34 && docDoctor34 && (
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3 text-amber-800 text-xs font-semibold flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <FiLock className="text-amber-600 text-base shrink-0" />
+                                    <span>Candado de Seguridad NOM-004: Este registro #{activeDoc34?.mrnum || 1} pertenece al <strong>{docDoctor34}</strong>. Al ser de otro profesional, está protegido en modo Solo Lectura.</span>
+                                  </div>
+                                  <button
+                                    onClick={handleOpenNewConsent3401}
+                                    className="inline-flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
+                                  >
+                                    <FiPlus /> Capturar Nuevo Consentimiento
+                                  </button>
+                                </div>
+                              )}
+
+                              {activeDoc34 ? (
+                                <div className="text-xs space-y-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                     <div><span className="text-slate-500 block">Médico Tratante:</span><span className="font-bold text-slate-800">{activeDoc34.medico_tratante || activeDoc34.nombre_medico_mi || 'DR. CARLOS MENDEZ'}</span></div>
+                                     <div><span className="text-slate-500 block">Pariente / Representante:</span><span className="font-bold text-slate-800">{activeDoc34.pariente || data.patient.name}</span></div>
+                                     <div><span className="text-slate-500 block">Signos Vitales:</span><span className="font-bold text-slate-800">TA: {activeDoc34.ta || '--'} | FC Meta: {activeDoc34.fc_meta || '--'} | FR: {activeDoc34.f_resp || '--'}</span></div>
+                                  </div>
+                                  <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                                     <span className="text-hes-blue-main font-bold block mb-1">Conclusiones del Estudio:</span>
+                                     <p className="text-slate-700">{activeDoc34.conclusiones || 'Estudio de mesa inclinada con respuesta hemodinámica normal.'}</p>
+                                     {activeDoc34.conclusiones_2 && <p className="text-slate-700 mt-1">{activeDoc34.conclusiones_2}</p>}
+                                     {activeDoc34.conclusiones_3 && <p className="text-slate-700 mt-1">{activeDoc34.conclusiones_3}</p>}
+                                  </div>
+                                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                                     {firmaDoc34 ? (
+                                          <button onClick={() => handleOpenAuditModal(firmaDoc34)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors">
+                                              <MdVerifiedUser /> Sello: {firmaDoc34.sello_digital ? `${firmaDoc34.sello_digital.slice(0, 20)}...` : 'Verificado'}
+                                          </button>
+                                     ) : (activeDoc34?.signed_by || activeDoc34?.signed_on) ? (
+                                          <span className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
+                                              <MdVerifiedUser /> Firmado en Vertical: {activeDoc34.signed_by} ({activeDoc34.signed_on})
+                                          </span>
+                                     ) : <div/>}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                                  <p>No se ha registrado el Estudio de Mesa Inclinada para este paciente.</p>
+                                  <button onClick={handleOpenNewConsent3401} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
+                                    <FiPlus /> Capturar Formato 34/01
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-12' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial12 = (data?.historial_12 && data.historial_12.length > 0)
+                          ? data.historial_12
+                          : (data?.consentimiento_12 ? [data.consentimiento_12] : []);
+
+                        const activeDoc12 = (selectedMrnum12 ? historial12.find(h => h.mrnum === selectedMrnum12) : null)
+                          || (historial12.length > 0 ? historial12[0] : null)
+                          || data?.consentimiento_12;
+
+                        const docDoctor12 = activeDoc12?.medico_tratante || activeDoc12?.n_medico || '';
+                        const isOwner12 = canModifyOrSignDocument(docDoctor12);
+                        const firmaDoc12 = firmas.find(f => 
+                          (f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-12' || f.codigo_formato?.includes('12')) && 
+                          (
+                            (activeDoc12?.mrnum && f.evolution_slot === activeDoc12.mrnum) ||
+                            (!activeDoc12?.mrnum && f.evolution_slot === 0) ||
+                            (historial12.length === 1 && f.evolution_slot === 0)
+                          )
+                        );
+                        const isSigned12 = Boolean(activeDoc12?.firmado || activeDoc12?.signed_by || firmaDoc12);
+
+                        return (
+                          <>
+                            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/70 via-slate-50 to-indigo-50/60 border-b border-slate-200">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                                    <FiFileText />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <h3 className="font-bold text-slate-800 text-sm">{selectedFormat.nombre}</h3>
+                                      <span className="text-[10px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                        {historial12.length} {historial12.length === 1 ? 'registro' : 'registros'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {isSigned12 ? (
+                                        <button
+                                          onClick={() => {
+                                            if (firmaDoc12) {
+                                              handleOpenAuditModal(firmaDoc12);
+                                            }
+                                          }}
+                                          className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full cursor-pointer transition-colors"
+                                          title="Ver verificación de integridad y sello digital"
+                                        >
+                                          <MdVerifiedUser /> Firmado (Ver Sello)
+                                        </button>
+                                      ) : activeDoc12 ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          Pendiente de Firma
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          No registrado
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                  {activeDoc12 ? (
+                                    <>
+                                      {isOwner12 ? (
+                                        <>
+                                          <button
+                                            onClick={() => handleOpenBiometricSign(activeDoc12.mrnum || 0, 'Consentimiento Gineco y Obstetricia (Hosp/Urg)', JSON.stringify(activeDoc12), 'HE-DIRMED-CONSUL-PLT-12', 'Consentimiento Informado')}
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${isSigned12 ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                          >
+                                            <MdFingerprint className="text-base" /> {isSigned12 ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleOpenEditConsent12(activeDoc12)}
+                                            className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                          >
+                                            <FiEdit3 /> Editar
+                                          </button>
+                                          <button
+                                            onClick={handleOpenNewConsent12}
+                                            className="flex items-center gap-1 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold" title="Documento elaborado por otro médico">
+                                            <FiLock /> Solo Lectura
+                                          </span>
+                                          <button
+                                            onClick={handleOpenNewConsent12}
+                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      )}
+                                      <a
+                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-12${activeDoc12.mrnum ? `?mrnum=${activeDoc12.mrnum}` : ''}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </a>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={handleOpenNewConsent12}
+                                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                    >
+                                      <FiPlus /> Capturar Consentimiento 12
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
+                              {/* SELECTOR DE HISTORIAL DE VERSIONES */}
+                              {historial12.length > 0 && (
+                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase">
+                                    <span>Historial de Registros ({historial12.length})</span>
+                                    <span className="text-[10px] font-medium text-slate-400">Selecciona un documento para visualizarlo o imprimirlo</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                    {historial12.map((item, idx) => {
+                                      const isSelected = (!selectedMrnum12 && idx === 0) || selectedMrnum12 === item.mrnum;
+                                      return (
+                                        <button
+                                          key={item.mrnum || idx}
+                                          onClick={() => setSelectedMrnum12(item.mrnum)}
+                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                                            isSelected 
+                                              ? 'bg-hes-blue-main text-white shadow-sm' 
+                                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          <span>Doc #{historial12.length - idx}</span>
+                                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${isSelected ? 'bg-blue-800 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                            {item.created_on ? item.created_on.split(' ')[0] : 'S/F'}
+                                          </span>
+                                          {item.firmado && (
+                                            <span className={`text-[9px] px-1 rounded font-bold ${isSelected ? 'bg-emerald-400 text-emerald-950' : 'bg-emerald-100 text-emerald-800'}`}>
+                                              ✓
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {activeDoc12 ? (
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                                      <p className="text-[11px] font-bold text-slate-500 uppercase">Diagnóstico Clínico</p>
+                                      <p className="text-sm font-extrabold text-slate-800">{activeDoc12.diagnostico || 'REVISIÓN GINECOLÓGICA Y OBSTÉTRICA'}</p>
+                                      <div className="pt-2 flex items-center gap-2 text-xs">
+                                        <span className="font-semibold text-slate-500">Servicio:</span>
+                                        <span className="font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-[11px]">{activeDoc12.servicio || 'URGENCIAS'}</span>
+                                      </div>
+                                    </div>
+                                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                                      <p className="text-[11px] font-bold text-slate-500 uppercase">Médico Tratante Responsable</p>
+                                      <p className="text-sm font-extrabold text-slate-800">{activeDoc12.medico_tratante || activeDoc12.n_medico || 'DR. JOSE JOSE PRUEBA ENRIQUEZ'}</p>
+                                      <p className="text-xs text-slate-600">Cédula Profesional: <span className="font-mono font-bold">{activeDoc12.cedula || '7876310/5265849'}</span></p>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200 space-y-2 text-xs">
+                                    <p className="font-bold text-hes-blue-main uppercase text-[11px]">Procedimientos e Intervenciones Proyectados</p>
+                                    <p className="text-slate-700 leading-relaxed">
+                                      Revisión ginecológica u obstétrica (tacto vaginal, tacto rectal, exploración mamaria), hospitalización, colocación de sondas y catéteres, aplicación de medicamentos, transfusiones sanguíneas, estudios de gabinete (ultrasonido pélvico y vaginal), tomografía abdominopélvica u otros de ser necesario.
+                                    </p>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
+                                      <p className="font-bold text-slate-600 text-[11px]">Beneficios Esperados</p>
+                                      <p className="text-slate-700 italic">{activeDoc12.beneficios || 'Evaluación integral de la condición materno-fetal, resolución adecuada del evento obstétrico.'}</p>
+                                    </div>
+                                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
+                                      <p className="font-bold text-slate-600 text-[11px]">Procedimientos Alternativos</p>
+                                      <p className="text-slate-700 italic">{activeDoc12.alternativas || 'Manejo médico expectante, tratamiento farmacológico alternativo o diferimiento según evolución clínica.'}</p>
+                                    </div>
+                                  </div>
+
+                                  {isSigned12 && (
+                                    <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                                      <div className="flex items-center gap-2">
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                          <MdVerifiedUser /> Firmado Digitalmente
+                                        </span>
+                                        {activeDoc12.signed_on && (
+                                          <span className="text-[11px] text-slate-500 font-mono">
+                                            {activeDoc12.signed_on}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {firmaDoc12 && (
+                                        <button 
+                                          onClick={() => handleOpenAuditModal(firmaDoc12)} 
+                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors"
+                                        >
+                                          <FiLock /> Sello: {firmaDoc12.sello_digital?.substring(0, 10)}... (Auditar)
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                                  <p>No se ha registrado el Consentimiento 12 para este paciente.</p>
+                                  <button onClick={handleOpenNewConsent12} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
+                                    <FiPlus /> Capturar Consentimiento Formato 12
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-04' ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial04 = (data?.historial_04 && data.historial_04.length > 0)
+                          ? data.historial_04
+                          : (data?.consentimiento_04 ? [data.consentimiento_04] : []);
+
+                        const activeDoc04 = (selectedMrnum04 ? historial04.find(h => h.mrnum === selectedMrnum04) : null)
+                          || (historial04.length > 0 ? historial04[0] : null)
+                          || data?.consentimiento_04;
+
+                        const docDoctor04 = activeDoc04?.medico_tratante || activeDoc04?.n_medico || '';
+                        const isOwner04 = canModifyOrSignDocument(docDoctor04);
+                        const firmaDoc04 = firmas.find(f => 
+                          (f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-04' || f.codigo_formato?.includes('04')) && 
+                          (
+                            (activeDoc04?.mrnum && f.evolution_slot === activeDoc04.mrnum) ||
+                            (!activeDoc04?.mrnum && f.evolution_slot === 0) ||
+                            (historial04.length === 1 && f.evolution_slot === 0)
+                          )
+                        );
+                        const isSigned04 = Boolean(activeDoc04?.firmado || activeDoc04?.signed_by || firmaDoc04);
+
+                        return (
+                          <>
+                            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/70 via-slate-50 to-indigo-50/60 border-b border-slate-200">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                                    <FiFileText />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <h3 className="font-bold text-slate-800 text-sm">{selectedFormat.nombre}</h3>
+                                      <span className="text-[10px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                        {historial04.length} {historial04.length === 1 ? 'registro' : 'registros'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {isSigned04 ? (
+                                        <button
+                                          onClick={() => {
+                                            if (firmaDoc04) {
+                                              handleOpenAuditModal(firmaDoc04);
+                                            }
+                                          }}
+                                          className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full cursor-pointer transition-colors"
+                                          title="Ver verificación de integridad y sello digital"
+                                        >
+                                          <MdVerifiedUser /> Firmado (Ver Sello)
+                                        </button>
+                                      ) : activeDoc04 ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          Pendiente de Firma
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full">
+                                          No registrado
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                  {activeDoc04 ? (
+                                    <>
+                                      {isOwner04 ? (
+                                        <>
+                                          <button
+                                            onClick={() => handleOpenBiometricSign(activeDoc04.mrnum || 0, 'Consentimiento Colocación de Catéter Venoso Central', JSON.stringify(activeDoc04), 'HE-DIRMED-CONSUL-PLT-04', 'Consentimiento Informado')}
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${isSigned04 ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-emerald-600 text-white'}`}
+                                          >
+                                            <MdFingerprint className="text-base" /> {isSigned04 ? 'Refirmar con Huella' : 'Firmar con Huella'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleOpenEditConsent04(activeDoc04)}
+                                            className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                          >
+                                            <FiEdit3 /> Editar
+                                          </button>
+                                          <button
+                                            onClick={handleOpenNewConsent04}
+                                            className="flex items-center gap-1 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold" title="Documento elaborado por otro médico">
+                                            <FiLock /> Solo Lectura
+                                          </span>
+                                          <button
+                                            onClick={handleOpenNewConsent04}
+                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                          >
+                                            <FiPlus /> Capturar Nuevo Consentimiento
+                                          </button>
+                                        </>
+                                      )}
+                                      <a
+                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-04${activeDoc04.mrnum ? `?mrnum=${activeDoc04.mrnum}` : ''}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </a>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={handleOpenNewConsent04}
+                                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                    >
+                                      <FiPlus /> Capturar Consentimiento Formato 04
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
+                              {/* SELECTOR DE HISTORIAL DE VERSIONES */}
+                              {historial04.length > 0 && (
+                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase">
+                                    <span>Historial de Registros ({historial04.length})</span>
+                                    <span className="text-[10px] font-medium text-slate-400">Selecciona un documento para visualizarlo o imprimirlo</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                    {historial04.map((item, idx) => {
+                                      const isSelected = (!selectedMrnum04 && idx === 0) || selectedMrnum04 === item.mrnum;
+                                      return (
+                                        <button
+                                          key={item.mrnum || idx}
+                                          onClick={() => setSelectedMrnum04(item.mrnum)}
+                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                                            isSelected 
+                                              ? 'bg-hes-blue-main text-white shadow-sm' 
+                                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          <span>Doc #{historial04.length - idx}</span>
+                                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${isSelected ? 'bg-blue-800 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                            {item.created_on ? item.created_on.split(' ')[0] : 'S/F'}
+                                          </span>
+                                          {item.firmado && (
+                                            <span className={`text-[9px] px-1 rounded font-bold ${isSelected ? 'bg-emerald-400 text-emerald-950' : 'bg-emerald-100 text-emerald-800'}`}>
+                                              ✓
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {activeDoc04 ? (
+                                <div className="space-y-4">
+                                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                                    <p className="text-[11px] font-bold text-slate-500 uppercase">Médico Tratante Responsable</p>
+                                    <p className="text-sm font-extrabold text-slate-800">{activeDoc04.medico_tratante || activeDoc04.n_medico || 'DR. JOSE JOSE PRUEBA ENRIQUEZ'}</p>
+                                    <p className="text-xs text-slate-600">Cédula Profesional: <span className="font-mono font-bold">{activeDoc04.cedula || '7876310/5265849'}</span></p>
+                                  </div>
+
+                                  <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200 space-y-2 text-xs">
+                                    <p className="font-bold text-hes-blue-main uppercase text-[11px]">Procedimiento y Objetivo Autorizado</p>
+                                    <p className="text-slate-700 leading-relaxed">
+                                      Colocación de catéter en vena central o periférica por punción o venodisección para infusión de soluciones parenterales, hemoderivados, monitorización hemodinámica y toma de muestras sanguíneas.
+                                    </p>
+                                  </div>
+
+                                  {isSigned04 && (
+                                    <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                                      <div className="flex items-center gap-2">
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                          <MdVerifiedUser /> Firmado Digitalmente
+                                        </span>
+                                        {activeDoc04.signed_on && (
+                                          <span className="text-[11px] text-slate-500 font-mono">
+                                            {activeDoc04.signed_on}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {firmaDoc04 && (
+                                        <button 
+                                          onClick={() => handleOpenAuditModal(firmaDoc04)} 
+                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors"
+                                        >
+                                          <FiLock /> Sello: {firmaDoc04.sello_digital?.substring(0, 10)}... (Auditar)
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="py-8 text-center text-xs text-slate-400 space-y-3">
+                                  <p>No se ha registrado el Consentimiento 04 para este paciente.</p>
+                                  <button onClick={handleOpenNewConsent04} className="inline-flex items-center gap-1.5 bg-hes-blue-main text-white px-4 py-2 rounded-xl text-xs font-bold">
+                                    <FiPlus /> Capturar Consentimiento Formato 04
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   ) : (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center space-y-3">
@@ -1789,7 +3261,7 @@ export default function PatientDashboard() {
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span> Activo / Imprimible
                               </span>
                             ) : (
-                              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                              <span className="text-sm font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                                 En Integración
                               </span>
                             )}
@@ -2201,7 +3673,7 @@ export default function PatientDashboard() {
 
             {/* DIETA ACTIVA */}
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">Dieta Actual</div>
+              <div className="text-sm font-semibold text-slate-400 uppercase">Dieta Actual</div>
               <div className="font-bold text-slate-800 text-sm mt-0.5">{cargos_solicitudes.dieta_activa || 'Ayuno'}</div>
               <div className="text-[10px] text-red-600 font-medium">NVO / Solución IV</div>
             </div>
@@ -2220,7 +3692,7 @@ export default function PatientDashboard() {
 
             {/* PENDING ITEMS */}
             <div>
-              <div className="text-[11px] font-semibold text-slate-400 uppercase mb-2">Seguimiento en Curso</div>
+              <div className="text-sm font-semibold text-slate-400 uppercase mb-2">Seguimiento en Curso</div>
               <div className="space-y-1.5 text-xs">
                 {cargos_solicitudes.solicitudes_pendientes?.map((s, i) => (
                   <div key={i} className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
@@ -2674,6 +4146,169 @@ export default function PatientDashboard() {
         </div>
       )}
 
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE CAPTURA / EDICIÓN DE CONSENTIMIENTO INFORMADO (32/01) */}
       {consentModalEED.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2693,18 +4328,75 @@ export default function PatientDashboard() {
                 
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                     <h4 className="text-sm font-bold text-hes-blue-main mb-3">Datos Generales</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">Responsable</label>
-                            <input required type="text" value={consentModalEED.responsable} onChange={e => setConsentModalEED({...consentModalEED, responsable: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Nombre del familiar o responsable"/>
+                    <div className="space-y-3 mb-3">
+                      {isPatientAdult(data?.patient || patient) ? (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={consentModalEED.paciente_capaz}
+                                onChange={(e) => setConsentModalEED({ ...consentModalEED, paciente_capaz: e.target.checked, responsable: e.target.checked ? (data?.patient?.name || patient?.name || '') : '' })}
+                                className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-800">
+                                ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                              </span>
+                            </label>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                            </span>
+                          </div>
+
+                          {consentModalEED.paciente_capaz ? (
+                            <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                              <span>✓</span>
+                              <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                            </div>
+                          ) : (
+                            <div className="space-y-1 pt-1 animate-fadeIn">
+                              <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                                Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                              </label>
+                              <input
+                                type="text"
+                                required={!consentModalEED.paciente_capaz}
+                                value={consentModalEED.responsable}
+                                onChange={(e) => setConsentModalEED({ ...consentModalEED, responsable: e.target.value })}
+                                placeholder="Nombre completo del familiar o representante legal responsable"
+                                className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                              />
+                            </div>
+                          )}
                         </div>
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo de Interrogatorio</label>
-                            <select value={consentModalEED.tipo_interrogatorio} onChange={e => setConsentModalEED({...consentModalEED, tipo_interrogatorio: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm">
-                                <option value="Directo">Directo</option>
-                                <option value="Indirecto">Indirecto</option>
-                            </select>
+                      ) : (
+                        <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                              <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                              Menor de edad
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-700 leading-tight">
+                            Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                          </p>
+                          <div className="space-y-1 pt-1">
+                            <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                              Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={consentModalEED.responsable}
+                              onChange={(e) => setConsentModalEED({ ...consentModalEED, responsable: e.target.value })}
+                              placeholder="Nombre completo del padre, madre o tutor responsable"
+                              className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                            />
+                          </div>
                         </div>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                         <div>
@@ -2790,6 +4482,169 @@ export default function PatientDashboard() {
         </div>
       )}
 
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {consentModal3201.open && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
@@ -2826,39 +4681,75 @@ export default function PatientDashboard() {
 
             <form onSubmit={handleSaveConsentModal3201} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Tipo de Interrogatorio *</label>
-                  <select 
-                    value={consentModal3201.tipo_interrogatorio}
-                    onChange={(e) => setConsentModal3201({ ...consentModal3201, tipo_interrogatorio: e.target.value })}
-                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-bold text-hes-blue-main"
-                  >
-                    <option value="Directo">Directo (Paciente)</option>
-                    <option value="Indirecto">Indirecto (Familiar / Representante Legal)</option>
-                  </select>
-                </div>
+                <div className="sm:col-span-2 space-y-3">
+                  {isPatientAdult(data?.patient || patient) ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={consentModal3201.paciente_capaz}
+                            onChange={(e) => setConsentModal3201({ ...consentModal3201, paciente_capaz: e.target.checked, tipo_interrogatorio: e.target.checked ? 'Directo' : 'Indirecto', representante_legal: e.target.checked ? '' : consentModal3201.representante_legal })}
+                            className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                          </span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                        </span>
+                      </div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre del Paciente (Titular) *</label>
-                  <input 
-                    type="text" 
-                    value={consentModal3201.paciente_o_representante}
-                    onChange={(e) => setConsentModal3201({ ...consentModal3201, paciente_o_representante: e.target.value })}
-                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-                    placeholder="Nombre completo del paciente"
-                    required
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre del Representante Legal / Tutor (si aplica)</label>
-                  <input 
-                    type="text" 
-                    value={consentModal3201.representante_legal}
-                    onChange={(e) => setConsentModal3201({ ...consentModal3201, representante_legal: e.target.value })}
-                    className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs"
-                    placeholder="Nombre del familiar o tutor legal"
-                  />
+                      {consentModal3201.paciente_capaz ? (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                          <span>✓</span>
+                          <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 pt-1 animate-fadeIn">
+                          <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                            Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                          </label>
+                          <input
+                            type="text"
+                            required={!consentModal3201.paciente_capaz}
+                            value={consentModal3201.representante_legal}
+                            onChange={(e) => setConsentModal3201({ ...consentModal3201, representante_legal: e.target.value })}
+                            placeholder="Nombre completo del familiar o representante legal responsable"
+                            className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                          <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          Menor de edad
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-700 leading-tight">
+                        Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                      </p>
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                          Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={consentModal3201.representante_legal}
+                          onChange={(e) => setConsentModal3201({ ...consentModal3201, representante_legal: e.target.value })}
+                          placeholder="Nombre completo del padre, madre o tutor responsable"
+                          className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2904,6 +4795,169 @@ export default function PatientDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
+
           </div>
         </div>
       )}
@@ -3018,45 +5072,78 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            {/* FIRMA ELECTRÓNICA NATIVA DE VERTICAL (EHR HOST) */}
+            {/* SECCIÓN FIRMA Y CÓDIGO QR DE VERTICAL (EHR HOST) */}
             {auditModal.verification?.firma_vertical?.disponible && (
-              <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wide">
-                    <FiServer className="text-hes-blue-main" /> Firma Electrónica Nativa Vertical (EHR Host)
-                    <span className="text-[10px] font-black bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
-                      ✓ Sincronizado en Vertical
-                    </span>
+              <div className="p-4 bg-gradient-to-r from-blue-50/90 to-indigo-50/80 border border-blue-200/80 rounded-2xl space-y-3 shadow-sm">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-hes-blue-main text-white flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
+                      <FiServer />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                        Firma Vertical (EHR Host)
+                        <span className="text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300 px-2 py-0.5 rounded-full">
+                          ✓ Sincronizado
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Firmado por: <strong className="text-slate-700">{auditModal.verification.firma_vertical.firmado_por}</strong>
+                        {auditModal.verification.firma_vertical.fecha_firma && ` • ${auditModal.verification.firma_vertical.fecha_firma}`}
+                      </div>
+                    </div>
                   </div>
+
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(auditModal.verification.firma_vertical.cadena_firma || '');
-                      setAuditModal(prev => ({ ...prev, copied: 'vertical' }));
-                      setTimeout(() => setAuditModal(prev => ({ ...prev, copied: null })), 2000);
-                    }}
-                    className="text-xs font-bold text-hes-blue-main hover:underline flex items-center gap-1"
+                    onClick={() => setAuditModal(prev => ({ ...prev, showVerticalQR: !prev.showVerticalQR }))}
+                    className="text-xs font-bold bg-white text-hes-blue-main hover:bg-blue-50 border border-blue-300 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 shadow-sm"
                   >
-                    <FiCheckSquare /> {auditModal.copied === 'vertical' ? '¡Copiado!' : 'Copiar Firma Vertical'}
+                    <FiExternalLink /> {auditModal.showVerticalQR ? 'Ocultar QR' : 'Firma Vertical (Ver QR)'}
                   </button>
                 </div>
-                
-                <div className="text-[11px] text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
-                  <span>Médico Vertical: <strong className="text-slate-800">{auditModal.verification.firma_vertical.firmado_por}</strong></span>
-                  {auditModal.verification.firma_vertical.fecha_firma && (
-                    <span>Fecha: <strong className="text-slate-800">{auditModal.verification.firma_vertical.fecha_firma}</strong></span>
-                  )}
-                  {auditModal.verification.firma_vertical.controlador && (
-                    <span className="font-mono text-[10px] text-slate-500">[{auditModal.verification.firma_vertical.controlador}]</span>
-                  )}
-                </div>
 
-                <div className="p-2.5 bg-slate-900 text-blue-300 font-mono text-[10px] rounded-xl break-all select-all shadow-inner max-h-24 overflow-y-auto leading-relaxed">
-                  {auditModal.verification.firma_vertical.cadena_firma}
-                </div>
-                <div className="text-[10px] text-slate-500 italic">
-                  Token criptográfico generado por el motor central de Vertical vinculado a este expediente médico.
-                </div>
+                {auditModal.showVerticalQR && (
+                  <div className="pt-2 border-t border-blue-200/60 flex flex-col sm:flex-row items-center gap-4 bg-white/80 p-3 rounded-xl">
+                    {auditModal.verification.firma_vertical.qr_data_url ? (
+                      <div className="flex flex-col items-center gap-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm shrink-0">
+                        <img
+                          src={auditModal.verification.firma_vertical.qr_data_url}
+                          alt="Código QR Vertical"
+                          className="w-36 h-36 object-contain"
+                        />
+                        <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider font-semibold">QR Oficial Vertical</span>
+                      </div>
+                    ) : (
+                      <div className="w-36 h-36 flex items-center justify-center bg-slate-100 rounded-xl text-slate-400 text-xs">
+                        QR no disponible
+                      </div>
+                    )}
+
+                    <div className="flex-1 space-y-1.5 w-full text-xs">
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="font-bold text-slate-700">Token Criptográfico Vertical</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(auditModal.verification.firma_vertical.cadena_firma || '');
+                            setAuditModal(prev => ({ ...prev, copied: 'vertical' }));
+                            setTimeout(() => setAuditModal(prev => ({ ...prev, copied: null })), 2000);
+                          }}
+                          className="text-[11px] font-bold text-hes-blue-main hover:underline flex items-center gap-1"
+                        >
+                          <FiCheckSquare /> {auditModal.copied === 'vertical' ? '¡Copiado!' : 'Copiar Token'}
+                        </button>
+                      </div>
+                      <div className="p-2.5 bg-slate-900 text-blue-300 font-mono text-[10px] rounded-xl break-all select-all shadow-inner max-h-24 overflow-y-auto leading-relaxed">
+                        {auditModal.verification.firma_vertical.cadena_firma}
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Este código QR y token corresponden al registro nativo en el servidor EHR de Vertical para este documento.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3371,14 +5458,25 @@ export default function PatientDashboard() {
               </div>
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setVitalsModal(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                  onClick={() => {
+                    setVitalsModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsHistory();
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-hes-blue-main hover:bg-blue-50 border border-blue-200 text-xs font-bold transition-all shadow-sm"
                 >
-                  Cancelar
+                  <FiClock /> Ver Historial de Tomas
                 </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVitalsModal(prev => ({ ...prev, open: false }))}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                  >
+                    Cancelar
+                  </button>
                 <button
                   type="submit"
                   disabled={vitalsModal.submitting}
@@ -3386,8 +5484,172 @@ export default function PatientDashboard() {
                 >
                   <FiSave /> {vitalsModal.submitting ? 'Guardando...' : 'Guardar y Sincronizar'}
                 </button>
+                </div>
               </div>
             </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
 
           </div>
         </div>
@@ -3637,6 +5899,169 @@ export default function PatientDashboard() {
         </div>
       )}
 
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* MODAL PARA SUSPENDER / DISCONTINUAR FÁRMACO (PTDG) */}
       {discontinueModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
@@ -3717,6 +6142,169 @@ export default function PatientDashboard() {
                 </button>
               </div>
             </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
 
           </div>
         </div>
@@ -4007,6 +6595,1162 @@ export default function PatientDashboard() {
 
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
+      {vitalsHistoryModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div
+            className="bg-white rounded-3xl w-full p-8 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[95vh] flex flex-col"
+            style={{ width: `min(97vw, ${Math.max(60, Math.min(97, 50 + vitalsHistoryModal.history.length * 2.5))}vw)` }}
+          >
+            
+            {/* CABECERA */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-50 text-hes-blue-main rounded-2xl">
+                  <FiClock className="text-2xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Historial Cronológico de Signos Vitales</h3>
+                  <p className="text-xs text-slate-500">
+                    Expediente: <strong className="text-slate-700">PT-{patientId}</strong> • Registro inmutable de tomas por enfermería y médicos
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setVitalsHistoryModal(prev => ({ ...prev, open: false }));
+                    handleOpenVitalsModal();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition"
+                >
+                  <FiPlus /> Nueva Toma
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))} 
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+
+            {/* CUERPO CON TABLA */}
+            <div className="flex-1 overflow-y-auto">
+              {vitalsHistoryModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-hes-blue-main"></div>
+                  <span className="text-xs font-medium">Cargando historial de signos vitales...</span>
+                </div>
+              ) : vitalsHistoryModal.history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <FiActivity className="text-4xl text-slate-300" />
+                  <p className="text-sm font-bold text-slate-600">No hay registros de signos vitales previos</p>
+                  <p className="text-xs text-slate-400">Las tomas de signos vitales que registres aparecerán en este historial cronológico.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm">
+                  <table className="w-full text-left text-base">
+                      <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-sm tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3.5">Fecha y Hora</th>
+                        <th className="py-3 px-3">Capturado Por</th>
+                        <th className="py-3 px-3 text-center">TA (mmHg)</th>
+                        <th className="py-3 px-3 text-center">FC (lpm)</th>
+                        <th className="py-3 px-3 text-center">FR (rpm)</th>
+                        <th className="py-3 px-3 text-center">Sat O2</th>
+                        <th className="py-3 px-3 text-center">Temp (°C)</th>
+                        <th className="py-3 px-3 text-center">Peso / Talla</th>
+                        <th className="py-3 px-3 text-center">IMC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {vitalsHistoryModal.history.map((row, idx) => {
+                        const sys = parseInt(row.sistolica);
+                        const dia = parseInt(row.diastolica);
+                        const fc = parseInt(row.fc);
+                        const sat = parseInt(row.sat_o2);
+                        const temp = parseFloat(row.temperatura);
+
+                        const isTaAltered = (sys && (sys > 139 || sys < 90)) || (dia && (dia > 89 || dia < 60));
+                        const isFcAltered = fc && (fc > 100 || fc < 60);
+                        const isSatLow = sat && sat < 94;
+                        const isFever = temp && temp >= 37.8;
+
+                        return (
+                          <tr key={row.id || idx} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <FiClock className="text-hes-blue-main shrink-0" />
+                                {row.fecha_hora}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-sm font-semibold">
+                                <FiUser className="text-slate-400" /> {row.capturado_por}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isTaAltered ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-800'
+                              }`}>
+                                {row.ta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFcAltered ? 'bg-amber-100 text-amber-900' : 'text-slate-800'
+                              }`}>
+                                {row.fc}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-800 font-bold whitespace-nowrap">
+                              {row.fr}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isSatLow ? 'bg-red-100 text-red-800 border border-red-200' : 'text-emerald-700 bg-emerald-50'
+                              }`}>
+                                {row.sat_o2}{row.sat_o2 !== '--' ? '%' : ''}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-md font-bold text-sm ${
+                                isFever ? 'bg-red-100 text-red-800' : 'text-slate-800'
+                              }`}>
+                                {row.temperatura}{row.temperatura !== '--' ? '°' : ''}
+                              </span>
+                            </td>
+                              <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap text-sm">
+                              {row.peso !== '--' ? `${row.peso} kg` : '--'} / {row.talla !== '--' ? `${row.talla} m` : '--'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-extrabold text-slate-700 bg-slate-100 px-3 py-1 rounded-md text-sm">
+                                 {row.imc}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Total de tomas registradas: <strong className="text-slate-800">{vitalsHistoryModal.history.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setVitalsHistoryModal(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition shadow-sm"
+              >
+                Cerrar Historial
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDICIÓN / CAPTURA DE CONSENTIMIENTO 25 */}
+      {consentModal25.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-800">
+                  {consentModal25.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Revisión Ginecológica y Consulta Externa
+                </h3>
+                <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-25 • NOM-004-SSA3-2012</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setConsentModal25(prev => ({ ...prev, open: false }))} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <FiX className="text-xl" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveConsentModal25} className="space-y-4 text-xs">
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
+                    <span>Médico Tratante (Autor)</span>
+                    <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                      <FiLock /> Bloqueado por sesión
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={currentDoctorName || consentModal25.medico_tratante || 'JOSE JOSE PRUEBA ENRIQUEZ'}
+                    readOnly
+                    className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
+                    <span>Cédula Profesional</span>
+                    <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                      <FiLock /> Asignada por perfil
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={currentDoctorCedula || consentModal25.cedula || '7876310/5265849'}
+                    readOnly
+                    className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  {isPatientAdult(data?.patient || patient) ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={consentModal25.paciente_capaz}
+                            onChange={(e) => setConsentModal25({ ...consentModal25, paciente_capaz: e.target.checked, pariente: e.target.checked ? '' : consentModal25.pariente, paciente_o_representante: e.target.checked ? (data?.patient?.name || patient?.name || '') : consentModal25.pariente })}
+                            className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                          </span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                        </span>
+                      </div>
+
+                      {consentModal25.paciente_capaz ? (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                          <span>✓</span>
+                          <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 pt-1 animate-fadeIn">
+                          <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                            Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                          </label>
+                          <input
+                            type="text"
+                            required={!consentModal25.paciente_capaz}
+                            value={consentModal25.pariente}
+                            onChange={(e) => setConsentModal25({ ...consentModal25, pariente: e.target.value, paciente_o_representante: e.target.value })}
+                            placeholder="Nombre completo del familiar o representante legal responsable"
+                            className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                          <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          Menor de edad
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-700 leading-tight">
+                        Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                      </p>
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                          Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={consentModal25.pariente}
+                          onChange={(e) => setConsentModal25({ ...consentModal25, pariente: e.target.value, paciente_o_representante: e.target.value })}
+                          placeholder="Nombre completo del padre, madre o tutor responsable"
+                          className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 1</label>
+                    <input
+                      type="text"
+                      value={consentModal25.testigo1}
+                      onChange={(e) => setConsentModal25({ ...consentModal25, testigo1: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                      placeholder="Nombre del Testigo 1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 2</label>
+                    <input
+                      type="text"
+                      value={consentModal25.testigo2}
+                      onChange={(e) => setConsentModal25({ ...consentModal25, testigo2: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                      placeholder="Nombre del Testigo 2"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setConsentModal25(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={consentModal25.saving}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  <FiSave /> {consentModal25.saving ? 'Guardando...' : 'Guardar y Sincronizar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDICIÓN / CAPTURA DE CONSENTIMIENTO 34/01: MESA INCLINADA (TILT TEST) */}
+      {consentModal3401.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-5xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[92vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-800">
+                  {consentModal3401.isEdit ? 'Editar' : 'Nuevo'} Consentimiento y Protocolo Mesa Inclinada (Tilt Test)
+                </h3>
+                <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-34 / PLT-36 • Protocolo INICICH Oficial</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setConsentModal3401(prev => ({ ...prev, open: false }))} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <FiX className="text-xl" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveConsentModal3401} className="space-y-4 text-xs">
+              {/* SECCIÓN 1: DATOS DEL PACIENTE, MÉDICO Y RESPONSABLES */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Ficha del Paciente y Responsables</h4>
+                  <span className="text-[10px] bg-blue-100 text-hes-blue-main font-bold px-2 py-0.5 rounded-full">
+                    Expediente: {data?.patient?.mrn || 'PT-' + patientId}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-white p-3 rounded-xl border border-slate-200">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Paciente</span>
+                    <span className="font-bold text-slate-800 text-xs">{data?.patient?.name || 'Comodín'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Edad / Sexo</span>
+                    <span className="font-bold text-slate-800 text-xs">{data?.patient?.age || '--'} años • {data?.patient?.sex || 'M'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Grupo y RH</span>
+                    <span className="font-bold text-slate-800 text-xs">{consentModal3401.gruporh || 'O POSITIVO'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Alergias</span>
+                    <span className="font-bold text-rose-600 text-xs">{consentModal3401.alergias || 'NEGADAS'}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Médico Tratante (Autor)</label>
+                    <input
+                      type="text"
+                      value={currentDoctorName || consentModal3401.medico_tratante || 'DR. CARLOS MENDEZ CARDIOLOGO'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Cédula Profesional</label>
+                    <input
+                      type="text"
+                      value={currentDoctorCedula || consentModal3401.cedula || '7876310/5265849'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {isPatientAdult(data?.patient || patient) ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={consentModal3401.paciente_capaz}
+                            onChange={(e) => setConsentModal3401({ ...consentModal3401, paciente_capaz: e.target.checked, pariente: e.target.checked ? '' : consentModal3401.pariente, tipo_interrogatorio: e.target.checked ? 'DIRECTO' : 'INDIRECTO' })}
+                            className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                          </span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                        </span>
+                      </div>
+
+                      {consentModal3401.paciente_capaz ? (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                          <span>✓</span>
+                          <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 pt-1 animate-fadeIn">
+                          <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                            Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                          </label>
+                          <input
+                            type="text"
+                            required={!consentModal3401.paciente_capaz}
+                            value={consentModal3401.pariente}
+                            onChange={(e) => setConsentModal3401({ ...consentModal3401, pariente: e.target.value })}
+                            placeholder="Nombre completo del familiar o representante legal responsable"
+                            className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                          <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          Menor de edad
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-700 leading-tight">
+                        Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                      </p>
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                          Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={consentModal3401.pariente}
+                          onChange={(e) => setConsentModal3401({ ...consentModal3401, pariente: e.target.value })}
+                          placeholder="Nombre completo del padre, madre o tutor responsable"
+                          className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 1</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.testigo1}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, testigo1: e.target.value })}
+                      placeholder="Nombre completo del Testigo 1"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 2</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.testigo2}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, testigo2: e.target.value })}
+                      placeholder="Nombre completo del Testigo 2"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 2: SIGNOS VITALES BASALES */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">2. Signos Vitales y Somatometría</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">TA Basal</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.ta}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, ta: e.target.value })}
+                      placeholder="120/80"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">FC Meta</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.fc_meta}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, fc_meta: e.target.value })}
+                      placeholder="150"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">FR (rpm)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.f_resp}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, f_resp: e.target.value })}
+                      placeholder="18"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Temp (°C)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.temperatura}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, temperatura: e.target.value })}
+                      placeholder="36.5"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Peso (kg)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.peso}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, peso: e.target.value })}
+                      placeholder="65"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Talla (cm)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.talla}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, talla: e.target.value })}
+                      placeholder="165"
+                      className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-center font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 3: NARRATIVA CLÍNICA PROTOCOLO INICICH */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">3. Narrativa Clínica y Síntomas por Fase</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Fase Basal Refirió (FBPR)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.fbpr}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, fbpr: e.target.value })}
+                      placeholder="asintomática / mareo / etc."
+                      className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Fase Pasiva 20 min Refirió (FPR)</label>
+                    <input
+                      type="text"
+                      value={consentModal3401.fpr}
+                      onChange={(e) => setConsentModal3401({ ...consentModal3401, fpr: e.target.value })}
+                      placeholder="mareo / náuseas / vómito biliar"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 4: TABLA DE MONITOREO DE 21 INTERVALOS (PROTOCOLO INICICH) */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div>
+                    <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">4. Hoja de Monitoreo Hemodinámico (21 Intervalos)</h4>
+                    <p className="text-[10px] text-slate-500">Captura la Presión Arterial, FC y Observaciones clínicas de cada etapa.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const baseTA = consentModal3401.ta || '120/80';
+                      const baseFC = consentModal3401.fc_meta ? '75' : '75';
+                      setConsentModal3401(prev => ({
+                        ...prev,
+                        ta_basal: prev.ta_basal || baseTA, fc_basal: prev.fc_basal || baseFC, obs_basal: prev.obs_basal || 'Estable',
+                        ta_p_inicio: prev.ta_p_inicio || baseTA, fc_p_inicio: prev.fc_p_inicio || baseFC, obs_p_inicio: prev.obs_p_inicio || 'Inicio fase pasiva 70°',
+                        ta_p_2: prev.ta_p_2 || baseTA, fc_p_2: prev.fc_p_2 || baseFC, obs_p_2: prev.obs_p_2 || 'Estable',
+                        ta_p_4: prev.ta_p_4 || baseTA, fc_p_4: prev.fc_p_4 || baseFC, obs_p_4: prev.obs_p_4 || 'Estable',
+                        ta_p_6: prev.ta_p_6 || baseTA, fc_p_6: prev.fc_p_6 || baseFC, obs_p_6: prev.obs_p_6 || 'Estable',
+                        ta_p_8: prev.ta_p_8 || baseTA, fc_p_8: prev.fc_p_8 || baseFC, obs_p_8: prev.obs_p_8 || 'Estable',
+                        ta_p_10: prev.ta_p_10 || baseTA, fc_p_10: prev.fc_p_10 || baseFC, obs_p_10: prev.obs_p_10 || 'Estable',
+                        ta_p_12: prev.ta_p_12 || baseTA, fc_p_12: prev.fc_p_12 || baseFC, obs_p_12: prev.obs_p_12 || 'Estable',
+                        ta_p_14: prev.ta_p_14 || baseTA, fc_p_14: prev.fc_p_14 || baseFC, obs_p_14: prev.obs_p_14 || 'Estable',
+                        ta_p_16: prev.ta_p_16 || baseTA, fc_p_16: prev.fc_p_16 || baseFC, obs_p_16: prev.obs_p_16 || 'Estable',
+                        ta_p_18: prev.ta_p_18 || baseTA, fc_p_18: prev.fc_p_18 || baseFC, obs_p_18: prev.obs_p_18 || 'Estable',
+                        ta_p_20: prev.ta_p_20 || baseTA, fc_p_20: prev.fc_p_20 || baseFC, obs_p_20: prev.obs_p_20 || 'Refirió mareo',
+                        ta_a_inicio: prev.ta_a_inicio || baseTA, fc_a_inicio: prev.fc_a_inicio || baseFC, obs_a_inicio: prev.obs_a_inicio || 'Isosorbide 5mg SL',
+                        ta_a_2: prev.ta_a_2 || baseTA, fc_a_2: prev.fc_a_2 || baseFC, obs_a_2: prev.obs_a_2 || 'Estable',
+                        ta_a_4: prev.ta_a_4 || baseTA, fc_a_4: prev.fc_a_4 || baseFC, obs_a_4: prev.obs_a_4 || 'Estable',
+                        ta_a_6: prev.ta_a_6 || baseTA, fc_a_6: prev.fc_a_6 || baseFC, obs_a_6: prev.obs_a_6 || 'Estable',
+                        ta_a_8: prev.ta_a_8 || baseTA, fc_a_8: prev.fc_a_8 || baseFC, obs_a_8: prev.obs_a_8 || 'Estable',
+                        ta_a_10: prev.ta_a_10 || baseTA, fc_a_10: prev.fc_a_10 || baseFC, obs_a_10: prev.obs_a_10 || 'Estable',
+                        ta_a_12: prev.ta_a_12 || baseTA, fc_a_12: prev.fc_a_12 || baseFC, obs_a_12: prev.obs_a_12 || 'Estable',
+                        ta_a_14: prev.ta_a_14 || baseTA, fc_a_14: prev.fc_a_14 || baseFC, obs_a_14: prev.obs_a_14 || 'Estable',
+                        ta_final: prev.ta_final || baseTA, fc_final: prev.fc_final || baseFC, obs_final: prev.obs_final || 'Retorno supino'
+                      }));
+                    }}
+                    className="text-[10px] font-bold bg-blue-50 text-hes-blue-main border border-blue-200 px-3 py-1 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    ⚡ Rellenar Valores Basales
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white max-h-72 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-hes-blue-main text-white sticky top-0 z-10 text-[10px] font-bold tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2 w-1/3">Tiempo / Inclinación</th>
+                        <th className="px-2 py-2 w-1/5 text-center">Presión Arterial</th>
+                        <th className="px-2 py-2 w-1/6 text-center">FC (lpm)</th>
+                        <th className="px-3 py-2">Observaciones Clínicas</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-[11px]">
+                      {[
+                        { label: 'Basal', ta: 'ta_basal', fc: 'fc_basal', obs: 'obs_basal', header: false },
+                        { label: 'Inicio fase pasiva 70°', ta: 'ta_p_inicio', fc: 'fc_p_inicio', obs: 'obs_p_inicio', header: true },
+                        { label: "2' 70°", ta: 'ta_p_2', fc: 'fc_p_2', obs: 'obs_p_2' },
+                        { label: "4' 70°", ta: 'ta_p_4', fc: 'fc_p_4', obs: 'obs_p_4' },
+                        { label: "6' 70°", ta: 'ta_p_6', fc: 'fc_p_6', obs: 'obs_p_6' },
+                        { label: "8' 70°", ta: 'ta_p_8', fc: 'fc_p_8', obs: 'obs_p_8' },
+                        { label: "10' 70°", ta: 'ta_p_10', fc: 'fc_p_10', obs: 'obs_p_10' },
+                        { label: "12' 70°", ta: 'ta_p_12', fc: 'fc_p_12', obs: 'obs_p_12' },
+                        { label: "14' 70°", ta: 'ta_p_14', fc: 'fc_p_14', obs: 'obs_p_14' },
+                        { label: "16' 70°", ta: 'ta_p_16', fc: 'fc_p_16', obs: 'obs_p_16' },
+                        { label: "18' 70°", ta: 'ta_p_18', fc: 'fc_p_18', obs: 'obs_p_18' },
+                        { label: "20' 70°", ta: 'ta_p_20', fc: 'fc_p_20', obs: 'obs_p_20' },
+                        { label: 'Inicio fase activa 70° Isosorbide 5mg', ta: 'ta_a_inicio', fc: 'fc_a_inicio', obs: 'obs_a_inicio', header: true },
+                        { label: "2' 70°", ta: 'ta_a_2', fc: 'fc_a_2', obs: 'obs_a_2' },
+                        { label: "4' 70°", ta: 'ta_a_4', fc: 'fc_a_4', obs: 'obs_a_4' },
+                        { label: "6' 70°", ta: 'ta_a_6', fc: 'fc_a_6', obs: 'obs_a_6' },
+                        { label: "8' 70°", ta: 'ta_a_8', fc: 'fc_a_8', obs: 'obs_a_8' },
+                        { label: "10' 70°", ta: 'ta_a_10', fc: 'fc_a_10', obs: 'obs_a_10' },
+                        { label: "12' 70°", ta: 'ta_a_12', fc: 'fc_a_12', obs: 'obs_a_12' },
+                        { label: "14' 70°", ta: 'ta_a_14', fc: 'fc_a_14', obs: 'obs_a_14' },
+                        { label: 'Final 0°', ta: 'ta_final', fc: 'fc_final', obs: 'obs_final', header: true },
+                      ].map((row, rIdx) => (
+                        <tr key={rIdx} className={row.header ? 'bg-blue-50/50 font-bold' : 'hover:bg-slate-50'}>
+                          <td className="px-3 py-1.5 font-semibold text-slate-700">{row.label}</td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={consentModal3401[row.ta] || ''}
+                              onChange={(e) => setConsentModal3401({ ...consentModal3401, [row.ta]: e.target.value })}
+                              placeholder="120/80"
+                              className="w-full border border-slate-200 rounded px-2 py-1 text-center text-xs font-semibold focus:border-hes-blue-main outline-none"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={consentModal3401[row.fc] || ''}
+                              onChange={(e) => setConsentModal3401({ ...consentModal3401, [row.fc]: e.target.value })}
+                              placeholder="75"
+                              className="w-full border border-slate-200 rounded px-2 py-1 text-center text-xs font-semibold focus:border-hes-blue-main outline-none"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={consentModal3401[row.obs] || ''}
+                              onChange={(e) => setConsentModal3401({ ...consentModal3401, [row.obs]: e.target.value })}
+                              placeholder="Observaciones..."
+                              className="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:border-hes-blue-main outline-none"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SECCIÓN 5: CONCLUSIONES CLÍNICAS */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">5. Conclusiones del Estudio</h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Conclusión 1</label>
+                  <input
+                    type="text"
+                    value={consentModal3401.conclusiones}
+                    onChange={(e) => setConsentModal3401({ ...consentModal3401, conclusiones: e.target.value })}
+                    placeholder="Estudio de mesa inclinada con respuesta hemodinámica normal / vasopresora / etc."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Conclusión 2 (Opcional)</label>
+                  <input
+                    type="text"
+                    value={consentModal3401.conclusiones_2}
+                    onChange={(e) => setConsentModal3401({ ...consentModal3401, conclusiones_2: e.target.value })}
+                    placeholder="Sin evidencia de síncope vasovagal ni disautonomía..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Conclusión 3 (Opcional)</label>
+                  <input
+                    type="text"
+                    value={consentModal3401.conclusiones_3}
+                    onChange={(e) => setConsentModal3401({ ...consentModal3401, conclusiones_3: e.target.value })}
+                    placeholder="Recomendaciones farmacológicas / higiénico-dietéticas..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setConsentModal3401(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={consentModal3401.saving}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  <FiSave /> {consentModal3401.saving ? 'Guardando...' : 'Guardar y Sincronizar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CAPTURA / EDICIÓN FORMATO 12 (CONSENTIMIENTO GINECO Y OBSTETRICIA HOSP/URG) */}
+      {consentModal12.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                  <FiFileText />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    {consentModal12.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Gineco y Obstetricia (Hosp/Urg)
+                  </h3>
+                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-12 • NOM-004-SSA3-2012</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setConsentModal12(prev => ({ ...prev, open: false }))}
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveConsentModal12} className="space-y-4">
+              {/* SECCIÓN 1: DATOS PACIENTE Y SERVICIO */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Paciente y Ubicación Clínica</h4>
+                  <span className="text-[11px] font-mono text-slate-500 font-semibold">EXP: {patient.mrn || `PT-${patientId}`}</span>
+                </div>
+                
+                <div className="p-3 bg-white rounded-xl border border-slate-200 flex flex-wrap gap-4 text-xs">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Paciente</span>
+                    <span className="font-bold text-slate-800 text-xs">{patient.name}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Fecha Nac.</span>
+                    <span className="font-bold text-slate-800 text-xs">{patient.dob || 'S/D'} ({patient.age || '—'} años)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Sexo</span>
+                    <span className="font-bold text-slate-800 text-xs">{patient.sex || 'F'}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Médico Tratante (Autor)</label>
+                    <input
+                      type="text"
+                      value={currentDoctorName || consentModal12.medico_tratante || 'DR. JOSE JOSE PRUEBA ENRIQUEZ'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Cédula Profesional</label>
+                    <input
+                      type="text"
+                      value={currentDoctorCedula || consentModal12.cedula || '7876310/5265849'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Diagnóstico Clínico</label>
+                    <input
+                      type="text"
+                      value={consentModal12.diagnostico}
+                      onChange={(e) => setConsentModal12({ ...consentModal12, diagnostico: e.target.value })}
+                      placeholder="Diagnóstico de ingreso gineco-obstétrico"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Servicio</label>
+                    <select
+                      value={consentModal12.servicio}
+                      onChange={(e) => setConsentModal12({ ...consentModal12, servicio: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none bg-white"
+                    >
+                      <option value="URGENCIAS">Urgencias</option>
+                      <option value="HOSPITALIZACION">Hospitalización</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {isPatientAdult(data?.patient || patient) ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={consentModal12.paciente_capaz}
+                            onChange={(e) => setConsentModal12({ ...consentModal12, paciente_capaz: e.target.checked, pariente: e.target.checked ? '' : consentModal12.pariente })}
+                            className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                          </span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                        </span>
+                      </div>
+
+                      {consentModal12.paciente_capaz ? (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                          <span>✓</span>
+                          <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 pt-1 animate-fadeIn">
+                          <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                            Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                          </label>
+                          <input
+                            type="text"
+                            required={!consentModal12.paciente_capaz}
+                            value={consentModal12.pariente}
+                            onChange={(e) => setConsentModal12({ ...consentModal12, pariente: e.target.value })}
+                            placeholder="Nombre completo del familiar o representante legal responsable"
+                            className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                          <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          Menor de edad
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-700 leading-tight">
+                        Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                      </p>
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                          Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={consentModal12.pariente}
+                          onChange={(e) => setConsentModal12({ ...consentModal12, pariente: e.target.value })}
+                          placeholder="Nombre completo del padre, madre o tutor responsable"
+                          className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 1</label>
+                    <input
+                      type="text"
+                      value={consentModal12.testigo1}
+                      onChange={(e) => setConsentModal12({ ...consentModal12, testigo1: e.target.value })}
+                      placeholder="Nombre del testigo 1"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Testigo 2</label>
+                    <input
+                      type="text"
+                      value={consentModal12.testigo2}
+                      onChange={(e) => setConsentModal12({ ...consentModal12, testigo2: e.target.value })}
+                      placeholder="Nombre del testigo 2"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 2: BENEFICIOS Y PROCEDIMIENTOS ALTERNATIVOS */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">2. Beneficios y Procedimientos Alternativos</h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Beneficios o Efectos Esperados</label>
+                  <textarea
+                    rows={2}
+                    value={consentModal12.beneficios}
+                    onChange={(e) => setConsentModal12({ ...consentModal12, beneficios: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 text-xs text-slate-700 focus:border-hes-blue-main outline-none leading-relaxed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Procedimientos Alternativos Informados</label>
+                  <textarea
+                    rows={2}
+                    value={consentModal12.alternativas}
+                    onChange={(e) => setConsentModal12({ ...consentModal12, alternativas: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 text-xs text-slate-700 focus:border-hes-blue-main outline-none leading-relaxed"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setConsentModal12(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={consentModal12.saving}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  <FiSave /> {consentModal12.saving ? 'Guardando...' : 'Guardar y Sincronizar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CAPTURA / EDICIÓN FORMATO 04 (CONSENTIMIENTO INFORMADO PARA COLOCACIÓN DE CATÉTER VENOSO CENTRAL) */}
+      {consentModal04.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
+                  <FiFileText />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    {consentModal04.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Colocación de Catéter Venoso Central
+                  </h3>
+                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-04 • NOM-004-SSA3-2012</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConsentModal04(prev => ({ ...prev, open: false }))}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <FiX className="text-xl" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveConsentModal04} className="space-y-4 text-xs">
+              {/* SECCIÓN 1: DATOS CLÍNICOS Y MÉDICOS */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Datos del Consentimiento y Personal Responsable</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
+                      <span>Médico Tratante (Autor)</span>
+                      <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                        <FiLock /> Bloqueado por sesión
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={currentDoctorName || consentModal04.medico_tratante || 'DR. JOSE JOSE PRUEBA ENRIQUEZ'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
+                      <span>Cédula Profesional</span>
+                      <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                        <FiLock /> Asignada por perfil
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={currentDoctorCedula || consentModal04.cedula || '7876310/5265849'}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {isPatientAdult(data?.patient || patient) ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={consentModal04.paciente_capaz}
+                            onChange={(e) => setConsentModal04({ ...consentModal04, paciente_capaz: e.target.checked, pariente: e.target.checked ? '' : consentModal04.pariente })}
+                            className="w-4 h-4 rounded text-hes-blue-main focus:ring-hes-blue-main cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            ¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)
+                          </span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Mayor de edad ({data?.patient?.age || patient?.age || '—'} años)
+                        </span>
+                      </div>
+
+                      {consentModal04.paciente_capaz ? (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                          <span>✓</span>
+                          <span>Se asignará automáticamente al paciente (<b>{data?.patient?.name || patient?.name}</b>) en la firma legal.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 pt-1 animate-fadeIn">
+                          <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                            Nombre del Familiar / Tutor / Representante Legal (Obligatorio)
+                          </label>
+                          <input
+                            type="text"
+                            required={!consentModal04.paciente_capaz}
+                            value={consentModal04.pariente}
+                            onChange={(e) => setConsentModal04({ ...consentModal04, pariente: e.target.value })}
+                            placeholder="Nombre completo del familiar o representante legal responsable"
+                            className="w-full border border-amber-300 bg-amber-50/50 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                          <span>⚠️ Paciente menor de edad ({data?.patient?.age || patient?.age || '—'} años)</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          Menor de edad
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-700 leading-tight">
+                        Conforme a la NOM-004-SSA3-2012, el consentimiento debe ser otorgado y firmado obligatoriamente por el padre, madre, tutor o representante legal.
+                      </p>
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-bold text-amber-900 uppercase">
+                          Padre, Madre, Tutor o Representante Legal (Obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={consentModal04.pariente}
+                          onChange={(e) => setConsentModal04({ ...consentModal04, pariente: e.target.value })}
+                          placeholder="Nombre completo del padre, madre o tutor responsable"
+                          className="w-full border border-amber-400 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre Completo del Testigo</label>
+                  <input
+                    type="text"
+                    value={consentModal04.testigo1}
+                    onChange={(e) => setConsentModal04({ ...consentModal04, testigo1: e.target.value })}
+                    placeholder="Nombre del testigo presencial"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:border-hes-blue-main outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setConsentModal04(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={consentModal04.saving}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  <FiSave /> {consentModal04.saving ? 'Guardando...' : 'Guardar y Sincronizar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
 import { useDigitalPersona } from '../../hooks/useDigitalPersona';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
@@ -32,6 +32,19 @@ export default function BiometricSignModal({
   const [successMsg, setSuccessMsg] = useState(null);
   const [selloDigital, setSelloDigital] = useState(null);
   const [selloCopiado, setSelloCopiado] = useState(false);
+  const [challengeId, setChallengeId] = useState(null);
+
+  // Obtener challenge anti-replay al abrir el modal o reintentar
+  const fetchChallenge = async () => {
+    try {
+      const res = await api.post('/biometrics/challenge');
+      if (res.data?.challenge_id) {
+        setChallengeId(res.data.challenge_id);
+      }
+    } catch (e) {
+      // Continuar si falla la obtención de challenge
+    }
+  };
 
   // Inicializar captura cuando se abre el modal
   useEffect(() => {
@@ -40,6 +53,7 @@ export default function BiometricSignModal({
       setSuccessMsg(null);
       setSelloDigital(null);
       setSelloCopiado(false);
+      fetchChallenge();
       resetFmd();
       startCapture();
     }
@@ -56,12 +70,13 @@ export default function BiometricSignModal({
 
         const endpoint = customEndpoint || `/ehr/paciente/${patientId}/firmar-biometrico`;
         const payload = customPayload 
-          ? { ...customPayload, fmd_template: dpFmd }
+          ? { ...customPayload, fmd_template: dpFmd, challenge_id: challengeId }
           : {
               codigo_formato: formatCode,
               tipo_documento: documentType,
               evolution_slot: evolutionSlot,
               fmd_template: dpFmd,
+              challenge_id: challengeId,
               contenido_resumen: summaryContent
             };
 
@@ -81,12 +96,22 @@ export default function BiometricSignModal({
             onClose();
           }, 2500);
         } else {
-          setErrorMsg(res.data?.error || "Error al autenticar firma biométrica.");
+          const msg = res.data?.error || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.";
+          setErrorMsg(msg);
           resetFmd();
+          fetchChallenge();
+          setTimeout(() => {
+            startCapture();
+          }, 800);
         }
       } catch (err) {
-        setErrorMsg(err.response?.data?.detail || "Huella dactilar no reconocida como médico adscrito autorizado.");
+        const msg = err.response?.data?.detail || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.";
+        setErrorMsg(msg);
         resetFmd();
+        fetchChallenge();
+        setTimeout(() => {
+          startCapture();
+        }, 800);
       } finally {
         setSubmitting(false);
       }

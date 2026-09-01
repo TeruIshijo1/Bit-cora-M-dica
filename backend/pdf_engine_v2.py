@@ -26,15 +26,23 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POSSIBLE_ASSETS_DIRS = [
     os.path.abspath(os.path.join(BASE_DIR, '..', 'Formatos VERTICAL', 'Encabezado, pie, lateral')),
-    os.path.abspath(r'd:\Escritorio\Bitacora_HES\Formatos VERTICAL\Encabezado, pie, lateral')
+    os.path.abspath(r'd:\Escritorio\Bitacora_HES\Formatos VERTICAL\Encabezado, pie, lateral'),
+    os.path.abspath(os.path.join(BASE_DIR, 'static', 'official_extracted_assets')),
+    os.path.abspath(os.path.join(BASE_DIR, 'static'))
 ]
 
-ASSETS_DIR = next((d for d in POSSIBLE_ASSETS_DIRS if os.path.exists(d)), POSSIBLE_ASSETS_DIRS[0])
+def find_asset(*filenames):
+    for fn in filenames:
+        for d in POSSIBLE_ASSETS_DIRS:
+            full_p = os.path.join(d, fn)
+            if os.path.exists(full_p):
+                return full_p
+    return os.path.join(POSSIBLE_ASSETS_DIRS[0], filenames[0])
 
-HEADER_P1_IMG = os.path.join(ASSETS_DIR, 'header_completo_oficial.png')
-LOGO_IMG = os.path.join(ASSETS_DIR, 'logo_hes_oficial.png')
-FOOTER_CLEAN_IMG = os.path.join(ASSETS_DIR, 'pie_hes_sin_disenador.png')
-LATERAL_IMG = os.path.join(ASSETS_DIR, 'lateral_hes_oficial_bold.png')
+HEADER_P1_IMG = find_asset('encabezado_perfecto_600dpi.png', 'encabezado_vector_puro_600dpi.png', 'Cabeza1.png')
+LOGO_IMG = find_asset('logo_hes_oficial.png', 'official_logo_600dpi.png', 'logo.png')
+FOOTER_CLEAN_IMG = find_asset('pie_hes_sin_disenador.png', 'official_footer_600dpi.png')
+LATERAL_IMG = find_asset('lateral_hes_oficial_bold.png', 'official_lateral_600dpi.png')
 
 # ─────────────────────────────────────────────────────────────
 # GEOMETRÍA EXACTA RDLC (Carta 21.59 x 27.94 cm)
@@ -85,10 +93,13 @@ class RDLCCanvas(canvas.Canvas):
     """Canvas de dos pasadas con marco perimetral exacto RDLC (MidnightBlue 1.25pt)."""
 
     def __init__(self, *args, **kwargs):
+        self.doc_info = kwargs.pop('doc_info', {})
+        fecha = kwargs.pop('fecha_ingreso', '')
+        hora = kwargs.pop('hora_ingreso', '')
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
-        self.fecha_ingreso = ""
-        self.hora_ingreso = ""
+        self.fecha_ingreso = fecha or self.doc_info.get('fecha_ingreso', '')
+        self.hora_ingreso = hora or self.doc_info.get('hora_ingreso', '')
 
     def showPage(self):
         self._saved_page_states.append(dict(self.__dict__))
@@ -105,20 +116,20 @@ class RDLCCanvas(canvas.Canvas):
     def draw_letterhead(self, total_pages):
         self.saveState()
 
-        # 1. MARCO PERIMETRAL RDLC (MidnightBlue Solid 1.25pt)
+        # 1. MARCO PERIMETRAL RDLC (MidnightBlue Solid 1.0pt)
         self.setStrokeColor(MIDNIGHT_BLUE)
-        self.setLineWidth(1.25)
+        self.setLineWidth(1.0)
         self.rect(FRAME_X, FRAME_Y, FRAME_W, FRAME_H, fill=False, stroke=True)
 
-        # 2. ENCABEZADO INSTITUCIONAL (75 pt de alto, alineado al tope del marco)
-        head_h = 75.0
+        # 2. ENCABEZADO INSTITUCIONAL (58 pt de alto, idéntico en todas las hojas)
+        head_h = 58.0
         head_y = (FRAME_Y + FRAME_H) - head_h
 
-        if self._pageNumber == 1:
-            if os.path.exists(HEADER_P1_IMG):
-                self.drawImage(HEADER_P1_IMG, FRAME_X, head_y, width=FRAME_W, height=head_h, mask='auto', preserveAspectRatio=False)
+        if os.path.exists(HEADER_P1_IMG):
+            self.drawImage(HEADER_P1_IMG, FRAME_X + 0.5, head_y + 0.5, width=FRAME_W - 1.0, height=head_h - 1.0, preserveAspectRatio=False)
 
-            # Posicionar Fecha y Hora en casillas escaladas a 569.76 pt
+        # Posicionar Fecha y Hora en casillas solo si el formato lo requiere
+        if self.doc_info.get('draw_header_dates', False):
             self.setFont("Helvetica-Bold", 7.5)
             self.setFillColor(TEXT_DARK)
             day, month, year = parse_date_parts(self.fecha_ingreso)
@@ -136,23 +147,33 @@ class RDLCCanvas(canvas.Canvas):
                 self.drawCentredString(FRAME_X + 531.0 * scale, y_base, str(hh))
             if mm:
                 self.drawCentredString(FRAME_X + 553.0 * scale, y_base, str(mm))
-        else:
-            # Encabezado página 2+
-            if os.path.exists(LOGO_IMG):
-                logo_w = 135
-                logo_h = 27
-                self.drawImage(LOGO_IMG, FRAME_X + FRAME_W - logo_w - 4, FRAME_Y + FRAME_H - 32, width=logo_w, height=logo_h, mask='auto', preserveAspectRatio=True)
 
-            self.setFont("Helvetica-Bold", 10)
+        # Título dinámico del formato (idéntico en todas las hojas)
+        title_lines = self.doc_info.get('title_lines') or []
+        if not title_lines:
+            single_title = self.doc_info.get('title', '')
+            if single_title:
+                title_lines = [single_title]
+        if title_lines:
+            self.setFont("Helvetica-Bold", 8.5)
             self.setFillColor(PRIMARY_BLUE)
-            self.drawString(FRAME_X + 8, FRAME_Y + FRAME_H - 18, "NOTA DE EVOLUCIÓN DE URGENCIAS")
-            self.setFont("Helvetica", 7.5)
-            self.setFillColor(TEXT_DARK)
-            self.drawString(FRAME_X + 8, FRAME_Y + FRAME_H - 29, "HE-DIRMED-SINPRO-PLT-87/01  (Continuación)")
+            y_txt = head_y + head_h - 18.0
+            for line in title_lines:
+                self.drawString(FRAME_X + 6.0, y_txt, line)
+                y_txt -= 10.5
 
-            self.setStrokeColor(PRIMARY_BLUE)
-            self.setLineWidth(1.2)
-            self.line(FRAME_X + 6, FRAME_Y + FRAME_H - 34, FRAME_X + FRAME_W - 6, FRAME_Y + FRAME_H - 34)
+            # Código del formato fijado en la parte inferior vertical del encabezado con subrayado fino
+            code = self.doc_info.get('code', '')
+            if code:
+                code_y = head_y + 8.0
+                line_y = head_y + 6.0
+                self.setFont("Helvetica", 6.8)
+                self.setFillColor(TEXT_DARK)
+                self.drawString(FRAME_X + 6.0, code_y, code)
+                code_w = self.stringWidth(code, "Helvetica", 6.8)
+                self.setStrokeColor(TEXT_DARK)
+                self.setLineWidth(0.6)
+                self.line(FRAME_X + 6.0, line_y, FRAME_X + 6.0 + max(code_w + 15.0, 120.0), line_y)
 
         # 3. LATERAL DERECHO VERTICAL (Membrete Fundación)
         if os.path.exists(LATERAL_IMG):
@@ -391,12 +412,9 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         num = ev.get('num', idx + 1)
         is_cont = (idx > 0)
         
-        # Salto de página inteligente: Si quedan menos de 200 pt libres en la página actual,
-        # salta limpiamente a la siguiente página para no dejar la nota cortada o apretada.
         if is_cont:
             story.append(CondPageBreak(200))
         
-        # 1. Cabecera de la nota (Fecha, Hora, Turno)
         turno = str(ev.get('turno', 'Matutino')).upper()
         t_mat = "[X]" if 'MAT' in turno else "[ ]"
         t_ves = "[X]" if 'VESP' in turno else "[ ]"
@@ -420,7 +438,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             ('RIGHTPADDING', (0,0), (-1,-1), 1),
         ]))
 
-        # 2. Banner de Evolución y Observaciones
         ban_text = f"<b><i>Evolución y observaciones {num} {'(Continuación)' if is_cont else ''}</i></b>"
         t_banner = Table(
             [[Paragraph(ban_text, ParagraphStyle('Ban', fontName='Helvetica-BoldOblique', fontSize=8.5, leading=10, textColor=PRIMARY_BLUE, alignment=TA_CENTER))]],
@@ -433,7 +450,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
         ]))
 
-        # 3. Signos Vitales
         v_ta = ev.get('vitals_ta', '--')
         v_fc = ev.get('vitals_fc', '--')
         v_fr = ev.get('vitals_fr', '--')
@@ -460,7 +476,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#cccccc')),
         ]))
 
-        # Agrupar la cabecera completa de la evolución con KeepTogether para que nunca quede huérfana
         evol_header_block = [
             t_nhead,
             Spacer(1, 1.5),
@@ -471,7 +486,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         ]
         story.append(KeepTogether(evol_header_block))
 
-        # 4. SOAP Content
         if ev.get('subjetivo'):
             story.append(Paragraph("<b>(S) Subjetivo:</b>", style_soap_h))
             story.append(Paragraph(format_clinical_text(ev.get('subjetivo', '')), style_soap_body))
@@ -488,7 +502,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             story.append(Paragraph("<b>(P) Plan (laboratorios solicitados y tratamientos a establecer):</b>", style_soap_h))
             story.append(Paragraph(format_clinical_text(ev.get('plan', '')), style_soap_body))
 
-        # Si NO es formato general (impresión individual), poner la firma al final de cada nota
         if not is_general:
             med_nom = str(ev.get('medico', '')).upper()
             med_c = str(ev.get('cedula', 'N/D'))
@@ -497,10 +510,8 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             story.append(Spacer(1, 14))
             story.append(KeepTogether([t_sig]))
         else:
-            # Si hay otra evolución subsecuente en el documento general, dar un espacio estético amplio y divisor sutil
             if idx < len(active_evols) - 1:
                 story.append(Spacer(1, 18))
-                # Divisor sutil y estético entre notas
                 t_div = Table([['']], colWidths=[content_w])
                 t_div.setStyle(TableStyle([
                     ('LINEABOVE', (0,0), (-1,-1), 0.75, colors.HexColor('#0056b3')),
@@ -510,7 +521,6 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
                 story.append(t_div)
                 story.append(Spacer(1, 16))
 
-    # Si ES FORMATO GENERAL, colocar 1 SOLA FIRMA AL FINAL de todo el documento
     if is_general and active_evols:
         last_ev = active_evols[-1]
         med_nom = str(last_ev.get('medico', '')).upper()
@@ -521,11 +531,20 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         story.append(Spacer(1, 22))
         story.append(KeepTogether([t_sig]))
 
+    doc_info = {
+        'title': 'NOTA DE EVOLUCIÓN DE URGENCIAS',
+        'title_lines': ['NOTA DE EVOLUCIÓN DE URGENCIAS'],
+        'code': 'HE-DIRMED-SINPRO-PLT-87/01',
+    }
+
     def make_canvas(*args, **kwargs):
-        c = RDLCCanvas(*args, **kwargs)
+        c = RDLCCanvas(*args, doc_info=doc_info, **kwargs)
         c.fecha_ingreso = pt_data.get('fecha_ingreso', '')
         c.hora_ingreso = pt_data.get('hora_ingreso', '')
         return c
 
     doc.build(story, canvasmaker=make_canvas)
     return output_path
+
+class CleanConsentCanvas(RDLCCanvas):
+    pass

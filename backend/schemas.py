@@ -34,18 +34,25 @@ class CatalogoFormatoResponse(BaseModel):
         from_attributes = True
 
 # --- Auth ---
+class BiometricChallengeResponse(BaseModel):
+    challenge_id: str
+    expires_in: int = 120
+
 class LoginAdminRequest(BaseModel):
     username: str
     password: str
 
 class LoginBiometricRequest(BaseModel):
-    huella_token: str
+    huella_token: Optional[str] = None
     fmd_template: Optional[str] = None
+    medico_id: Optional[int] = None
+    challenge_id: Optional[str] = None
 
 class ImpersonateRequest(BaseModel):
     rol: str
     target_id: int
     fmd_template: Optional[str] = None
+    challenge_id: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -210,7 +217,10 @@ class AtencionResponse(BaseModel):
 
 class FirmaExpressRequest(BaseModel):
     folio: str
-    huella_token: str
+    huella_token: Optional[str] = None
+    fmd_template: Optional[str] = None
+    medico_id: Optional[int] = None
+    challenge_id: Optional[str] = None
 
 class FirmaResponse(BaseModel):
     folio: str
@@ -219,9 +229,11 @@ class FirmaResponse(BaseModel):
     fecha_firma: datetime
 
 class FirmaLoteRequest(BaseModel):
-    huella_token: str
+    huella_token: Optional[str] = None
     fmd_template: Optional[str] = None
     folios: List[str]
+    medico_id: Optional[int] = None
+    challenge_id: Optional[str] = None
 
 # --- Archivos RH ---
 class EscaneoRHCreate(BaseModel):

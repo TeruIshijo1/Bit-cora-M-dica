@@ -523,6 +523,284 @@ def fetch_full_ehr_dashboard(pt_num: str):
             }
         else:
             dashboard_data["consentimiento_eed"] = None
+
+        # Historial de Registros de Consentimiento 32/01
+        historial_32_01 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_ETE_CARD, INTETYPE, N_MEDICO, CEDULA, ALERGIAS, DIAGNOSTICO,
+                       CreatedBy, CreatedOn, SignedBy, SignedOn
+                FROM MR_CI_ETE_CARD 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_ETE_CARD DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[7]
+                sg_dt = r[9]
+                historial_32_01.append({
+                    "mrnum": r[0],
+                    "tipo_interrogatorio": r[1] or "Directo",
+                    "medico_tratante": str(r[2] or "").strip(),
+                    "cedula": str(r[3] or "").strip(),
+                    "alergias": str(r[4] or "").strip(),
+                    "diagnostico": str(r[5] or "").strip(),
+                    "created_by": str(r[6] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[8] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[8] or sg_dt)
+                })
+        except Exception as e_h32:
+            print(f"Nota: Error consultando historial 32/01: {e_h32}")
+        dashboard_data["historial_32_01"] = historial_32_01
+
+        # Historial de Registros de Consentimiento EED
+        historial_eed = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_EED, NOMBRE_MEDICO, CEDULA_PROFESIONAL, INTERROGATORIO, RESPONSABLE,
+                       CreatedBy, CreatedOn, SignedBy, SignedOn, FC_META, COMENTARIOS,
+                       TA, FR, TALLA, PESO, TA_BASAL, FC_BASAL, SO2_BASAL, S_BASAL,
+                       TA_5MCG, FC_5MCG, SO2_5MCG, S_5MCG, TA_10MCG, FC_10MCG, SO2_10MCG, S_10MCG,
+                       TA_20MCG, FC_20MCG, SO2_20MCG, S_20MCG, TA_30MCG, FC_30MCG, SO2_30MCG, S_30MCG,
+                       TA_40MCG, FC_40MCG, SO2_40MCG, S_40MCG, TA_ANTROPINA, FC_ANTROPINA, SO2_ANTROPINA, S_ANTROPINA,
+                       TA_2MIN, FC_2MIN, SO2_2MIN, SINTOMAS_2MIN, TA_4MIN, FC_4MIN, SO2_4MIN, SINTOMAS_4MIN
+                FROM MR_CI_EED 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_EED DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[6]
+                sg_dt = r[8]
+                historial_eed.append({
+                    "mrnum": r[0],
+                    "medico": str(r[1] or "").strip(),
+                    "cedula": str(r[2] or "").strip(),
+                    "tipo_interrogatorio": str(r[3] or "Directo").strip(),
+                    "responsable": str(r[4] or "").strip(),
+                    "created_by": str(r[5] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[7] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[7] or sg_dt),
+                    "fc_meta": str(r[9] or "").strip(),
+                    "comentarios": str(r[10] or "").strip(),
+                    "ta": str(r[11] or "").strip(),
+                    "fr": str(r[12] or "").strip(),
+                    "talla": str(r[13] or "").strip(),
+                    "peso": str(r[14] or "").strip(),
+                    "ta_basal": str(r[15] or "").strip(), "fc_basal": str(r[16] or "").strip(), "so2_basal": str(r[17] or "").strip(), "s_basal": str(r[18] or "").strip(),
+                    "ta_5mcg": str(r[19] or "").strip(), "fc_5mcg": str(r[20] or "").strip(), "so2_5mcg": str(r[21] or "").strip(), "s_5mcg": str(r[22] or "").strip(),
+                    "ta_10mcg": str(r[23] or "").strip(), "fc_10mcg": str(r[24] or "").strip(), "so2_10mcg": str(r[25] or "").strip(), "s_10mcg": str(r[26] or "").strip(),
+                    "ta_20mcg": str(r[27] or "").strip(), "fc_20mcg": str(r[28] or "").strip(), "so2_20mcg": str(r[29] or "").strip(), "s_20mcg": str(r[30] or "").strip(),
+                    "ta_30mcg": str(r[31] or "").strip(), "fc_30mcg": str(r[32] or "").strip(), "so2_30mcg": str(r[33] or "").strip(), "s_30mcg": str(r[34] or "").strip(),
+                    "ta_40mcg": str(r[35] or "").strip(), "fc_40mcg": str(r[36] or "").strip(), "so2_40mcg": str(r[37] or "").strip(), "s_40mcg": str(r[38] or "").strip(),
+                    "ta_atropina": str(r[39] or "").strip(), "fc_atropina": str(r[40] or "").strip(), "so2_atropina": str(r[41] or "").strip(), "s_atropina": str(r[42] or "").strip(),
+                    "ta_2min": str(r[43] or "").strip(), "fc_2min": str(r[44] or "").strip(), "so2_2min": str(r[45] or "").strip(), "sintomas_2min": str(r[46] or "").strip(),
+                    "ta_4min": str(r[47] or "").strip(), "fc_4min": str(r[48] or "").strip(), "so2_4min": str(r[49] or "").strip(), "sintomas_4min": str(r[50] or "").strip()
+                })
+        except Exception as e_heed:
+            print(f"Nota: Error consultando historial EED: {e_heed}")
+        dashboard_data["historial_eed"] = historial_eed
+
+        # Historial de Registros de Consentimiento 25
+        historial_25 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_RGO_CE, N_MEDICO, CreatedBy, CreatedOn, SignedBy, SignedOn
+                FROM MR_CI_RGO_CE 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_RGO_CE DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[3]
+                sg_dt = r[5]
+                historial_25.append({
+                    "mrnum": r[0],
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "n_medico": str(r[1] or "").strip(),
+                    "created_by": str(r[2] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[4] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[4] or sg_dt)
+                })
+        except Exception as e_h25:
+            print(f"Nota: Error consultando historial 25: {e_h25}")
+        dashboard_data["historial_25"] = historial_25
+
+        # Obtener Consentimiento 25 (MR_CI_RGO_CE) si existe
+        try:
+            cursor.execute("SELECT TOP 1 N_MEDICO, CreatedBy, CreatedOn, SignedBy, SignedOn, MRNum_CI_RGO_CE FROM MR_CI_RGO_CE WHERE PTNum = ? ORDER BY MRNum_CI_RGO_CE DESC", (pt_num,))
+            c25_row = cursor.fetchone()
+            if c25_row:
+                dashboard_data["consentimiento_25"] = {
+                    "mrnum": c25_row[5],
+                    "medico_tratante": c25_row[0] or "",
+                    "n_medico": c25_row[0] or "",
+                    "created_by": str(c25_row[1] or ""),
+                    "created_on": c25_row[2].strftime("%d/%m/%Y %H:%M") if c25_row[2] else "",
+                    "signed_by": str(c25_row[3] or ""),
+                    "signed_on": c25_row[4].strftime("%d/%m/%Y %H:%M") if c25_row[4] else ""
+                }
+            else:
+                dashboard_data["consentimiento_25"] = None
+        except Exception as e_c25:
+            print(f"Nota: No se pudo consultar consentimiento 25: {e_c25}")
+            dashboard_data["consentimiento_25"] = None
+
+        # Historial de Registros de Consentimiento 34/01 (Mesa Inclinada)
+        historial_34_01 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_EMI, NOMBRE_MEDICO_MI, CreatedBy, CreatedOn, SignedBy, SignedOn,
+                       EXPEDIENTE, GRUPORH, ALERGIAS, INTTYP, PARIENTE, CEDULA, TA, FC_META, F_RESP,
+                       TEMPERATURA, PESO, TALLA, IRM, FBPR, FPR, CONCLUSIONES, CONCLUSIONES_2, CONCLUSIONES_3
+                FROM MR_CI_EMI 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_EMI DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[3]
+                sg_dt = r[5]
+                historial_34_01.append({
+                    "mrnum": r[0],
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "nombre_medico_mi": str(r[1] or "").strip(),
+                    "created_by": str(r[2] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[4] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[4] or sg_dt),
+                    "expediente": str(r[6] or "").strip(),
+                    "gruporh": str(r[7] or "").strip(),
+                    "alergias": str(r[8] or "").strip(),
+                    "tipo_interrogatorio": str(r[9] or "DIRECTO").strip(),
+                    "pariente": str(r[10] or "").strip(),
+                    "cedula": str(r[11] or "").strip(),
+                    "ta": str(r[12] or "").strip(),
+                    "fc_meta": str(r[13] or "").strip(),
+                    "f_resp": str(r[14] or "").strip(),
+                    "temperatura": str(r[15] or "").strip(),
+                    "peso": str(r[16] or "").strip(),
+                    "talla": str(r[17] or "").strip(),
+                    "irm": str(r[18] or "").strip(),
+                    "fbpr": str(r[19] or "").strip(),
+                    "fpr": str(r[20] or "").strip(),
+                    "conclusiones": str(r[21] or "").strip(),
+                    "conclusiones_2": str(r[22] or "").strip(),
+                    "conclusiones_3": str(r[23] or "").strip()
+                })
+        except Exception as e_h34:
+            print(f"Nota: Error consultando historial 34/01: {e_h34}")
+        dashboard_data["historial_34_01"] = historial_34_01
+
+        # Obtener Consentimiento 34/01 (MR_CI_EMI - Mesa Inclinada) si existe
+        try:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_EMI, NOMBRE_MEDICO_MI, EXPEDIENTE, GRUPORH, ALERGIAS, INTTYP,
+                    PARIENTE, CEDULA, TA, FC_META, F_RESP, TEMPERATURA, PESO, TALLA,
+                    IRM, FBPR, FPR, CONCLUSIONES, CONCLUSIONES_2, CONCLUSIONES_3,
+                    CreatedBy, CreatedOn, SignedBy, SignedOn
+                FROM MR_CI_EMI 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_EMI DESC
+            """, (pt_num,))
+            c34_row = cursor.fetchone()
+            if c34_row:
+                dashboard_data["consentimiento_34_01"] = {
+                    "mrnum": c34_row[0],
+                    "nombre_medico_mi": str(c34_row[1] or "").strip(),
+                    "medico_tratante": str(c34_row[1] or "").strip(),
+                    "expediente": str(c34_row[2] or "").strip(),
+                    "gruporh": str(c34_row[3] or "").strip(),
+                    "alergias": str(c34_row[4] or "").strip(),
+                    "tipo_interrogatorio": str(c34_row[5] or "DIRECTO").strip(),
+                    "pariente": str(c34_row[6] or "").strip(),
+                    "cedula": str(c34_row[7] or "").strip(),
+                    "ta": str(c34_row[8] or "").strip(),
+                    "fc_meta": str(c34_row[9] or "").strip(),
+                    "f_resp": str(c34_row[10] or "").strip(),
+                    "temperatura": str(c34_row[11] or "").strip(),
+                    "peso": str(c34_row[12] or "").strip(),
+                    "talla": str(c34_row[13] or "").strip(),
+                    "irm": str(c34_row[14] or "").strip(),
+                    "fbpr": str(c34_row[15] or "").strip(),
+                    "fpr": str(c34_row[16] or "").strip(),
+                    "conclusiones": str(c34_row[17] or "").strip(),
+                    "conclusiones_2": str(c34_row[18] or "").strip(),
+                    "conclusiones_3": str(c34_row[19] or "").strip(),
+                    "created_by": str(c34_row[20] or "").strip(),
+                    "created_on": c34_row[21].strftime("%d/%m/%Y %H:%M") if c34_row[21] else "",
+                    "signed_by": str(c34_row[22] or "").strip(),
+                    "signed_on": c34_row[23].strftime("%d/%m/%Y %H:%M") if c34_row[23] else ""
+                }
+            else:
+                dashboard_data["consentimiento_34_01"] = None
+        except Exception as e_c34:
+            print(f"Nota: No se pudo consultar consentimiento 34_01: {e_c34}")
+            dashboard_data["consentimiento_34_01"] = None
+
+        # Historial de Registros de Consentimiento 12 (MR_CI_RGO_HU - Gineco Hosp/Urg)
+        historial_12 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_RGO_HU, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                       CreatedBy, CreatedOn, SignedBy, SignedOn, MR_ST
+                FROM MR_CI_RGO_HU 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_RGO_HU DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[5]
+                sg_dt = r[7]
+                historial_12.append({
+                    "mrnum": r[0],
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "n_medico": str(r[1] or "").strip(),
+                    "diagnostico": str(r[2] or "").strip(),
+                    "expediente": str(r[3] or "").strip(),
+                    "created_by": str(r[4] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[6] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[6] or sg_dt or r[8] == 'SG'),
+                    "mr_st": r[8]
+                })
+        except Exception as e_h12:
+            print(f"Nota: Error consultando historial 12: {e_h12}")
+        dashboard_data["historial_12"] = historial_12
+        dashboard_data["consentimiento_12"] = historial_12[0] if historial_12 else None
+
+        # Historial de Registros de Consentimiento 04 (MR_CI_CC - Catéter Venoso Central)
+        historial_04 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_CC, N_MEDICO,
+                       CreatedBy, CreatedOn, SignedBy, SignedOn, MR_ST
+                FROM MR_CI_CC 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_CC DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[3]
+                sg_dt = r[5]
+                historial_04.append({
+                    "mrnum": r[0],
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "n_medico": str(r[1] or "").strip(),
+                    "created_by": str(r[2] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[4] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[4] or sg_dt or r[6] == 'SG'),
+                    "mr_st": r[6]
+                })
+        except Exception as e_h04:
+            print(f"Nota: Error consultando historial 04: {e_h04}")
+        dashboard_data["historial_04"] = historial_04
+        dashboard_data["consentimiento_04"] = historial_04[0] if historial_04 else None
                 
         # 1. Medicamentos Prescritos (Consultar tabla maestra PTDG en SQL Server)
         ptdg_meds = []
@@ -884,6 +1162,48 @@ def fetch_full_ehr_dashboard(pt_num: str):
                         "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-eed",
                         "paginas": 2,
                         "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-25",
+                        "nombre": "Consentimiento Informado para Revisión Ginecológica, Obstétrica y Consulta Externa",
+                        "subtitulo": "Autorización para revisión ginecológica u obstétrica, estudios y procedimientos en consulta externa",
+                        "tipo": "Legal y Clínico",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-25",
+                        "paginas": 1,
+                        "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-34",
+                        "nombre": "Consentimiento Informado para Estudio de Mesa Inclinada (Tilt Test)",
+                        "subtitulo": "Consentimiento informado y hoja de monitoreo hemodinámico protocolo INICICH",
+                        "tipo": "Legal y Clínico",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-34-01",
+                        "paginas": 2,
+                        "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-12",
+                        "nombre": "Consentimiento Revisión Gineco y Obstetricia (Hosp. / Urg.)",
+                        "subtitulo": "HE-DIRMED-CONSUL-PLT-12 • Consentimiento Informado Hospitalización y Urgencias",
+                        "area": "Ginecología y Obstetricia / Urgencias",
+                        "tipo": "Legal y Clínico",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-12",
+                        "paginas": 1,
+                        "norma": "NOM-004-SSA3-2012"
+                    },
+                    {
+                        "codigo": "HE-DIRMED-CONSUL-PLT-04",
+                        "nombre": "Consentimiento Colocación de Catéter Venoso Central",
+                        "subtitulo": "HE-DIRMED-CONSUL-PLT-04 • Consentimiento Informado Procedimientos y Cirugía",
+                        "area": "Procedimientos / Cirugía",
+                        "tipo": "Legal y Clínico",
+                        "activo": True,
+                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-04",
+                        "paginas": 1,
+                        "norma": "NOM-004-SSA3-2012"
                     }
                 ]
             }
@@ -1003,6 +1323,69 @@ def fetch_full_ehr_dashboard(pt_num: str):
                     })
         except Exception as e_eed_tl:
             print(f"Nota: Error agregando EED a timeline: {e_eed_tl}")
+
+        # C2. Consentimiento 12 - Gineco Hosp / Urg (MR_CI_RGO_HU)
+        try:
+            cursor.execute("""
+                SELECT TOP 5 
+                    MRNum_CI_RGO_HU, N_MEDICO, DIAGNOSTICO,
+                    CreatedOn, ModifiedOn, SignedBy, SignedOn, MR_ST
+                FROM MR_CI_RGO_HU 
+                WHERE PTNum = ? 
+                ORDER BY CreatedOn DESC
+            """, (pt_num,))
+            for r12 in cursor.fetchall():
+                if r12[1] or r12[2] or r12[5]:
+                    dt12 = r12[4] or r12[3] or r12[6]
+                    med12 = str(r12[1] or r12[5] or "JOSE JOSE PRUEBA ENRIQUEZ")
+                    diag12 = str(r12[2] or "Revisión Gineco-Obstétrica")
+                    raw_timeline.append({
+                        "_dt": dt12,
+                        "date": dt12.strftime('%d/%m/%Y') if dt12 else "",
+                        "time": dt12.strftime('%H:%M') if dt12 else "",
+                        "type": "Consentimiento Informado: Revisión Gineco y Obstetricia (12)",
+                        "category": "Consentimiento Informado",
+                        "badge": "Formato 12",
+                        "format_code": "HE-DIRMED-CONSUL-PLT-12",
+                        "desc": f"El Dr(a). {med12} registró el Consentimiento Gineco y Obstetricia (Hosp/Urg). Diagnóstico: {diag12}.",
+                        "doctor": med12,
+                        "signed": bool(r12[5] or r12[7] == 'SG'),
+                        "pdf_url": f"/ehr/paciente/{pt_num}/pdf-consentimiento-12",
+                        "action_type": "format"
+                    })
+        except Exception as e_c12_tl:
+            print(f"Nota: Error agregando consentimiento 12 a timeline: {e_c12_tl}")
+
+        # C3. Consentimiento 04 - Catéter Venoso Central (MR_CI_CC)
+        try:
+            cursor.execute("""
+                SELECT TOP 5 
+                    MRNum_CI_CC, N_MEDICO,
+                    CreatedOn, ModifiedOn, SignedBy, SignedOn, MR_ST
+                FROM MR_CI_CC 
+                WHERE PTNum = ? 
+                ORDER BY CreatedOn DESC
+            """, (pt_num,))
+            for r04 in cursor.fetchall():
+                if r04[1] or r04[4]:
+                    dt04 = r04[3] or r04[2] or r04[5]
+                    med04 = str(r04[1] or r04[4] or "JOSE JOSE PRUEBA ENRIQUEZ")
+                    raw_timeline.append({
+                        "_dt": dt04,
+                        "date": dt04.strftime('%d/%m/%Y') if dt04 else "",
+                        "time": dt04.strftime('%H:%M') if dt04 else "",
+                        "type": "Consentimiento Informado: Colocación de Catéter Venoso Central (04)",
+                        "category": "Consentimiento Informado",
+                        "badge": "Formato 04",
+                        "format_code": "HE-DIRMED-CONSUL-PLT-04",
+                        "desc": f"El Dr(a). {med04} registró el Consentimiento Informado para Colocación de Catéter Venoso Central.",
+                        "doctor": med04,
+                        "signed": bool(r04[4] or r04[6] == 'SG'),
+                        "pdf_url": f"/ehr/paciente/{pt_num}/pdf-consentimiento-04",
+                        "action_type": "format"
+                    })
+        except Exception as e_c04_tl:
+            print(f"Nota: Error agregando consentimiento 04 a timeline: {e_c04_tl}")
 
         # D. Prescripciones Médicas de Fármacos (PTDG)
         for med in ptdg_meds:
@@ -1458,6 +1841,90 @@ def fetch_patient_vitals_ptvs(pt_num: str) -> dict:
         conn.close()
 
 
+def fetch_patient_vitals_history_ptvs(pt_num: str) -> list:
+    """
+    Consulta todo el historial cronologico de tomas de signos vitales de la tabla PTVS en SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                PTVSNum, ProcedureDate, Age, Height, Weight, Temperature, PulseRate,
+                SystolicPressure, DiastolicPressure, RespiratroryRAte, OxygenSaturation,
+                CreatedBy, CreatedOn
+            FROM PTVS
+            WHERE PTNum = ?
+            ORDER BY ProcedureDate DESC, CreatedOn DESC, PTVSNum DESC
+        """, (pt_num,))
+        
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        cols = [c[0] for c in cursor.description]
+        history = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            sys_p = str(d.get("SystolicPressure") or "").strip()
+            dia_p = str(d.get("DiastolicPressure") or "").strip()
+            ta_str = f"{sys_p}/{dia_p}" if (sys_p and dia_p) else (sys_p or dia_p or "--")
+
+            dt = d.get("ProcedureDate") or d.get("CreatedOn")
+            dt_str = dt.strftime("%d/%m/%Y %H:%M") if dt else "--"
+
+            weight_val = d.get("Weight")
+            height_val = d.get("Height")
+            w_disp = "--"
+            h_disp = "--"
+            imc_str = "--"
+            try:
+                if weight_val:
+                    w = float(weight_val)
+                    w_disp = f"{w:.1f}" if (w % 1 != 0) else f"{int(w)}"
+                if height_val:
+                    h_raw = float(height_val)
+                    if h_raw > 3:
+                        h_m = h_raw / 100.0
+                    else:
+                        h_m = h_raw
+                    h_disp = f"{h_m:.2f}"
+                if weight_val and height_val:
+                    w = float(weight_val)
+                    h_raw = float(height_val)
+                    h_m = h_raw / 100.0 if h_raw > 3 else h_raw
+                    if h_m > 0:
+                        imc_str = f"{(w / (h_m * h_m)):.1f}"
+            except Exception:
+                pass
+
+            history.append({
+                "id": d.get("PTVSNum"),
+                "fecha_hora": dt_str,
+                "fecha_hora_iso": dt.isoformat() if dt else "",
+                "ta": ta_str,
+                "sistolica": sys_p,
+                "diastolica": dia_p,
+                "fc": str(d.get("PulseRate") or "--"),
+                "fr": str(d.get("RespiratroryRAte") or "--"),
+                "sat_o2": str(d.get("OxygenSaturation") or "--"),
+                "temperatura": str(d.get("Temperature") or "--"),
+                "peso": w_disp,
+                "talla": h_disp,
+                "imc": imc_str,
+                "capturado_por": str(d.get("CreatedBy") or "Personal de Salud").strip()
+            })
+        return history
+    except Exception as e:
+        print(f"Error fetching PTVS vitals history for pt {pt_num}: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 def save_patient_vitals_ptvs(pt_num: str, vitals_data: dict, connection_existing=None) -> dict:
     """
     Inserta o actualiza un registro formal en la tabla [KH_HE].[dbo].[PTVS].
@@ -1500,7 +1967,13 @@ def save_patient_vitals_ptvs(pt_num: str, vitals_data: dict, connection_existing
         oxygen_sat = safe_num(vitals_data.get("oxygen_saturation") or vitals_data.get("sat_o2") or vitals_data.get("vitals_sato2"))
         temp = safe_num(vitals_data.get("temperature") or vitals_data.get("temp") or vitals_data.get("vitals_temp"))
         weight = safe_num(vitals_data.get("weight") or vitals_data.get("peso") or vitals_data.get("vitals_peso"))
-        height = safe_num(vitals_data.get("height") or vitals_data.get("talla") or vitals_data.get("vitals_talla"))
+        height_raw = safe_num(vitals_data.get("height") or vitals_data.get("talla") or vitals_data.get("vitals_talla"))
+        height = None
+        if height_raw is not None:
+            if height_raw <= 3.0:
+                height = int(round(height_raw * 100))
+            else:
+                height = int(round(height_raw))
 
         # Parsear fecha de toma
         p_date = vitals_data.get("procedure_date")
@@ -2319,6 +2792,34 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
         talla = str(consent_data.get("talla") or "")
         peso = str(consent_data.get("peso") or "")
         expediente = f"PT-{pt_num}"
+        
+        # Recuperar alergias y tipo de sangre si no vienen en consent_data
+        alergias = str(consent_data.get("alergias") or "").strip()
+        tsangre = str(consent_data.get("tsangre") or consent_data.get("tipo_sangre") or "").strip()
+        
+        if not alergias or not tsangre:
+            try:
+                cursor.execute("SELECT BloodType FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+                b_row = cursor.fetchone()
+                if b_row and b_row[0] and not tsangre:
+                    tsangre = str(b_row[0])
+                
+                cursor.execute("""
+                    SELECT COALESCE(d.AllergyName, 'Alergia (' + CAST(p.AllergyNum AS VARCHAR) + ')')
+                    FROM PTAL p
+                    LEFT JOIN DIS_AL d ON p.AllergyNum = d.AllergyId
+                    WHERE p.PTNum = ? AND p.PTAL_ST = 'RG'
+                """, (int(pt_num),))
+                al_rows = cursor.fetchall()
+                if al_rows and not alergias:
+                    alergias = ", ".join([r[0] for r in al_rows])
+            except Exception as e_demo:
+                print(f"Nota: No se pudo auto-completar demograficos para EED: {e_demo}")
+
+        if not alergias:
+            alergias = "NEGADAS"
+        if not tsangre:
+            tsangre = "O+"
 
         ta_basal, fc_basal, so2_basal, s_basal = str(consent_data.get("ta_basal") or ""), str(consent_data.get("fc_basal") or ""), str(consent_data.get("so2_basal") or ""), str(consent_data.get("s_basal") or "")
         ta_5mcg, fc_5mcg, so2_5mcg, s_5mcg = str(consent_data.get("ta_5mcg") or ""), str(consent_data.get("fc_5mcg") or ""), str(consent_data.get("so2_5mcg") or ""), str(consent_data.get("s_5mcg") or "")
@@ -2347,6 +2848,7 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
             sql = """
             UPDATE MR_CI_EED
             SET NOMBRE_MEDICO = ?, CEDULA_PROFESIONAL = ?, INTERROGATORIO = ?, RESPONSABLE = ?, COMENTARIOS = ?,
+                EXPEDIENTE = ?, TSANGRE = ?, ALERGIAS = ?,
                 TA = ?, FC_META = ?, FR = ?, TALLA = ?, PESO = ?,
                 TA_BASAL = ?, FC_BASAL = ?, SO2_BASAL = ?, S_BASAL = ?,
                 TA_5MCG = ?, FC_5MCG = ?, SO2_5MCG = ?, S_5MCG = ?,
@@ -2364,6 +2866,7 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
             """
             cursor.execute(sql, (
                 medico, cedula, interrogatorio, responsable, comentarios,
+                expediente, tsangre, alergias,
                 ta, fc_meta, fr, talla, peso,
                 ta_basal, fc_basal, so2_basal, s_basal,
                 ta_5mcg, fc_5mcg, so2_5mcg, s_5mcg,
@@ -2382,7 +2885,7 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
             sql = """
             INSERT INTO MR_CI_EED (
                 PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_EEDID,
-                EXPEDIENTE, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                EXPEDIENTE, TSANGRE, ALERGIAS, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
                 NOMBRE_MEDICO, CEDULA_PROFESIONAL, INTERROGATORIO, RESPONSABLE, COMENTARIOS,
                 TA, FC_META, FR, TALLA, PESO,
                 TA_BASAL, FC_BASAL, SO2_BASAL, S_BASAL,
@@ -2396,7 +2899,7 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
                 TA_4MIN, FC_4MIN, SO2_4MIN, SINTOMAS_4MIN
             ) VALUES (
                 ?, ?, ?, ?, ?, 'RG', ?,
-                ?, ?, GETDATE(), ?, GETDATE(),
+                ?, ?, ?, ?, GETDATE(), ?, GETDATE(),
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -2412,7 +2915,7 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
             """
             cursor.execute(sql, (
                 pt_num, pt_id, c_name, c_key, c_id, guid_nota,
-                expediente, v_user, v_user,
+                expediente, tsangre, alergias, v_user, v_user,
                 medico, cedula, interrogatorio, responsable, comentarios,
                 ta, fc_meta, fr, talla, peso,
                 ta_basal, fc_basal, so2_basal, s_basal,
@@ -2436,4 +2939,659 @@ def save_or_update_consentimiento_eed(pt_num: str, consent_data: dict) -> dict:
     finally:
         if conn:
             conn.close()
+
+
+
+def fetch_consentimiento_25(pt_num: str, mrnum: int = None) -> dict:
+    """
+    Consulta la información del Consentimiento 25 (MR_CI_RGO_CE) en SQL Server.
+    Permite filtrar por un mrnum específico o devolver el más reciente.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_RGO_CE, PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST,
+                    N_MEDICO, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature
+                FROM MR_CI_RGO_CE 
+                WHERE MRNum_CI_RGO_CE = ?
+            """, (mrnum,))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_RGO_CE, PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST,
+                    N_MEDICO, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature
+                FROM MR_CI_RGO_CE 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_RGO_CE DESC
+            """, (pt_num,))
+        row = cursor.fetchone()
+        if not row:
+            return {}
+
+        cols = [c[0] for c in cursor.description]
+        d = dict(zip(cols, row))
+        
+        cr_date = d.get("CreatedOn")
+        sg_date = d.get("SignedOn")
+        
+        return {
+            "mrnum": d.get("MRNum_CI_RGO_CE"),
+            "pt_num": str(d.get("PTNum")),
+            "n_medico": str(d.get("N_MEDICO") or "").strip(),
+            "medico_tratante": str(d.get("N_MEDICO") or "").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": cr_date.strftime("%d/%m/%Y %H:%M") if cr_date else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": sg_date.strftime("%d/%m/%Y %H:%M") if sg_date else "",
+            "mr_st": d.get("MR_ST")
+        }
+    except Exception as e:
+        print(f"Error fetching consentimiento 25: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
+def save_or_update_consentimiento_25(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento 25 en la tabla MR_CI_RGO_CE de SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_RGO_CE, CreatedOn 
+            FROM MR_CI_RGO_CE 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_RGO_CE DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico_tratante") or consent_data.get("n_medico") or "JOSE JOSE PRUEBA ENRIQUEZ").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+
+        if existing_row and is_today:
+            sql = """
+            UPDATE MR_CI_RGO_CE
+            SET N_MEDICO = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL,
+                MR_ST = 'RG', ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_RGO_CE = ?
+            """
+            cursor.execute(sql, (medico, c_name, c_key, c_id, pt_id, v_user, latest_mrnum))
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_RGO_CE (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_RGO_CEID,
+                CreatedBy, CreatedOn, ModifiedBy, ModifiedOn, N_MEDICO
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, GETDATE(), ?, GETDATE(), ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                v_user, v_user, medico
+            ))
+
+        conn.commit()
+        return {"status": "success", "message": "Consentimiento 25 guardado correctamente en SQL Server"}
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_25: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_consentimiento_34_01(pt_num: str, mrnum: int = None) -> dict:
+    """
+    Consulta la información del Consentimiento 34/01 (Mesa Inclinada - MR_CI_EMI) en SQL Server.
+    Permite filtrar por un mrnum específico o devolver el más reciente.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_EMI, PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST,
+                    NOMBRE_MEDICO_MI, EXPEDIENTE, GRUPORH, ALERGIAS, INTTYP, PARIENTE, CEDULA,
+                    TA, FC_META, F_RESP, TEMPERATURA, PESO, TALLA, IRM, FBPR, FPR,
+                    CONCLUSIONES, CONCLUSIONES_2, CONCLUSIONES_3,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature
+                FROM MR_CI_EMI 
+                WHERE MRNum_CI_EMI = ?
+            """, (mrnum,))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_EMI, PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST,
+                    NOMBRE_MEDICO_MI, EXPEDIENTE, GRUPORH, ALERGIAS, INTTYP, PARIENTE, CEDULA,
+                    TA, FC_META, F_RESP, TEMPERATURA, PESO, TALLA, IRM, FBPR, FPR,
+                    CONCLUSIONES, CONCLUSIONES_2, CONCLUSIONES_3,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature
+                FROM MR_CI_EMI 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_EMI DESC
+            """, (pt_num,))
+        row = cursor.fetchone()
+        if not row:
+            return {}
+
+        cols = [c[0] for c in cursor.description]
+        d = dict(zip(cols, row))
+        
+        cr_date = d.get("CreatedOn")
+        sg_date = d.get("SignedOn")
+        
+        return {
+            "mrnum": d.get("MRNum_CI_EMI"),
+            "pt_num": str(d.get("PTNum")),
+            "nombre_medico_mi": str(d.get("NOMBRE_MEDICO_MI") or "").strip(),
+            "medico_tratante": str(d.get("NOMBRE_MEDICO_MI") or "").strip(),
+            "expediente": str(d.get("EXPEDIENTE") or "").strip(),
+            "gruporh": str(d.get("GRUPORH") or "").strip(),
+            "alergias": str(d.get("ALERGIAS") or "").strip(),
+            "tipo_interrogatorio": str(d.get("INTTYP") or "DIRECTO").strip(),
+            "pariente": str(d.get("PARIENTE") or "").strip(),
+            "cedula": str(d.get("CEDULA") or "").strip(),
+            "ta": str(d.get("TA") or "").strip(),
+            "fc_meta": str(d.get("FC_META") or "").strip(),
+            "f_resp": str(d.get("F_RESP") or "").strip(),
+            "temperatura": str(d.get("TEMPERATURA") or "").strip(),
+            "peso": str(d.get("PESO") or "").strip(),
+            "talla": str(d.get("TALLA") or "").strip(),
+            "irm": str(d.get("IRM") or "").strip(),
+            "fbpr": str(d.get("FBPR") or "").strip(),
+            "fpr": str(d.get("FPR") or "").strip(),
+            "conclusiones": str(d.get("CONCLUSIONES") or "").strip(),
+            "conclusiones_2": str(d.get("CONCLUSIONES_2") or "").strip(),
+            "conclusiones_3": str(d.get("CONCLUSIONES_3") or "").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": cr_date.strftime("%d/%m/%Y %H:%M") if cr_date else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": sg_date.strftime("%d/%m/%Y %H:%M") if sg_date else "",
+            "mr_st": d.get("MR_ST")
+        }
+    except Exception as e:
+        print(f"Error fetching consentimiento 34_01: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
+def save_or_update_consentimiento_34_01(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento 34/01 en la tabla MR_CI_EMI de SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_EMI, CreatedOn 
+            FROM MR_CI_EMI 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_EMI DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico_tratante") or consent_data.get("nombre_medico_mi") or "JOSE JOSE PRUEBA ENRIQUEZ").strip()
+        expediente = str(consent_data.get("expediente") or f"PT-{pt_num}").strip()
+        gruporh = str(consent_data.get("gruporh") or consent_data.get("grupo_rh") or "").strip()
+        alergias = str(consent_data.get("alergias") or "NEGADAS").strip()
+        inttyp = str(consent_data.get("tipo_interrogatorio") or consent_data.get("inttyp") or "DIRECTO").strip()
+        pariente = str(consent_data.get("pariente") or consent_data.get("representante_legal") or "").strip()
+        cedula = str(consent_data.get("cedula") or "").strip()
+        ta = str(consent_data.get("ta") or "").strip()
+        fc_meta = str(consent_data.get("fc_meta") or "").strip()
+        f_resp = str(consent_data.get("f_resp") or "").strip()
+        temperatura = str(consent_data.get("temperatura") or "").strip()
+        peso = str(consent_data.get("peso") or "").strip()
+        talla = str(consent_data.get("talla") or "").strip()
+        irm = str(consent_data.get("irm") or "").strip()
+        fbpr = str(consent_data.get("fbpr") or "").strip()
+        fpr = str(consent_data.get("fpr") or "").strip()
+        conclusiones = str(consent_data.get("conclusiones") or consent_data.get("conclusion_1") or "").strip()
+        conclusiones_2 = str(consent_data.get("conclusiones_2") or consent_data.get("conclusion_2") or "").strip()
+        conclusiones_3 = str(consent_data.get("conclusiones_3") or consent_data.get("conclusion_3") or "").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+        is_new = bool(consent_data.get("is_new", False))
+
+        if existing_row and is_today and not is_new:
+            sql = """
+            UPDATE MR_CI_EMI
+            SET NOMBRE_MEDICO_MI = ?, EXPEDIENTE = ?, GRUPORH = ?, ALERGIAS = ?, INTTYP = ?,
+                PARIENTE = ?, CEDULA = ?, TA = ?, FC_META = ?, F_RESP = ?, TEMPERATURA = ?,
+                PESO = ?, TALLA = ?, IRM = ?, FBPR = ?, FPR = ?,
+                CONCLUSIONES = ?, CONCLUSIONES_2 = ?, CONCLUSIONES_3 = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL,
+                MR_ST = 'RG', ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_EMI = ?
+            """
+            cursor.execute(sql, (
+                medico, expediente, gruporh, alergias, inttyp,
+                pariente, cedula, ta, fc_meta, f_resp, temperatura,
+                peso, talla, irm, fbpr, fpr,
+                conclusiones, conclusiones_2, conclusiones_3,
+                c_name, c_key, c_id, pt_id, v_user, latest_mrnum
+            ))
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_EMI (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_EMIID,
+                CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                NOMBRE_MEDICO_MI, EXPEDIENTE, GRUPORH, ALERGIAS, INTTYP,
+                PARIENTE, CEDULA, TA, FC_META, F_RESP, TEMPERATURA,
+                PESO, TALLA, IRM, FBPR, FPR,
+                CONCLUSIONES, CONCLUSIONES_2, CONCLUSIONES_3
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, GETDATE(), ?, GETDATE(),
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                v_user, v_user,
+                medico, expediente, gruporh, alergias, inttyp,
+                pariente, cedula, ta, fc_meta, f_resp, temperatura,
+                peso, talla, irm, fbpr, fpr,
+                conclusiones, conclusiones_2, conclusiones_3
+            ))
+
+        conn.commit()
+        return {"status": "success", "message": "Consentimiento 34/01 (Mesa Inclinada) guardado correctamente en SQL Server"}
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_34_01: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_consentimiento_12(pt_num: str, mrnum: Optional[int] = None) -> dict:
+    """
+    Obtiene los datos del Consentimiento 12 (MR_CI_RGO_HU - Gineco Hosp/Urg) desde SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_RGO_HU, PTNum, PTID, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature, MR_ST
+                FROM MR_CI_RGO_HU 
+                WHERE MRNum_CI_RGO_HU = ?
+            """, (mrnum,))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_RGO_HU, PTNum, PTID, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature, MR_ST
+                FROM MR_CI_RGO_HU 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_RGO_HU DESC
+            """, (pt_num,))
+            
+        row = cursor.fetchone()
+        if not row:
+            return {}
+
+        cols = [column[0] for column in cursor.description]
+        d = dict(zip(cols, row))
+        
+        return {
+            "mrnum": d.get("MRNum_CI_RGO_HU"),
+            "pt_num": str(d.get("PTNum") or pt_num),
+            "medico_tratante": str(d.get("N_MEDICO") or "").strip(),
+            "n_medico": str(d.get("N_MEDICO") or "").strip(),
+            "diagnostico": str(d.get("DIAGNOSTICO") or "").strip(),
+            "expediente": str(d.get("EXPEDIENTE") or f"PT-{pt_num}").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": d.get("CreatedOn").strftime("%d/%m/%Y %H:%M") if d.get("CreatedOn") else "",
+            "modified_by": str(d.get("ModifiedBy") or "").strip(),
+            "modified_on": d.get("ModifiedOn").strftime("%d/%m/%Y %H:%M") if d.get("ModifiedOn") else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": d.get("SignedOn").strftime("%d/%m/%Y %H:%M") if d.get("SignedOn") else "",
+            "firmado": bool(d.get("SignedBy") or d.get("SignedOn") or d.get("MR_ST") == 'SG'),
+            "mr_st": d.get("MR_ST")
+        }
+    except Exception as e:
+        print(f"Error fetching consentimiento 12: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_or_update_consentimiento_12(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento 12 en la tabla MR_CI_RGO_HU de SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_RGO_HU, CreatedOn 
+            FROM MR_CI_RGO_HU 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_RGO_HU DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico_tratante") or consent_data.get("n_medico") or "JOSE JOSE PRUEBA ENRIQUEZ").strip()
+        diagnostico = str(consent_data.get("diagnostico") or consent_data.get("diagnosticos") or "REVISIÓN GINECOLÓGICA Y OBSTÉTRICA").strip()
+        expediente = str(consent_data.get("expediente") or f"PT-{pt_num}").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+        is_new = bool(consent_data.get("is_new", False))
+
+        if existing_row and is_today and not is_new:
+            sql = """
+            UPDATE MR_CI_RGO_HU
+            SET N_MEDICO = ?, DIAGNOSTICO = ?, EXPEDIENTE = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL,
+                MR_ST = 'RG', ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_RGO_HU = ?
+            """
+            cursor.execute(sql, (
+                medico, diagnostico, expediente,
+                c_name, c_key, c_id, pt_id, v_user, latest_mrnum
+            ))
+            target_mr = latest_mrnum
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_RGO_HU (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_RGO_HUID,
+                CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                N_MEDICO, DIAGNOSTICO, EXPEDIENTE
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, GETDATE(), ?, GETDATE(),
+                ?, ?, ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                v_user, v_user,
+                medico, diagnostico, expediente
+            ))
+            cursor.execute("SELECT @@IDENTITY")
+            id_row = cursor.fetchone()
+            target_mr = id_row[0] if id_row else None
+
+        conn.commit()
+        return {
+            "status": "success", 
+            "message": "Consentimiento 12 (Gineco Hosp/Urg) guardado correctamente en SQL Server",
+            "mrnum": target_mr
+        }
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_12: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_consentimiento_04(pt_num: str, mrnum: Optional[int] = None) -> dict:
+    """
+    Obtiene los datos del Consentimiento 04 (MR_CI_CC - Catéter Venoso Central) desde SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_CC, PTNum, PTID, N_MEDICO,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature, MR_ST
+                FROM MR_CI_CC 
+                WHERE MRNum_CI_CC = ?
+            """, (mrnum,))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_CC, PTNum, PTID, N_MEDICO,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, ESignature, MR_ST
+                FROM MR_CI_CC 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_CC DESC
+            """, (pt_num,))
+            
+        row = cursor.fetchone()
+        if not row:
+            return {}
+
+        cols = [column[0] for column in cursor.description]
+        d = dict(zip(cols, row))
+        
+        return {
+            "mrnum": d.get("MRNum_CI_CC"),
+            "pt_num": str(d.get("PTNum") or pt_num),
+            "medico_tratante": str(d.get("N_MEDICO") or "").strip(),
+            "n_medico": str(d.get("N_MEDICO") or "").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": d.get("CreatedOn").strftime("%d/%m/%Y %H:%M") if d.get("CreatedOn") else "",
+            "modified_by": str(d.get("ModifiedBy") or "").strip(),
+            "modified_on": d.get("ModifiedOn").strftime("%d/%m/%Y %H:%M") if d.get("ModifiedOn") else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": d.get("SignedOn").strftime("%d/%m/%Y %H:%M") if d.get("SignedOn") else "",
+            "firmado": bool(d.get("SignedBy") or d.get("SignedOn") or d.get("MR_ST") == 'SG'),
+            "mr_st": d.get("MR_ST")
+        }
+    except Exception as e:
+        print(f"Error fetching consentimiento 04: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_or_update_consentimiento_04(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento 04 en la tabla MR_CI_CC de SQL Server.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT TOP 1 MRNum_CI_CC, CreatedOn 
+            FROM MR_CI_CC 
+            WHERE PTNum = ? 
+            ORDER BY MRNum_CI_CC DESC
+        """, (pt_num,))
+        existing_row = cursor.fetchone()
+        
+        is_today = False
+        latest_mrnum = None
+        if existing_row:
+            latest_mrnum = existing_row[0]
+            created_date = existing_row[1]
+            if created_date and hasattr(created_date, 'date'):
+                is_today = (created_date.date() == datetime.datetime.now().date())
+
+        medico = str(consent_data.get("medico_tratante") or consent_data.get("n_medico") or "DR. JOSE JOSE PRUEBA ENRIQUEZ").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        v_user = os.getenv('VERTICAL_SYSTEM_USER', 'jose_prueba')
+        is_new = bool(consent_data.get("is_new", False))
+
+        if existing_row and is_today and not is_new:
+            sql = """
+            UPDATE MR_CI_CC
+            SET N_MEDICO = ?,
+                SignedBy = NULL, SignedOn = NULL, ESignature = NULL,
+                MR_ST = 'RG', ControllerName = ?, ControllerKey = ?, ControllerID = ?, PTID = ?,
+                ModifiedBy = ?, ModifiedOn = GETDATE()
+            WHERE MRNum_CI_CC = ?
+            """
+            cursor.execute(sql, (
+                medico,
+                c_name, c_key, c_id, pt_id, v_user, latest_mrnum
+            ))
+            target_mr = latest_mrnum
+        else:
+            guid_nota = str(uuid.uuid4()).upper()
+            sql = """
+            INSERT INTO MR_CI_CC (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_CCID,
+                CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                N_MEDICO
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, GETDATE(), ?, GETDATE(),
+                ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_nota,
+                v_user, v_user,
+                medico
+            ))
+            cursor.execute("SELECT @@IDENTITY")
+            id_row = cursor.fetchone()
+            target_mr = id_row[0] if id_row else None
+
+        conn.commit()
+        return {
+            "status": "success", 
+            "message": "Consentimiento 04 (Catéter Venoso Central) guardado correctamente en SQL Server",
+            "mrnum": target_mr
+        }
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_04: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
 

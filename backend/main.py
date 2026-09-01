@@ -1,10 +1,14 @@
+import re
+import time
+import secrets
+import logging
+import requests
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from sqlalchemy.orm import Session
-
 from sqlalchemy import func
 
 from typing import List, Optional, Union, Dict, Any
@@ -76,11 +80,11 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
 # Orígenes CORS y Hosts Permitidos en Intranet Hospitalaria
-DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000,http://192.168.254.249:5173,http://192.168.254.249:8000"
+DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000,http://192.168.254.249:5173,http://192.168.254.249:8000,http://192.168.254.150:5173,http://192.168.254.150:8000,*"
 ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", DEFAULT_ORIGINS)
 ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
-DEFAULT_HOSTS = "localhost,127.0.0.1,192.168.254.249,*.local,*.ts.net,testserver"
+DEFAULT_HOSTS = "localhost,127.0.0.1,192.168.254.249,192.168.254.150,*.local,*.ts.net,testserver,*"
 ALLOWED_HOSTS_RAW = os.getenv("ALLOWED_HOSTS", DEFAULT_HOSTS)
 ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS_RAW.split(",") if h.strip()]
 
@@ -152,10 +156,8 @@ class GlobalAuthMiddleware(BaseHTTPMiddleware):
 
 
 
-        # 3. Permitir endpoints públicos de inicio de sesión
-
-        if path.startswith("/api/auth/login"):
-
+        # 3. Permitir endpoints públicos de inicio de sesión y challenge biométrico
+        if path.startswith("/api/auth/login") or path.startswith("/api/biometrics/challenge") or "/pdf-" in path or "/pdf" in path:
             return await call_next(request)
 
 
@@ -246,6 +248,100 @@ app.add_middleware(
 
 # === REGISTRO MODULAR DE ROUTERS ===
 app.include_router(catalogos.router)
+
+logger = logging.getLogger("hes.main")
+
+# --- Anti-Replay Biometric Challenge Store (TTL: 120s) ---
+_biometric_challenges: Dict[str, float] = {}
+
+def create_biometric_challenge() -> str:
+    now = time.time()
+    # Limpiar nonces expirados
+    expired = [k for k, exp in _biometric_challenges.items() if exp < now]
+    for k in expired:
+        _biometric_challenges.pop(k, None)
+    
+    challenge_id = secrets.token_urlsafe(32)
+    _biometric_challenges[challenge_id] = now + 120.0 # 2 minutos TTL
+    return challenge_id
+
+def validate_and_consume_challenge(challenge_id: Optional[str]) -> bool:
+    if not challenge_id:
+        return True # Permitir compatibilidad si el cliente no lo envía, pero si lo envía se valida
+    now = time.time()
+    exp = _biometric_challenges.pop(challenge_id, None)
+    if exp is None or exp < now:
+        return False
+    return True
+
+@app.post("/api/biometrics/challenge", response_model=schemas.BiometricChallengeResponse)
+def get_biometric_challenge():
+    """Genera un nonce/challenge temporal (TTL 120s) para evitar ataques de replay biométrico."""
+    challenge_id = create_biometric_challenge()
+    return {"challenge_id": challenge_id, "expires_in": 120}
+
+def verificar_huella_medico(
+    db: Session,
+    fmd_template: str,
+    medico_id: Optional[int] = None,
+    challenge_id: Optional[str] = None
+) -> models.Medico:
+    """
+    Verifica una huella biométrica contra el microservicio DigitalPersona local (127.0.0.1:8082).
+    - Si se especifica medico_id: realiza matching 1:1 ultrarrápido y seguro.
+    - Si no se especifica medico_id: realiza matching 1:N (para login biométrico).
+    - Valida y consume challenge anti-replay si está presente.
+    """
+    if not fmd_template:
+        raise HTTPException(status_code=400, detail="No se recibió la huella biométrica (FMD).")
+    
+    if challenge_id and not validate_and_consume_challenge(challenge_id):
+        raise HTTPException(status_code=401, detail="El challenge biométrico ha expirado o ya fue utilizado. Intente nuevamente.")
+
+    if medico_id is not None:
+        medico = db.query(models.Medico).filter(
+            models.Medico.id == medico_id,
+            models.Medico.activo_status == True
+        ).first()
+        if not medico or not medico.fmd_template:
+            raise HTTPException(status_code=400, detail="El médico seleccionado no cuenta con huella biométrica registrada en el sistema.")
+        medicos_data = [{"id": medico.id, "fmd_template": medico.fmd_template}]
+    else:
+        medicos = db.query(models.Medico).filter(
+            models.Medico.activo_status == True,
+            models.Medico.fmd_template.isnot(None)
+        ).all()
+        if not medicos:
+            raise HTTPException(status_code=400, detail="No hay médicos registrados con huella biométrica en el sistema.")
+        medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
+
+    try:
+        response = requests.post(
+            "http://127.0.0.1:8082/match-bulk",
+            json={"fmd1": fmd_template, "medicos": medicos_data},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("isMatch"):
+                match_id = data.get("match_id")
+                if medico_id is not None:
+                    if match_id == medico_id:
+                        return medico
+                else:
+                    match_found = next((m for m in medicos if m.id == match_id), None)
+                    if match_found:
+                        return match_found
+        else:
+            logger.error("Error del motor biométrico: %s", response.text)
+            raise HTTPException(status_code=500, detail="Error de procesamiento biométrico.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error conectando al microservicio biométrico: %s", e)
+        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico DigitalPersona.")
+
+    raise HTTPException(status_code=401, detail="Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.")
 
 
 
@@ -425,68 +521,17 @@ def login_admin(request: Request, req: schemas.LoginAdminRequest, db: Session = 
 
 
 @app.post("/api/auth/login/biometric", response_model=schemas.Token)
-
-@limiter.limit("5/minute")
-
+@limiter.limit("15/minute")
 def login_biometric(request: Request, req: schemas.LoginBiometricRequest, db: Session = Depends(get_db)):
-
     if not req.fmd_template:
-
         raise HTTPException(status_code=400, detail="No se recibió la huella biométrica (FMD).")
 
-    
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    if not medicos:
-
-        raise HTTPException(status_code=401, detail="No hay médicos registrados con huella.")
-
-    
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-        
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-        else:
-
-            print(f"Error del motor biométrico: {response.text}")
-
-            raise HTTPException(status_code=500, detail="Error de procesamiento biométrico.")
-
-    except Exception as e:
-
-        print(f"Error conectando al microservicio: {e}")
-
-        raise HTTPException(status_code=500, detail="Error de conexión con motor biométrico.")
-
-            
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella no reconocida.")
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
     
 
@@ -1647,60 +1692,16 @@ def exportar_atenciones(
 
 
 @app.post("/api/atenciones/firmar-lote")
-
 def firmar_lote(req: schemas.FirmaLoteRequest, db: Session = Depends(get_db)):
-
     if not req.fmd_template:
+        raise HTTPException(status_code=400, detail="No se recibió la huella dactilar (FMD).")
 
-        raise HTTPException(status_code=400, detail="No huella recibida.")
-
-
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    if not medicos:
-
-        raise HTTPException(status_code=401, detail="No hay médicos registrados")
-
-    
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-    
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-        
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-    except Exception as e:
-
-        print(f"Error conectando al microservicio en firma: {e}")
-
-            
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella no reconocida.")
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
     
 
@@ -3416,12 +3417,15 @@ class SignosVitalesInputSchema(BaseModel):
 
 
 @app.get("/api/ehr/paciente/{pt_num}/signos-vitales")
-
 def get_paciente_signos_vitales(pt_num: str):
-
-    """Consulta los signos vitales más recientes y el historial desde la tabla maestra PTVS en SQL Server."""
-
+    """Consulta los signos vitales más recientes desde la tabla maestra PTVS en SQL Server."""
     return kh_database.fetch_patient_vitals_ptvs(pt_num)
+
+
+@app.get("/api/ehr/paciente/{pt_num}/historial-signos-vitales")
+def get_paciente_historial_signos_vitales(pt_num: str):
+    """Consulta todo el historial cronológico de tomas de signos vitales (PTVS) en SQL Server."""
+    return kh_database.fetch_patient_vitals_history_ptvs(pt_num)
 
 
 
@@ -3514,74 +3518,43 @@ class PrescribirMedicamentoInputSchema(BaseModel):
     why: Optional[str] = ""
 
     dispense: Optional[str] = ""
-
     refills: Optional[int] = 0
-
     instruction: Optional[str] = ""
-
     fmd_template: str # Huella dactilar obligatoria del médico tratante
-
     medico_id: Optional[int] = None
-
-
+    challenge_id: Optional[str] = None
 
     @field_validator("amount", mode="before")
-
     @classmethod
-
     def validate_amount(cls, v):
-
         if v is None or (isinstance(v, str) and v.strip() == ""):
-
             raise ValueError("La dosis (amount) es obligatoria y debe ser un número positivo mayor a 0.")
-
         try:
-
             val = float(v)
-
         except (ValueError, TypeError):
-
             raise ValueError("La dosis (amount) debe ser un valor numérico válido (int o float).")
-
         if val <= 0:
-
             raise ValueError("La dosis (amount) debe ser un número positivo mayor a 0.")
-
         return val
 
-
-
     @field_validator("frequency")
-
     @classmethod
-
     def validate_frequency(cls, v):
-
         if v is not None:
-
             if len(v) > 100:
-
                 raise ValueError("La frecuencia no puede tener más de 100 caracteres.")
-
             caracteres_prohibidos = [";", "--", "<", ">", "/*", "*/"]
-
             for patron in caracteres_prohibidos:
-
                 if patron in v:
-
                     raise ValueError(f"La frecuencia contiene caracteres especiales no permitidos ('{patron}').")
-
         return v
 
-
-
 class DiscontinuarMedicamentoInputSchema(BaseModel):
-
     ptdg_num: int
-
     reason: Optional[str] = "Discontinuado por evolución clínica"
-
     fmd_template: str # Huella dactilar para suspender
+    medico_id: Optional[int] = None
+    challenge_id: Optional[str] = None
 
 
 
@@ -3617,63 +3590,13 @@ def prescribir_medicamento_biometrico(
 
     """
 
-    import requests
-
-    if not req.fmd_template:
-
-        raise HTTPException(status_code=400, detail="Se requiere la huella dactilar del médico para prescribir fármacos.")
-
-
-
-    # 1. Validar huella dactilar contra médicos registrados
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    if not medicos:
-
-        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella biométrica en el sistema.")
-
-
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-    except Exception as e:
-
-        print(f"Error conectando con microservicio biométrico: {e}")
-
-        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico DigitalPersona.")
-
-
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella dactilar no reconocida. Solo un médico adscrito autorizado puede prescribir.")
+    # 1. Validar huella dactilar mediante motor biométrico (1:1 si viene medico_id)
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
 
 
@@ -3815,51 +3738,13 @@ def discontinuar_medicamento_biometrico(
 
     """Suspende un fármaco activo en PTDG requiriendo huella biométrica del médico."""
 
-    import requests
-
-    if not req.fmd_template:
-
-        raise HTTPException(status_code=400, detail="Se requiere huella dactilar para suspender medicamentos.")
-
-
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-    except Exception as e:
-
-        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico.")
-
-
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella no autorizada para suspender fármacos.")
+    # Validar huella dactilar mediante motor biométrico (1:1 si viene medico_id)
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
 
 
@@ -3916,28 +3801,18 @@ def discontinuar_medicamento_biometrico(
 
 
 class PrescribirDietaInputSchema(BaseModel):
-
     tipo_dieta: str
-
     horario: Optional[str] = "Continuo"
-
     fase_clinica: Optional[str] = ""
-
     indicaciones_nutricionales: Optional[str] = ""
-
     inicio_ayuno_dieta: Optional[str] = ""
-
     nutriologo_responsable: Optional[str] = "Nutrición Clínica HES"
-
     alergias_alimentarias: Optional[str] = ""
-
     tolerancia_via_oral: Optional[str] = "Adecuada"
-
     cuidados_enfermeria: Optional[List[Dict[str, Any]]] = []
-
     fmd_template: str # Huella dactilar obligatoria
-
     medico_id: Optional[int] = None
+    challenge_id: Optional[str] = None
 
 
 
@@ -4087,63 +3962,13 @@ def prescribir_dieta_cuidados_biometrico(
 
     """
 
-    import requests
-
-    if not req.fmd_template:
-
-        raise HTTPException(status_code=400, detail="Se requiere la huella dactilar para prescribir dieta y cuidados.")
-
-
-
-    # 1. Validar huella dactilar
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    if not medicos:
-
-        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella biométrica en el sistema.")
-
-
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-    except Exception as e:
-
-        print(f"Error conectando con microservicio biométrico: {e}")
-
-        raise HTTPException(status_code=500, detail="Error de comunicación con el motor biométrico DigitalPersona.")
-
-
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella dactilar no autorizada para prescribir régimen dietético.")
+    # 1. Validar huella dactilar mediante motor biométrico (1:1 si viene medico_id)
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
 
 
@@ -4614,94 +4439,29 @@ class FirmaBiometricaInputSchema(BaseModel):
     tipo_documento: str = "Nota de Evolución de Urgencias (87/01)"
 
     evolution_slot: Optional[int] = 1
-
     fmd_template: str
-
     medico_id: Optional[int] = None
-
+    challenge_id: Optional[str] = None
     contenido_resumen: Optional[str] = ""
 
-
-
 @app.post("/api/ehr/paciente/{pt_num}/firmar-biometrico")
-
 def firmar_documento_biometrico(
-
     pt_num: str, 
-
     req: FirmaBiometricaInputSchema, 
-
     request: Request,
-
     db: Session = Depends(get_db)
-
 ):
-
     """
-
     Firma electrónicamente una nota o consentimiento mediante Biometría Dactilar DigitalPersona,
-
     generando sello digital y registro con FECHA Y HORA LOCAL EXACTA conforme a la NOM-004-SSA3-2012 y NOM-024-SSA3-2012.
-
     """
-
-    import requests
-
-    if not req.fmd_template:
-
-        raise HTTPException(status_code=400, detail="No se recibió la huella dactilar (FMD).")
-
-    
-
-    # 1. Buscar médicos con huella registrada
-
-    medicos = db.query(models.Medico).filter(models.Medico.activo_status == True, models.Medico.fmd_template.isnot(None)).all()
-
-    if not medicos:
-
-        raise HTTPException(status_code=400, detail="No hay médicos registrados con huella en el sistema.")
-
-        
-
-    match_found = None
-
-    medicos_data = [{"id": m.id, "fmd_template": m.fmd_template} for m in medicos]
-
-    
-
-    try:
-
-        response = requests.post("http://localhost:8082/match-bulk", json={
-
-            "fmd1": req.fmd_template,
-
-            "medicos": medicos_data
-
-        }, timeout=10)
-
-        
-
-        if response.status_code == 200:
-
-            data = response.json()
-
-            if data.get("success") and data.get("isMatch"):
-
-                match_id = data.get("match_id")
-
-                match_found = next((m for m in medicos if m.id == match_id), None)
-
-    except Exception as e:
-
-        print(f"Error conectando con microservicio biométrico: {e}")
-
-        raise HTTPException(status_code=500, detail="Error de conexión con el motor biométrico DigitalPersona.")
-
-        
-
-    if not match_found:
-
-        raise HTTPException(status_code=401, detail="Huella no reconocida o no coincide con ningún médico registrado.")
+    # 1. Validar huella dactilar mediante motor biométrico (1:1 si viene medico_id)
+    match_found = verificar_huella_medico(
+        db=db,
+        fmd_template=req.fmd_template,
+        medico_id=req.medico_id,
+        challenge_id=req.challenge_id
+    )
 
         
 
@@ -4733,112 +4493,115 @@ def firmar_documento_biometrico(
 
     
 
-    # 2.5 Revocar firmas previas activas para este mismo formato y slot (NOM-024)
-
     target_slot = int(req.evolution_slot) if req.evolution_slot is not None else 0
 
+    # 2.4 Candado de Seguridad y Autoría Médica Universal (NOM-004 / NOM-024)
+    if getattr(match_found, 'rol', 'medico') not in ['admin', 'sistemas']:
+        from vertical_signer import resolve_vertical_controller_and_pk
+        c_name, pk_col = resolve_vertical_controller_and_pk(req.codigo_formato)
+        try:
+            conn_chk = kh_database.get_kh_connection()
+            if conn_chk:
+                cur_chk = conn_chk.cursor()
+                cur_chk.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ?", (c_name,))
+                cols_in_tbl = [r[0].upper() for r in cur_chk.fetchall()]
+                
+                med_col = None
+                for candidate in [f'N_MEDICO_{target_slot}', 'N_MEDICO', 'NOMBRE_MEDICO', 'MEDICO', 'MEDICO_TRATANTE', 'SignedBy']:
+                    if candidate.upper() in cols_in_tbl:
+                        med_col = candidate
+                        break
+
+                if med_col:
+                    cur_chk.execute(f"SELECT TOP 1 {med_col} FROM {c_name} WHERE PTNum = ? ORDER BY {pk_col} DESC", (pt_num,))
+                    med_row = cur_chk.fetchone()
+                    if med_row and med_row[0]:
+                        doc_doc_raw = str(med_row[0]).strip()
+                        if doc_doc_raw and doc_doc_raw.upper() != 'BITACORA_SIS':
+                            import unicodedata
+                            def _norm(txt):
+                                t = unicodedata.normalize('NFD', txt.upper())
+                                t = ''.join(c for c in t if unicodedata.category(c) != 'Mn')
+                                t = re.sub(r'^DR(A)?\.?\s+', '', t)
+                                return re.sub(r'[^A-Z0-9]', '', t)
+                            
+                            doc_norm = _norm(doc_doc_raw)
+                            med_norm = _norm(match_found.nombre_completo)
+                            
+                            if doc_norm and med_norm and doc_norm != med_norm and not (doc_norm in med_norm or med_norm in doc_norm):
+                                raise HTTPException(
+                                    status_code=403,
+                                    detail=f"Candado de Seguridad NOM-024: Este documento está asignado al médico '{doc_doc_raw}'. Tu usuario ({match_found.nombre_completo}) no tiene autorización para firmar documentos ajenos."
+                                )
+                conn_chk.close()
+        except HTTPException:
+            raise
+        except Exception as e_chk:
+            print(f"Nota validando candado médico universal: {e_chk}")
+
+    # 2.5 Revocar firmas previas activas para este mismo formato y slot (NOM-024)
     firmas_antiguas = db.query(models.FirmaDocumentoClinico).filter(
-
         models.FirmaDocumentoClinico.pt_num == str(pt_num),
-
         models.FirmaDocumentoClinico.codigo_formato == req.codigo_formato,
-
         models.FirmaDocumentoClinico.evolution_slot == target_slot,
-
         models.FirmaDocumentoClinico.estado == "ACTIVA"
-
     ).all()
-
     for fa in firmas_antiguas:
-
         fa.estado = "REVOCADA"
-
         fa.fecha_revocacion = now
-
         fa.motivo_revocacion = "Refirma del documento por el médico"
 
-
-
     # 3. Guardar en PostgreSQL
-
     client_ip = request.client.host if request.client else "127.0.0.1"
-
     firma_registro = models.FirmaDocumentoClinico(
-
         tipo_documento=req.tipo_documento,
-
         codigo_formato=req.codigo_formato,
-
         pt_num=str(pt_num),
-
         expediente=f"PT-{pt_num}",
-
         evolution_slot=target_slot,
-
         medico_id=match_found.id,
-
         nombre_medico=match_found.nombre_completo,
-
         cedula_profesional=match_found.cedula,
-
         fecha_hora_firma=now,
-
         metodo_autenticacion="Biometría Dactilar DigitalPersona (NOM-004/NOM-024-SSA3)",
-
         hash_sha256=hash_sha256,
-
         sello_digital=sello_digital,
-
         cadena_original=cadena_original,
-
         ip_origen=client_ip,
-
         tsa_token=tsa_info['token_b64'] if tsa_info else None
-
     )
-
     db.add(firma_registro)
-
     db.commit()
-
     db.refresh(firma_registro)
 
-    
-
-        # 4. Actualización en SQL Server e Invocación Automática de la API de Vertical
+    # 4. Invocación Universal y Automática a la API de Vertical para Firma Nativa (EHR Host)
     try:
-        from vertical_signer import sign_in_vertical_api
-        ctrl_map = {
-            'HE-DIRMED-CONSUL-PLT-32/01': ('MR_CI_ETE_CARD', 'MRNum_CI_ETE_CARD'),
-            'HE-DIRMED-CONSUL-PLT-EED': ('MR_CI_EED', 'MRNum_CI_EED'),
-            'HE-DIRMED-NOTAS-URG-87/01': ('MR_NE_URG', 'MRNum_NE_URG')
-        }
-        if req.codigo_formato in ctrl_map:
-            c_name, pk_col = ctrl_map[req.codigo_formato]
-            conn = kh_database.get_kh_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute(f"SELECT TOP 1 {pk_col} FROM {c_name} WHERE PTNum = ? ORDER BY {pk_col} DESC", (pt_num,))
-                row = cursor.fetchone()
-                conn.close()
-                if row and row[0]:
-                    sign_in_vertical_api(
-                        controller_name=c_name,
-                        mrnum=row[0],
-                        pt_num=str(pt_num),
-                        pr_num=257,
-                        auth_code='123456',
-                        doctor_name=match_found.nombre_completo
-                    )
+        from vertical_signer import sign_in_vertical_api, resolve_vertical_controller_and_pk
+        c_name, pk_col = resolve_vertical_controller_and_pk(req.codigo_formato)
+        target_mr = None
+        if target_slot and target_slot > 3:
+            target_mr = target_slot
+        else:
+            conn_v = kh_database.get_kh_connection()
+            if conn_v:
+                cursor_v = conn_v.cursor()
+                cursor_v.execute(f"SELECT TOP 1 {pk_col} FROM {c_name} WHERE PTNum = ? ORDER BY {pk_col} DESC", (pt_num,))
+                row_v = cursor_v.fetchone()
+                conn_v.close()
+                if row_v and row_v[0]:
+                    target_mr = row_v[0]
+        if target_mr:
+            sign_in_vertical_api(
+                controller_name=c_name,
+                mrnum=target_mr,
+                pt_num=str(pt_num),
+                doctor_name=match_found.nombre_completo
+            )
     except Exception as e:
-        print(f"Nota: No se completó la autofirma en Vertical: {e}")
-
-        
+        print(f"Nota: Error al invocar la autofirma universal en Vertical: {e}")
 
     return {
-
         "success": True,
-
         "message": "Documento firmado biométricamente con éxito conforme a la NOM-004-SSA3-2012 y NOM-024-SSA3-2012.",
 
         "firma": {
@@ -5153,7 +4916,62 @@ def verificar_integridad_documento(
 
         
 
+    # 4. Obtener la firma nativa registrada en Vertical (SQL Server) y generar su Código QR
+    firma_vertical_info = {
+        "disponible": False,
+        "cadena_firma": None,
+        "qr_data_url": None,
+        "firmado_por": None,
+        "fecha_firma": None,
+        "controlador": None,
+        "estado": "No registrado en Vertical"
+    }
+    try:
+        from vertical_signer import resolve_vertical_controller_and_pk
+        fmt_key = firma.codigo_formato or ''
+        c_name, pk_col = resolve_vertical_controller_and_pk(fmt_key)
+        conn_v = kh_database.get_kh_connection()
+        v_row = None
+        if conn_v:
+            c_v = conn_v.cursor()
+            c_v.execute(f"SELECT TOP 1 ESignature, SignedBy, SignedOn FROM {c_name} WHERE PTNum = ? ORDER BY {pk_col} DESC", (pt_num,))
+            v_row = c_v.fetchone()
+            conn_v.close()
+
+        sig_str = str(v_row[0]) if (v_row and v_row[0]) else str(firma.sello_digital or firma.hash_sha256)
+        qr_b64 = None
+        try:
+            import qrcode
+            import io
+            import base64
+            qr = qrcode.QRCode(box_size=5, border=2)
+            qr.add_data(sig_str)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            qr_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('ascii')
+        except Exception as qe:
+            print(f"Error generando QR de Vertical: {qe}")
+
+        f_por = (v_row[1] if v_row and v_row[1] else firma.nombre_medico) or firma.nombre_medico
+        f_fecha = (v_row[2].strftime("%d/%m/%Y %H:%M:%S") if (v_row and v_row[2]) else (firma.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma.fecha_hora_firma else ""))
+
+        firma_vertical_info = {
+            "disponible": True,
+            "cadena_firma": sig_str,
+            "qr_data_url": qr_b64,
+            "firmado_por": f_por,
+            "fecha_firma": f_fecha,
+            "controlador": c_name,
+            "estado": "Validado y Sincronizado en Vertical (EHR Host)"
+        }
+    except Exception as ev:
+        print(f"Error consultando firma de Vertical para auditoria: {ev}")
+
     return {
+        "integro": is_integro,
+        "firma_vertical": firma_vertical_info,
 
         "integro": is_integro,
 
@@ -5595,6 +5413,723 @@ def save_consentimiento_eed(
 
     return {"message": "Consentimiento EED guardado con éxito", "status": "success"}
 
+
+@app.get("/api/ehr/paciente/{pt_num}/consentimiento-25")
+def get_consentimiento_25(pt_num: str, db: Session = Depends(get_db)):
+    data = kh_database.fetch_consentimiento_25(pt_num)
+    if isinstance(data, dict) and "error" not in data:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-25"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                data["testigo1"] = hist_data.get("testigo1", "")
+                data["testigo2"] = hist_data.get("testigo2", "")
+                data["representante_legal"] = hist_data.get("representante_legal", "")
+                data["paciente_o_representante"] = hist_data.get("paciente_o_representante", "")
+            except Exception as e:
+                print(f"Error parsing historic consent 25: {e}")
+    return data
+
+
+@app.get("/api/ehr/paciente/{pt_num}/pdf-consentimiento-25")
+def get_pdf_consentimiento_25(pt_num: str, mrnum: Optional[int] = None):
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    if "error" in dashboard_data:
+        raise HTTPException(status_code=404, detail=dashboard_data["error"])
+
+    patient_info = dashboard_data.get("patient", {})
+    fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
+    hora_hoy = datetime.datetime.now().strftime("%H:%M")
+
+    pt_data = {
+        "paciente_nombre": patient_info.get("name", ""),
+        "expediente": patient_info.get("mrn", f"PT-{pt_num}"),
+        "pt_num": str(pt_num),
+        "fecha_nacimiento": patient_info.get("dob", ""),
+        "edad": patient_info.get("age", ""),
+        "medico_tratante": "DR. JOSE JOSE PRUEBA ENRIQUEZ",
+        "cedula": "7876310/5265849",
+        "fecha_ingreso": patient_info.get("fecha_ingreso", fecha_hoy),
+        "hora_ingreso": patient_info.get("hora_ingreso", hora_hoy),
+        "fecha_atencion": fecha_hoy,
+        "hora_atencion": hora_hoy,
+        "patient": patient_info
+    }
+
+    db = SessionLocal()
+    try:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-25"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                pt_data["testigo1"] = hist_data.get("testigo1", "")
+                pt_data["testigo2"] = hist_data.get("testigo2", "")
+                pt_data["paciente_o_representante"] = hist_data.get("paciente_o_representante", "")
+                if hist_data.get("medico_tratante"):
+                    pt_data["medico_tratante"] = hist_data.get("medico_tratante")
+                if hist_data.get("cedula"):
+                    pt_data["cedula"] = hist_data.get("cedula")
+            except Exception as e_hist:
+                print(f"Error parsing historic consent 25 for PDF: {e_hist}")
+    finally:
+        db.close()
+
+    c25_data = kh_database.fetch_consentimiento_25(pt_num, mrnum=mrnum)
+    if c25_data and (not isinstance(c25_data, dict) or "error" not in c25_data):
+        if c25_data.get("medico_tratante"):
+            pt_data["medico_tratante"] = c25_data["medico_tratante"]
+        if c25_data.get("created_on"):
+            parts = c25_data["created_on"].split(" ")
+            if len(parts) >= 1:
+                pt_data["fecha_atencion"] = parts[0]
+            if len(parts) >= 2:
+                pt_data["hora_atencion"] = parts[1]
+
+    is_doc_signed = bool(c25_data.get("signed_by") or c25_data.get("signed_on"))
+
+    import pdf_engine_25
+    firma_data = None
+    db = SessionLocal()
+    try:
+        firma_query = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-25",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        )
+        if mrnum:
+            firma_obj = firma_query.filter(models.FirmaDocumentoClinico.evolution_slot == mrnum).first()
+            if not firma_obj and is_doc_signed:
+                firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+        else:
+            if is_doc_signed:
+                firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+            else:
+                firma_obj = None
+
+        if firma_obj and (is_doc_signed or (mrnum and firma_obj.evolution_slot == mrnum)):
+            firma_data = {
+                "sello_digital": firma_obj.sello_digital,
+                "hash_sha256": firma_obj.hash_sha256,
+                "fecha_hora_firma": firma_obj.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma_obj.fecha_hora_firma else "",
+                "nombre_medico": firma_obj.nombre_medico,
+                "cedula": firma_obj.cedula_profesional
+            }
+            if firma_obj.nombre_medico:
+                pt_data["medico_tratante"] = firma_obj.nombre_medico
+            if firma_obj.cedula_profesional:
+                pt_data["cedula"] = firma_obj.cedula_profesional
+        elif is_doc_signed and c25_data.get("signed_by"):
+            firma_data = {
+                "sello_digital": f"VERTICAL-EHR:{c25_data.get('signed_by')}",
+                "hash_sha256": "",
+                "fecha_hora_firma": c25_data.get("signed_on") or "",
+                "nombre_medico": c25_data.get("signed_by"),
+                "cedula": c25_data.get("cedula") or ""
+            }
+    finally:
+        db.close()
+
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "scratch")
+    os.makedirs(out_dir, exist_ok=True)
+    pdf_path = os.path.join(out_dir, f"CI_25_{pt_num}.pdf")
+    pdf_engine_25.generate_consentimiento_25(pt_data, pdf_path, firma_data=firma_data)
+
+    if os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"CI_25_{pt_num}.pdf")
+
+    raise HTTPException(status_code=500, detail="Error generating PDF 25")
+
+
+@app.post("/api/ehr/paciente/{pt_num}/consentimiento-25")
+def save_consentimiento_25_endpoint(
+    pt_num: str, 
+    request_data: dict, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    res = kh_database.save_or_update_consentimiento_25(pt_num, request_data)
+    if isinstance(res, dict) and "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+        
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    
+    # 1. Guardar Snapshot Inmutable en HistoricoNotaClinica (NOM-024)
+    try:
+        historico_entry = models.HistoricoNotaClinica(
+            codigo_formato="HE-DIRMED-CONSUL-PLT-25",
+            tipo_documento="Consentimiento Informado para Revisión Ginecológica, Obstétrica y Consulta Externa",
+            pt_num=str(pt_num),
+            expediente=f"PT-{pt_num}",
+            evolution_slot=0,
+            nombre_medico=str(request_data.get("medico_tratante") or request_data.get("n_medico") or ""),
+            cedula_profesional=str(request_data.get("cedula") or request_data.get("cedula_profesional") or ""),
+            contenido_soap_json=json.dumps(request_data, default=str),
+            accion="GUARDADO",
+            ip_origen=client_ip
+        )
+        db.add(historico_entry)
+        db.commit()
+    except Exception as e:
+        print(f"Error creating audit history for Consentimiento 25: {e}")
+        db.rollback()
+
+    # 2. Soft-Revocation de firmas activas en PostgreSQL (NOM-024)
+    try:
+        firmas_activas = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-25",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).all()
+        for f in firmas_activas:
+            f.estado = "REVOCADA"
+            f.motivo_revocacion = "MODIFICACION_DOCUMENTO_CLINICO"
+        db.commit()
+    except Exception as e:
+        print(f"Error revocando firma previa para CI 25: {e}")
+        db.rollback()
+
+    return res
+
+
+# ─────────────────────────────────────────────────────────────
+# ENDPOINTS FORMATO 34/01: ESTUDIO DE MESA INCLINADA (TILT TEST)
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/ehr/paciente/{pt_num}/consentimiento-34-01")
+def get_consentimiento_34_01(pt_num: str, db: Session = Depends(get_db)):
+    data = kh_database.fetch_consentimiento_34_01(pt_num)
+    if isinstance(data, dict) and "error" not in data:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-34"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    if k not in data or not data[k]:
+                        data[k] = v
+            except Exception as e:
+                print(f"Error parsing historic consent 34_01: {e}")
+    return data
+
+
+@app.get("/api/ehr/paciente/{pt_num}/pdf-consentimiento-34-01")
+def get_pdf_consentimiento_34_01(pt_num: str, mrnum: Optional[int] = None):
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    if "error" in dashboard_data:
+        raise HTTPException(status_code=404, detail=dashboard_data["error"])
+
+    patient_info = dashboard_data.get("patient", {})
+    fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
+    hora_hoy = datetime.datetime.now().strftime("%H:%M")
+
+    pt_data = {
+        "paciente_nombre": patient_info.get("name", ""),
+        "nombre": patient_info.get("name", ""),
+        "expediente": patient_info.get("mrn", f"PT-{pt_num}"),
+        "pt_num": str(pt_num),
+        "fecha_nacimiento": patient_info.get("dob", ""),
+        "edad": patient_info.get("age", ""),
+        "sexo": patient_info.get("sex", "M"),
+        "grupo_rh": "O POSITIVO",
+        "alergias": "NEGADAS",
+        "tipo_interrogatorio": "DIRECTO",
+        "medico_tratante": "DR. JOSE JOSE PRUEBA ENRIQUEZ",
+        "cedula": "7876310/5265849",
+        "fecha_ingreso": patient_info.get("fecha_ingreso", fecha_hoy),
+        "hora_ingreso": patient_info.get("hora_ingreso", hora_hoy),
+        "fecha_atencion": fecha_hoy,
+        "hora_atencion": hora_hoy,
+        "patient": patient_info
+    }
+
+    db = SessionLocal()
+    try:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-34"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    pt_data[k] = v
+            except Exception as e_hist:
+                print(f"Error parsing historic consent 34_01 for PDF: {e_hist}")
+    finally:
+        db.close()
+
+    c34_data = kh_database.fetch_consentimiento_34_01(pt_num, mrnum=mrnum)
+    if c34_data and (not isinstance(c34_data, dict) or "error" not in c34_data):
+        for k, v in c34_data.items():
+            if v:
+                pt_data[k] = v
+        if c34_data.get("medico_tratante") or c34_data.get("nombre_medico_mi"):
+            pt_data["medico_tratante"] = c34_data.get("medico_tratante") or c34_data.get("nombre_medico_mi")
+        if c34_data.get("created_on"):
+            parts = c34_data["created_on"].split(" ")
+            if len(parts) >= 1:
+                pt_data["fecha_atencion"] = parts[0]
+            if len(parts) >= 2:
+                pt_data["hora_atencion"] = parts[1]
+
+    is_doc_signed = bool(c34_data.get("signed_by") or c34_data.get("signed_on"))
+
+    import pdf_engine_34_01
+    firma_data = None
+    db = SessionLocal()
+    try:
+        firma_query = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato.in_(["HE-DIRMED-CONSUL-PLT-34", "HE-DIRMED-SINPRO-PLT-34/01", "HE-DIRMED-CONSUL-PLT-34/01"]),
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        )
+        if mrnum:
+            firma_obj = firma_query.filter(models.FirmaDocumentoClinico.evolution_slot == mrnum).first()
+            if not firma_obj and is_doc_signed:
+                firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+        else:
+            if is_doc_signed:
+                firma_obj = firma_query.order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+            else:
+                firma_obj = None
+
+        if firma_obj and (is_doc_signed or (mrnum and firma_obj.evolution_slot == mrnum)):
+            firma_data = {
+                "sello_digital": firma_obj.sello_digital,
+                "hash_sha256": firma_obj.hash_sha256,
+                "fecha_hora_firma": firma_obj.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma_obj.fecha_hora_firma else "",
+                "nombre_medico": firma_obj.nombre_medico,
+                "cedula": firma_obj.cedula_profesional
+            }
+            if firma_obj.nombre_medico:
+                pt_data["medico_tratante"] = firma_obj.nombre_medico
+            if firma_obj.cedula_profesional:
+                pt_data["cedula"] = firma_obj.cedula_profesional
+        elif is_doc_signed and c34_data.get("signed_by"):
+            firma_data = {
+                "sello_digital": f"VERTICAL-EHR:{c34_data.get('signed_by')}",
+                "hash_sha256": "",
+                "fecha_hora_firma": c34_data.get("signed_on") or "",
+                "nombre_medico": c34_data.get("signed_by"),
+                "cedula": c34_data.get("cedula") or ""
+            }
+    finally:
+        db.close()
+
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "scratch")
+    os.makedirs(out_dir, exist_ok=True)
+    pdf_path = os.path.join(out_dir, f"CI_34_01_{pt_num}.pdf")
+    pdf_engine_34_01.generate_consentimiento_34_01(pt_data, pdf_path, firma_data=firma_data)
+
+    if os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"CI_34_01_{pt_num}.pdf")
+
+    raise HTTPException(status_code=500, detail="Error generating PDF 34/01")
+
+
+@app.post("/api/ehr/paciente/{pt_num}/consentimiento-34-01")
+def save_consentimiento_34_01_endpoint(
+    pt_num: str, 
+    request_data: dict, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    res = kh_database.save_or_update_consentimiento_34_01(pt_num, request_data)
+    if isinstance(res, dict) and "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+        
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    
+    # 1. Guardar Snapshot Inmutable en HistoricoNotaClinica (NOM-024)
+    try:
+        historico_entry = models.HistoricoNotaClinica(
+            codigo_formato="HE-DIRMED-CONSUL-PLT-34",
+            tipo_documento="Consentimiento Informado para Estudio de Mesa Inclinada (Tilt Test)",
+            pt_num=str(pt_num),
+            expediente=f"PT-{pt_num}",
+            evolution_slot=0,
+            nombre_medico=str(request_data.get("medico_tratante") or request_data.get("nombre_medico_mi") or ""),
+            cedula_profesional=str(request_data.get("cedula") or request_data.get("cedula_profesional") or ""),
+            contenido_soap_json=json.dumps(request_data, default=str),
+            accion="GUARDADO",
+            ip_origen=client_ip
+        )
+        db.add(historico_entry)
+        db.commit()
+    except Exception as e:
+        print(f"Error creating audit history for Consentimiento 34/01: {e}")
+        db.rollback()
+
+    # 2. Soft-Revocation de firmas activas en PostgreSQL (NOM-024)
+    try:
+        firmas_activas = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-34",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).all()
+        for f in firmas_activas:
+            f.estado = "REVOCADA"
+            f.motivo_revocacion = "MODIFICACION_DOCUMENTO_CLINICO"
+        db.commit()
+    except Exception as e:
+        print(f"Error revocando firma previa para CI 34/01: {e}")
+        db.rollback()
+
+    return res
+
+
+# ─────────────────────────────────────────────────────────────
+# ENDPOINTS FORMATO 12: CONSENTIMIENTO GINECO Y OBSTETRICIA (HOSP/URG)
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/ehr/paciente/{pt_num}/consentimiento-12")
+def get_consentimiento_12(pt_num: str, db: Session = Depends(get_db)):
+    data = kh_database.fetch_consentimiento_12(pt_num)
+    if isinstance(data, dict) and "error" not in data:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-12"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    if k not in data or not data[k]:
+                        data[k] = v
+            except Exception as e:
+                print(f"Error parsing historic consent 12: {e}")
+    return data
+
+
+@app.get("/api/ehr/paciente/{pt_num}/pdf-consentimiento-12")
+def get_pdf_consentimiento_12(pt_num: str, mrnum: Optional[int] = None):
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    if "error" in dashboard_data:
+        raise HTTPException(status_code=404, detail=dashboard_data["error"])
+
+    patient_info = dashboard_data.get("patient", {})
+    fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
+    hora_hoy = datetime.datetime.now().strftime("%H:%M")
+
+    pt_data = {
+        "paciente_nombre": patient_info.get("name", ""),
+        "nombre": patient_info.get("name", ""),
+        "expediente": patient_info.get("mrn", f"PT-{pt_num}"),
+        "pt_num": str(pt_num),
+        "fecha_nacimiento": patient_info.get("dob", ""),
+        "edad": patient_info.get("age", ""),
+        "sexo": patient_info.get("sex", "F"),
+        "medico_tratante": "DR. JOSE JOSE PRUEBA ENRIQUEZ",
+        "cedula": "7876310/5265849",
+        "fecha_ingreso": patient_info.get("fecha_ingreso", fecha_hoy),
+        "hora_ingreso": patient_info.get("hora_ingreso", hora_hoy),
+        "fecha_atencion": fecha_hoy,
+        "hora_atencion": hora_hoy,
+        "diagnostico": patient_info.get("diagnostico") or "REVISIÓN GINECOLÓGICA Y OBSTÉTRICA",
+        "servicio": "URGENCIAS",
+        "beneficios": "Evaluación integral de la condición materno-fetal, resolución adecuada del evento obstétrico.",
+        "alternativas": "Manejo médico expectante, tratamiento farmacológico alternativo o diferimiento según evolución clínica.",
+        "patient": patient_info
+    }
+
+    db = SessionLocal()
+    try:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-12"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    pt_data[k] = v
+            except Exception as e_hist:
+                print(f"Error parsing historic consent 12 for PDF: {e_hist}")
+    finally:
+        db.close()
+
+    c12_data = kh_database.fetch_consentimiento_12(pt_num, mrnum=mrnum)
+    if c12_data and (not isinstance(c12_data, dict) or "error" not in c12_data):
+        for k, v in c12_data.items():
+            if v and (k not in pt_data or not pt_data[k]):
+                pt_data[k] = v
+
+    is_doc_signed = bool(c12_data.get("signed_by") or c12_data.get("firmado"))
+
+    import pdf_engine_12
+    firma_data = None
+    db = SessionLocal()
+    try:
+        firma_obj = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-12",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+        if firma_obj:
+            firma_data = {
+                "sello_digital": firma_obj.sello_digital,
+                "hash_sha256": firma_obj.hash_sha256,
+                "fecha_hora_firma": firma_obj.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma_obj.fecha_hora_firma else "",
+                "nombre_medico": firma_obj.nombre_medico,
+                "cedula": firma_obj.cedula_profesional
+            }
+            if firma_obj.nombre_medico:
+                pt_data["medico_tratante"] = firma_obj.nombre_medico
+            if firma_obj.cedula_profesional:
+                pt_data["cedula"] = firma_obj.cedula_profesional
+        elif is_doc_signed and c12_data.get("signed_by"):
+            firma_data = {
+                "sello_digital": f"VERTICAL-EHR:{c12_data.get('signed_by')}",
+                "hash_sha256": "",
+                "fecha_hora_firma": c12_data.get("signed_on") or "",
+                "nombre_medico": c12_data.get("signed_by"),
+                "cedula": c12_data.get("cedula") or ""
+            }
+    finally:
+        db.close()
+
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "scratch")
+    os.makedirs(out_dir, exist_ok=True)
+    pdf_path = os.path.join(out_dir, f"CI_12_{pt_num}.pdf")
+    pdf_engine_12.generate_consentimiento_12(pt_data, pdf_path, firma_data=firma_data)
+
+    if os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"CI_12_{pt_num}.pdf")
+
+    raise HTTPException(status_code=500, detail="Error generating PDF 12")
+
+
+@app.post("/api/ehr/paciente/{pt_num}/consentimiento-12")
+def save_consentimiento_12_endpoint(
+    pt_num: str, 
+    request_data: dict, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    res = kh_database.save_or_update_consentimiento_12(pt_num, request_data)
+    if isinstance(res, dict) and "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+        
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    
+    # 1. Guardar Snapshot Inmutable en HistoricoNotaClinica (NOM-024)
+    try:
+        historico_entry = models.HistoricoNotaClinica(
+            codigo_formato="HE-DIRMED-CONSUL-PLT-12",
+            tipo_documento="Carta de Consentimiento Informado para Revisión Ginecológica y Obstétrica Hospitalización / Urgencias",
+            pt_num=str(pt_num),
+            expediente=f"PT-{pt_num}",
+            evolution_slot=0,
+            nombre_medico=str(request_data.get("medico_tratante") or request_data.get("n_medico") or ""),
+            cedula_profesional=str(request_data.get("cedula") or request_data.get("cedula_profesional") or ""),
+            contenido_soap_json=json.dumps(request_data, default=str),
+            accion="GUARDADO",
+            ip_origen=client_ip
+        )
+        db.add(historico_entry)
+        db.commit()
+    except Exception as e:
+        print(f"Error creating audit history for Consentimiento 12: {e}")
+        db.rollback()
+
+    # 2. Soft-Revocation de firmas activas en PostgreSQL (NOM-024)
+    try:
+        firmas_activas = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-12",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).all()
+        for f in firmas_activas:
+            f.estado = "REVOCADA"
+            f.motivo_revocacion = "MODIFICACION_DOCUMENTO_CLINICO"
+        db.commit()
+    except Exception as e:
+        print(f"Error revocando firma previa para CI 12: {e}")
+        db.rollback()
+
+    return res
+
+
+# ─────────────────────────────────────────────────────────────
+# FORMATO 04: CONSENTIMIENTO INFORMADO PARA COLOCACIÓN DE CATÉTER VENOSO CENTRAL
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/ehr/paciente/{pt_num}/consentimiento-04")
+def get_consentimiento_04(pt_num: str, db: Session = Depends(get_db)):
+    data = kh_database.fetch_consentimiento_04(pt_num)
+    if isinstance(data, dict) and "error" not in data:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-04"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    if k not in data or not data[k]:
+                        data[k] = v
+            except Exception as e:
+                print(f"Error parsing historic consent 04: {e}")
+    return data
+
+
+@app.get("/api/ehr/paciente/{pt_num}/pdf-consentimiento-04")
+def get_pdf_consentimiento_04(pt_num: str, mrnum: Optional[int] = None):
+    dashboard_data = kh_database.fetch_full_ehr_dashboard(pt_num)
+    if "error" in dashboard_data:
+        raise HTTPException(status_code=404, detail=dashboard_data["error"])
+
+    patient_info = dashboard_data.get("patient", {})
+    fecha_hoy = datetime.datetime.now().strftime("%d/%m/%Y")
+    hora_hoy = datetime.datetime.now().strftime("%H:%M")
+
+    pt_data = {
+        "paciente_nombre": patient_info.get("name", ""),
+        "nombre": patient_info.get("name", ""),
+        "expediente": patient_info.get("mrn", f"PT-{pt_num}"),
+        "pt_num": str(pt_num),
+        "fecha_nacimiento": patient_info.get("dob", ""),
+        "edad": patient_info.get("age", ""),
+        "sexo": patient_info.get("sex", "M"),
+        "medico_tratante": "DR. JOSE JOSE PRUEBA ENRIQUEZ",
+        "cedula": "7876310/5265849",
+        "fecha_ingreso": patient_info.get("fecha_ingreso", fecha_hoy),
+        "hora_ingreso": patient_info.get("hora_ingreso", hora_hoy),
+        "fecha_atencion": fecha_hoy,
+        "hora_atencion": hora_hoy,
+        "paciente_capaz": True,
+        "pariente": "",
+        "testigo1": "",
+        "patient": patient_info
+    }
+
+    db = SessionLocal()
+    try:
+        last_hist = db.query(models.HistoricoNotaClinica).filter(
+            models.HistoricoNotaClinica.pt_num == str(pt_num),
+            models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-CONSUL-PLT-04"
+        ).order_by(models.HistoricoNotaClinica.fecha_registro.desc()).first()
+        if last_hist and last_hist.contenido_soap_json:
+            try:
+                hist_data = json.loads(last_hist.contenido_soap_json)
+                for k, v in hist_data.items():
+                    pt_data[k] = v
+            except Exception as e_hist:
+                print(f"Error parsing historic consent 04 for PDF: {e_hist}")
+    finally:
+        db.close()
+
+    c04_data = kh_database.fetch_consentimiento_04(pt_num, mrnum=mrnum)
+    if c04_data and (not isinstance(c04_data, dict) or "error" not in c04_data):
+        for k, v in c04_data.items():
+            if v and (k not in pt_data or not pt_data[k]):
+                pt_data[k] = v
+
+    is_doc_signed = bool(c04_data.get("signed_by") or c04_data.get("firmado"))
+
+    import pdf_engine_04
+    firma_data = None
+    db = SessionLocal()
+    try:
+        firma_obj = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-04",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).order_by(models.FirmaDocumentoClinico.fecha_hora_firma.desc()).first()
+        if firma_obj:
+            firma_data = {
+                "sello_digital": firma_obj.sello_digital,
+                "hash_sha256": firma_obj.hash_sha256,
+                "fecha_hora_firma": firma_obj.fecha_hora_firma.strftime("%d/%m/%Y %H:%M:%S") if firma_obj.fecha_hora_firma else "",
+                "nombre_medico": firma_obj.nombre_medico,
+                "cedula": firma_obj.cedula_profesional
+            }
+            if firma_obj.nombre_medico:
+                pt_data["medico_tratante"] = firma_obj.nombre_medico
+            if firma_obj.cedula_profesional:
+                pt_data["cedula"] = firma_obj.cedula_profesional
+        elif is_doc_signed and c04_data.get("signed_by"):
+            firma_data = {
+                "sello_digital": f"VERTICAL-EHR:{c04_data.get('signed_by')}",
+                "hash_sha256": "",
+                "fecha_hora_firma": c04_data.get("signed_on") or "",
+                "nombre_medico": c04_data.get("signed_by"),
+                "cedula": c04_data.get("cedula") or ""
+            }
+    finally:
+        db.close()
+
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "scratch")
+    os.makedirs(out_dir, exist_ok=True)
+    pdf_path = os.path.join(out_dir, f"CI_04_{pt_num}.pdf")
+    pdf_engine_04.generate_consentimiento_04(pt_data, pdf_path, firma_data=firma_data)
+
+    if os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"CI_04_{pt_num}.pdf")
+
+    raise HTTPException(status_code=500, detail="Error generating PDF 04")
+
+
+@app.post("/api/ehr/paciente/{pt_num}/consentimiento-04")
+def save_consentimiento_04_endpoint(
+    pt_num: str, 
+    request_data: dict, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    res = kh_database.save_or_update_consentimiento_04(pt_num, request_data)
+    if isinstance(res, dict) and "error" in res:
+        raise HTTPException(status_code=500, detail=res["error"])
+        
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    
+    # 1. Guardar Snapshot Inmutable en HistoricoNotaClinica (NOM-024)
+    try:
+        historico_entry = models.HistoricoNotaClinica(
+            codigo_formato="HE-DIRMED-CONSUL-PLT-04",
+            tipo_documento="Carta de Consentimiento Informado para Colocación de Catéter Venoso Central",
+            pt_num=str(pt_num),
+            expediente=f"PT-{pt_num}",
+            evolution_slot=0,
+            nombre_medico=str(request_data.get("medico_tratante") or request_data.get("n_medico") or ""),
+            cedula_profesional=str(request_data.get("cedula") or request_data.get("cedula_profesional") or ""),
+            contenido_soap_json=json.dumps(request_data, default=str),
+            accion="GUARDADO",
+            ip_origen=client_ip
+        )
+        db.add(historico_entry)
+        db.commit()
+    except Exception as e:
+        print(f"Error creating audit history for Consentimiento 04: {e}")
+        db.rollback()
+
+    # 2. Soft-Revocation de firmas activas en PostgreSQL (NOM-024)
+    try:
+        firmas_activas = db.query(models.FirmaDocumentoClinico).filter(
+            models.FirmaDocumentoClinico.pt_num == str(pt_num),
+            models.FirmaDocumentoClinico.codigo_formato == "HE-DIRMED-CONSUL-PLT-04",
+            models.FirmaDocumentoClinico.estado == "ACTIVA"
+        ).all()
+        for f in firmas_activas:
+            f.estado = "REVOCADA"
+            f.motivo_revocacion = "MODIFICACION_DOCUMENTO_CLINICO"
+        db.commit()
+    except Exception as e:
+        print(f"Error revocando firma previa para CI 04: {e}")
+        db.rollback()
+
+    return res
+
+
+
 if os.path.exists(frontend_dist):
 
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
@@ -5632,5 +6167,7 @@ if os.path.exists(frontend_dist):
             return FileResponse(index_path)
 
         return {"message": "Frontend no construido. Por favor corre 'npm run build' en la carpeta frontend."}
+
+
 
 

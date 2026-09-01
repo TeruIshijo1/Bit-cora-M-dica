@@ -9,12 +9,12 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 
 try:
     from backend.pdf_engine_v2 import (
-        RDLCCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
+        RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
-        RDLCCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
+        RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
     )
 
@@ -26,11 +26,11 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
     os.makedirs(pdf_dir, exist_ok=True)
     output_path = force_output_path or os.path.join(pdf_dir, f"CI_EED_{pt_data.get('expediente', 'UNK')}.pdf")
 
-    content_x = FRAME_X + 5.0
-    content_w = FRAME_W - 5.0 - 16.0 # ~548.76 pt
+    content_x = FRAME_X + 16.0
+    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
 
     frame_bottom = FRAME_Y + 41.0
-    frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
+    frame_top_p1 = (FRAME_Y + FRAME_H) - 64.0
     frame_h_p1 = frame_top_p1 - frame_bottom
 
     frame_top_later = (FRAME_Y + FRAME_H) - 38.0
@@ -259,8 +259,17 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
     story.append(Spacer(1, 4))
     story.append(Paragraph(pt_data.get("comentarios", "Sin comentarios.") or "Sin comentarios.", style_body))
 
+    doc_info = {
+        'title': 'CONSENTIMIENTO INFORMADO PARA ECOCARDIOGRAMA DE ESTRÉS CON DOBUTAMINA',
+        'title_lines': [
+            'CONSENTIMIENTO INFORMADO PARA',
+            'ECOCARDIOGRAMA DE ESTRÉS CON DOBUTAMINA'
+        ],
+        'code': 'HE-DIRMED-SINPRO-PLT-EED',
+    }
+
     def make_canvas(*args, **kwargs):
-        c = RDLCCanvas(*args, **kwargs)
+        c = CleanConsentCanvas(*args, doc_info=doc_info, **kwargs)
         c.fecha_ingreso = pt_data.get('fecha_ingreso', '')
         c.hora_ingreso = pt_data.get('hora_ingreso', '')
         return c

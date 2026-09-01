@@ -58,9 +58,9 @@ def ensure_medico_keys(db_session, medico):
         if getattr(medico_locked, 'public_key_pem', None) is None:
             priv_pem, pub_pem = generate_ecdsa_keypair()
             
-            token = medico_locked.huella_token or medico_locked.cedula
+            token = getattr(medico_locked, 'huella_token', None)
             if not token:
-                raise ValueError('El medico no tiene huella_token ni cedula para derivar la llave KEK.')
+                raise ValueError('El médico no cuenta con material biométrico registrado (huella_token). Debe enrolar su huella antes de generar llaves FEA.')
                 
             f = Fernet(get_kdf_fernet_key(token))
             priv_enc = f.encrypt(priv_pem)
@@ -95,7 +95,9 @@ def ensure_medico_keys(db_session, medico):
 def firmar_documento(db_session, medico, cadena_original: str) -> str:
     ensure_medico_keys(db_session, medico)
     
-    token = medico.huella_token or medico.cedula
+    token = getattr(medico, 'huella_token', None)
+    if not token:
+        raise ValueError('El médico no cuenta con material biométrico registrado (huella_token) para firmar electrónicamente.')
     f = Fernet(get_kdf_fernet_key(token))
     
     priv_enc = medico.private_key_enc.encode('utf-8')

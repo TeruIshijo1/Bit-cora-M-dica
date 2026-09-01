@@ -177,3 +177,31 @@ Para que **cualquier formato clínico** nuevo (+100 formatos) sea compatible y v
    - `CreatedOn` y `ModifiedOn`: `GETDATE()` en servidor.
    - `MRNum_`: Identificador correlativo del registro sincronizado.
 
+---
+
+## 🧠 6. Regla de Oro de Inteligencia Demográfica y Legal: Otorgante del Consentimiento (Mayor vs Menor de Edad)
+
+En **todos los formatos clínicos y consentimientos informados habidos y por haber**:
+
+1. **Pacientes Mayores de Edad (`Edad >= 18 años`)**:
+   - Por defecto, el sistema activa la casilla inteligente: `¿El paciente puede otorgar consentimiento y firmar por sí mismo? (Mayor de edad)`.
+   - **Si está marcada (`paciente_capaz = true`)**:
+     - Se asigna automáticamente el **nombre completo del paciente** en la firma legal de consentimiento.
+     - El campo de *Familiar / Tutor / Representante Legal* queda deshabilitado / no requerido.
+   - **Si el médico desmarca la casilla (`paciente_capaz = false`)**:
+     - (Por incapacidad física/mental, inconsciencia, sedación o estado crítico).
+     - Se habilita de forma obligatoria el campo de captura del **Familiar, Tutor o Representante Legal**, asignando dicho nombre en la firma.
+
+2. **Pacientes Menores de Edad (`Edad < 18 años`)**:
+   - Por estricta disposición jurídica de la **NOM-004-SSA3-2012** y el Reglamento de la Ley General de Salud, un menor de edad no puede consentir por sí mismo.
+   - El sistema **bloquea la opción de autofirma** y muestra la alerta institucional:
+     `⚠️ Paciente menor de edad (${edad} años) — Requiere padre, madre, tutor o representante legal.`
+   - El campo para ingresar el nombre completo del **Padre, Madre, Tutor o Representante Legal** se vuelve **estrictamente obligatorio** para guardar o firmar el formato.
+
+3. **Supresión Dinámica de Casillas Vacías de Tutor (Estética y Precisión Jurídica)**:
+   - Si el paciente es mayor de edad y capaz (`paciente_capaz = true`), la casilla, línea azul y texto de *'Nombre completo y firma del familiar, tutor o representante legal'* **NO debe dibujarse en blanco ni quedar huérfana**.
+   - El motor PDF reconfigura dinámicamente el bloque de firmas en disposición triangular/piramidal armónica:
+     - **Arriba Izquierda**: Nombre completo y firma del paciente.
+     - **Arriba Derecha**: Nombre completo y firma del testigo.
+     - **Abajo Centrado**: Nombre completo, cédulas y firma del médico tratante (con su Sello Biométrico DigitalPersona) perfectamente centrado entre ambas firmas superiores.
+   - La casilla del tutor únicamente se dibuja en cuadrícula 2x2 cuando realmente existe un tutor asignado (menor de edad o paciente incapacitado).

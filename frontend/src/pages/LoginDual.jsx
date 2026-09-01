@@ -58,10 +58,12 @@ export default function LoginDual() {
       localStorage.setItem('medico', JSON.stringify(res.data));
       if (res.data.formatos_permitidos) localStorage.setItem('formatos_permitidos', res.data.formatos_permitidos);
       else localStorage.removeItem('formatos_permitidos');
-      navigate('/agenda');
     } catch (err) {
-      setLoginError('Huella no reconocida o médico no registrado.');
+      setLoginError(err.response?.data?.detail || 'Huella no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.');
       resetFmd();
+      setTimeout(() => {
+        startCapture();
+      }, 800);
     } finally {
       setIsProcessing(false);
     }
