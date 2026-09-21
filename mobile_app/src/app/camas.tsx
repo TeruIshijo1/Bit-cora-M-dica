@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl, Alert, TextInput } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import api from '../api';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
+import type { CamaApi, PacienteApi } from '../types';
 
 export default function CamasDashboardScreen() {
-  const [camas, setCamas] = useState([]);
-  const [pacientes, setPacientes] = useState([]);
+  const [camas, setCamas] = useState<CamaApi[]>([]);
+  const [pacientes, setPacientes] = useState<PacienteApi[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rol, setRol] = useState('');
@@ -41,11 +42,11 @@ export default function CamasDashboardScreen() {
   }, []);
 
   // Helper to find patient assigned to a bed
-  const getPacienteEnCama = (camaId) => {
-    return pacientes.find(p => p.cama_id === camaId && p.estado === 'Activo');
+  const getPacienteEnCama = (camaId?: number) => {
+    return pacientes.find(p => p.cama_id === camaId && (p.estado === 'Activo' || p.status_ingreso === 'Ingresado'));
   };
 
-  const getEstadoStyles = (estado) => {
+  const getEstadoStyles = (estado: string) => {
     const e = estado ? estado.toUpperCase() : 'DESCONOCIDA';
     switch (e) {
       case 'DISPONIBLE': return 'bg-emerald-100 border-emerald-300 text-emerald-800';
@@ -57,7 +58,7 @@ export default function CamasDashboardScreen() {
     }
   };
 
-  const getIconForEstado = (estado) => {
+  const getIconForEstado = (estado: string) => {
     const e = estado ? estado.toUpperCase() : 'DESCONOCIDA';
     switch (e) {
       case 'DISPONIBLE': return <Ionicons name="bed-outline" size={32} color="#059669" />;
@@ -70,12 +71,17 @@ export default function CamasDashboardScreen() {
   };
 
   const handleLogout = async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } catch {
+      // Always clear device credentials even if the backend is unreachable.
+    }
     await SecureStore.deleteItemAsync('token');
     await SecureStore.deleteItemAsync('rol');
-    router.replace('/');
+    router.replace('/' as Href);
   };
 
-  const cambiarEstadoLimpieza = async (numeroCama, nuevoEstado) => {
+  const cambiarEstadoLimpieza = async (numeroCama: string, nuevoEstado: string) => {
     try {
       setLoading(true);
       await api.put(`/api/camas/${numeroCama}/limpieza`, { estado_limpieza: nuevoEstado });
@@ -157,7 +163,7 @@ export default function CamasDashboardScreen() {
                   const normalizedRol = (rol || '').toLowerCase();
                   
                   if (normalizedRol === 'enfermeria' && estadoActual?.toUpperCase() === 'OCUPADA' && pacienteId) {
-                    router.push(`/captura-enfermeria?pacienteId=${pacienteId}&camaNumero=${numero}`);
+                    router.push({ pathname: '/captura-enfermeria', params: { pacienteId: String(pacienteId), camaNumero: numero } } as unknown as Href);
                   } else if (normalizedRol === 'limpieza' || normalizedRol === 'mantenimiento/limpieza' || normalizedRol === 'admin' || normalizedRol === 'sistemas') {
                     Alert.alert(
                       "Cambiar Estado",

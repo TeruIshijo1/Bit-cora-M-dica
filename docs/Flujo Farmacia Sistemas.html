@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flujo Integral de Farmacia - Hospital Escandón</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased p-4 md:p-8 font-sans">
+
+  <!-- Header Container -->
+  <div class="max-w-7xl mx-auto mb-8 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full mb-2 border border-emerald-200">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          Hospital Escandón • Arquitectura en Bitácora ↔ PCPR/PCPRIT ↔ PCIT ↔ SAP B1
+        </div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+          Circuito Clínico, Farmacia y Conexión SAP B1
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">
+          Flujo directo a tablas maestras operativas: Inyección de solicitud a <code class="bg-purple-100 px-1.5 py-0.5 rounded font-mono text-purple-800 font-bold">PCPR / PCPRIT</code>, despacho en <code class="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-800 font-bold">PCIT</code> (<em class="text-rose-600 font-semibold">GoodsExit SAP B1</em>) y KARDEX de Enfermería.
+        </p>
+      </div>
+
+      <!-- Leyenda de Colores Rápida -->
+      <div class="flex flex-wrap gap-2 text-xs font-semibold">
+        <span class="px-2.5 py-1 bg-blue-100 text-blue-800 border border-blue-200 rounded-lg flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Médico
+        </span>
+        <span class="px-2.5 py-1 bg-purple-100 text-purple-800 border border-purple-200 rounded-lg flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span> QFB (Farmacobiología)
+        </span>
+        <span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-600"></span> Enfermería
+        </span>
+        <span class="px-2.5 py-1 bg-amber-100 text-amber-900 border border-amber-200 rounded-lg flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-600"></span> Farmacia (Vertical)
+        </span>
+        <span class="px-2.5 py-1 bg-rose-100 text-rose-900 border border-rose-200 rounded-lg flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-600"></span> SAP B1 (Contable)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Swimlanes Flow -->
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- FASE 1: PRESCRIPCIÓN MÉDICA -->
+    <div class="bg-white border-2 border-blue-200 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 bg-blue-600 text-white text-xs font-bold px-4 py-1 rounded-br-xl uppercase tracking-wider">
+        Fase 1 • Prescripción Médica Guiada y Firma FEA
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-center">
+        <div class="lg:col-span-3 bg-blue-50/80 border border-blue-200 rounded-xl p-4 text-center">
+          <div class="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold text-xl shadow-md">
+            🩺
+          </div>
+          <h3 class="font-bold text-blue-950 text-base">Médico Tratante / Guardia</h3>
+          <p class="text-xs text-blue-700 mt-1 font-medium">Plataforma: <strong>Bitácora HES</strong></p>
+        </div>
+
+        <div class="lg:col-span-6 space-y-2">
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Captura con Reglas Clínicas NOM-004</strong>
+              Selecciona fármaco del cuadro básico. Valida dosis, vía, dilución, mEq y días de antibiótico. Destaca automáticamente medicamentos <em>LASA</em> y <em>Alto Riesgo</em>.
+            </div>
+          </div>
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Firma Biométrica con Huella (DigitalPersona)</strong>
+              Firma digitalmente con validez legal FEA (ECDSA/RFC 3161). Si incluye controlados (Grupos I, II, III), se emite la Receta Especial obligatoria.
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-3 bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs">
+          <div class="flex items-center gap-1.5 font-bold text-blue-900 mb-1">
+            <span class="w-2 h-2 rounded-full bg-blue-600"></span> Expediente Bitácora
+          </div>
+          <p class="text-blue-800 leading-relaxed">
+            La orden médica firmada queda resguardada en PostgreSQL y disponible al instante para Farmacobiología y Enfermería.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-slate-200 text-slate-600 px-4 py-1 rounded-full text-xs font-bold border border-slate-300 flex items-center gap-1">
+        ⬇ Orden médica disponible para validación QFB
+      </div>
+    </div>
+
+    <!-- FASE 2: VALIDACIÓN QFB -->
+    <div class="bg-white border-2 border-purple-200 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 bg-purple-600 text-white text-xs font-bold px-4 py-1 rounded-br-xl uppercase tracking-wider">
+        Fase 2 • Validación Farmacoterapéutica
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-center">
+        <div class="lg:col-span-3 bg-purple-50/80 border border-purple-200 rounded-xl p-4 text-center">
+          <div class="w-12 h-12 bg-purple-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold text-xl shadow-md">
+            🔬
+          </div>
+          <h3 class="font-bold text-purple-950 text-base">Farmacobiología (QFB)</h3>
+          <p class="text-xs text-purple-700 mt-1 font-medium">Plataforma: <strong>Bandeja QFB Bitácora</strong></p>
+        </div>
+
+        <div class="lg:col-span-6 space-y-2">
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Revisión de Seguridad y Dosificación</strong>
+              El QFB audita interacciones, función renal/peso y compatibilidad de soluciones.
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900">
+              <strong class="text-emerald-700 block font-bold">✔ Aprobado:</strong>
+              Libera la orden para que Enfermería solicite el turno.
+            </div>
+            <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+              <strong class="text-amber-700 block font-bold">⚠ Intervención:</strong>
+              Emite nota de sugerencia médica antes del surtido.
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-3 bg-purple-50 border border-purple-200 rounded-xl p-4 text-xs text-purple-900">
+          <strong class="block font-bold mb-1">🛡 Filtro de Seguridad:</strong>
+          Garantiza que ningún medicamento con riesgo llegue a la farmacia ni a la cama del paciente.
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-slate-200 text-slate-600 px-4 py-1 rounded-full text-xs font-bold border border-slate-300 flex items-center gap-1">
+        ⬇ Medicamentos autorizados listos para pedir
+      </div>
+    </div>
+
+    <!-- FASE 3: SOLICITUD DE ENFERMERÍA (INYECCIÓN A PCPR / PCPRIT) -->
+    <div class="bg-white border-2 border-emerald-300 rounded-2xl p-6 shadow-sm relative overflow-hidden bg-gradient-to-r from-white via-emerald-50/20 to-purple-50/20">
+      <div class="absolute top-0 left-0 bg-emerald-600 text-white text-xs font-bold px-4 py-1 rounded-br-xl uppercase tracking-wider">
+        Fase 3 • Solicitud de Turno e Inyección a PCPR / PCPRIT
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-center">
+        <div class="lg:col-span-3 bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-center">
+          <div class="w-12 h-12 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold text-xl shadow-md">
+            👩‍⚕️
+          </div>
+          <h3 class="font-bold text-emerald-950 text-base">Personal de Enfermería</h3>
+          <p class="text-xs text-emerald-700 mt-1 font-medium">Plataforma: <strong>Censo / Bitácora</strong></p>
+        </div>
+
+        <div class="lg:col-span-5 space-y-2">
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Clic en "Solicitar Medicamentos del Turno"</strong>
+              Al iniciar guardia (Matutino/Vespertino/Nocturno), Enfermería pide las dosis calculadas para ese bloque de horas.
+            </div>
+          </div>
+        </div>
+
+        <!-- MAGIA DE LA INTEGRACIÓN REAL EN PCPR / PCPRIT -->
+        <div class="lg:col-span-4 bg-purple-900 text-white rounded-xl p-4 text-xs shadow-md">
+          <div class="flex items-center gap-2 font-black text-sm mb-1.5 text-purple-200">
+            <span>⚡</span> Inyección Directa a SQL Server
+          </div>
+          <p class="text-purple-100 leading-relaxed">
+            Bitácora crea la cabecera en <code class="bg-purple-800 px-1 py-0.5 rounded font-mono text-purple-200 font-bold">PCPR</code> (<code class="font-mono text-emerald-300">PCPR_ST = 'OP'</code>, <code class="font-mono text-emerald-300">SUCode = 'FAR'</code>) y los renglones en <code class="bg-purple-800 px-1 py-0.5 rounded font-mono text-purple-200 font-bold">PCPRIT</code> con el código de artículo (<code class="font-mono text-purple-200">ItemCode</code>).
+          </p>
+          <div class="mt-2 text-[11px] text-emerald-300 font-bold">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-slate-200 text-slate-600 px-4 py-1 rounded-full text-xs font-bold border border-slate-300 flex items-center gap-1">
+        ⬇ La requisición aparece al instante en la bandeja de Farmacia
+      </div>
+    </div>
+
+    <!-- FASE 4: SURTIDO EN VERTICAL (PCIT / GoodsExit SAP B1) -->
+    <div class="bg-white border-2 border-amber-300 rounded-2xl p-6 shadow-sm relative overflow-hidden bg-gradient-to-r from-white via-amber-50/30 to-rose-50/40">
+      <div class="absolute top-0 left-0 bg-amber-600 text-white text-xs font-bold px-4 py-1 rounded-br-xl uppercase tracking-wider">
+        Fase 4 • Surtido en Vertical y Descuento en SAP B1
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-center">
+        <div class="lg:col-span-3 bg-amber-50/90 border border-amber-200 rounded-xl p-4 text-center">
+          <div class="w-12 h-12 bg-amber-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold text-xl shadow-md">
+            💊
+          </div>
+          <h3 class="font-bold text-amber-950 text-base">Farmacia Central</h3>
+          <p class="text-xs text-amber-800 mt-1 font-medium">Plataforma: <strong>Vertical (V_PCRQ)</strong></p>
+        </div>
+
+        <div class="lg:col-span-5 space-y-2">
+          <div class="flex items-start gap-3 p-3 bg-white border border-amber-200 rounded-lg shadow-2xs">
+            <span class="flex-shrink-0 w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold">5</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Farmacia ve la solicitud en Vertical</strong>
+              En su pantalla de solicitudes pendientes (<code class="font-mono text-slate-700">V_PCRQ</code>), ve la orden de la cama lista para preparar.
+            </div>
+          </div>
+          <div class="flex items-start gap-3 p-3 bg-white border border-amber-200 rounded-lg shadow-2xs">
+            <span class="flex-shrink-0 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold">6</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Surtir en Vertical (Cierre de Requisición)</strong>
+              Da clic en <strong>"Surtir"</strong> en Vertical. <code class="font-mono text-slate-800">PCPR</code> pasa a <code class="font-mono font-bold text-slate-800">'CM'</code>, se asigna el lote (<code class="font-mono text-slate-800">BatchCode</code>) y se genera el cargo en <code class="font-mono font-bold text-rose-700">PCIT</code> con <code class="font-mono text-rose-700">DocType = 'GoodsExit'</code>.
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-4 bg-rose-600 text-white rounded-xl p-4 text-xs shadow-md">
+          <div class="flex items-center gap-2 font-black text-sm mb-2 border-b border-rose-400 pb-1">
+            <span>🏢</span> Transacción Oficial SAP B1
+          </div>
+          <ul class="space-y-1.5 list-disc list-inside text-rose-100 font-medium">
+            <li><strong>GoodsExit (Salida de Almacén):</strong> SAP B1 descuenta el stock físico con su lote.</li>
+            <li><strong>Cargo al Paciente:</strong> Se añade a la cuenta del episodio (<code class="font-mono text-white">PCNum</code>).</li>
+            <li><strong>Cero Descuadres:</strong> Conexión 100% nativa y transparente.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-slate-200 text-slate-600 px-4 py-1 rounded-full text-xs font-bold border border-slate-300 flex items-center gap-1">
+        ⬇ Fármaco entregado a Enfermería en piso
+      </div>
+    </div>
+
+    <!-- FASE 5: ADMINISTRACIÓN EN KARDEX -->
+    <div class="bg-white border-2 border-emerald-200 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+      <div class="absolute top-0 left-0 bg-emerald-700 text-white text-xs font-bold px-4 py-1 rounded-br-xl uppercase tracking-wider">
+        Fase 5 • Administración y Registro en KARDEX
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-center">
+        <div class="lg:col-span-3 bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-center">
+          <div class="w-12 h-12 bg-emerald-700 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold text-xl shadow-md">
+            💉
+          </div>
+          <h3 class="font-bold text-emerald-950 text-base">Enfermería en Piso</h3>
+          <p class="text-xs text-emerald-700 mt-1 font-medium">Plataforma: <strong>Kardex Digital Bitácora</strong></p>
+        </div>
+
+        <div class="lg:col-span-6 space-y-2">
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-emerald-700 text-white rounded-full flex items-center justify-center text-xs font-bold">7</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Aplicación al Paciente (5 Correctos)</strong>
+              Aplica el medicamento a la hora programada con doble verificación si es de Alto Riesgo.
+            </div>
+          </div>
+          <div class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <span class="flex-shrink-0 w-6 h-6 bg-emerald-700 text-white rounded-full flex items-center justify-center text-xs font-bold">8</span>
+            <div class="text-xs">
+              <strong class="text-slate-900 block text-sm">Firma en KARDEX</strong>
+              Marca la dosis como <strong>"Administrada"</strong> con sello de fecha, hora y usuario.
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-3 bg-slate-100 border border-slate-300 rounded-xl p-4 text-xs text-slate-700">
+          <strong class="text-slate-900 block font-bold mb-1">📋 Expediente Completo:</strong>
+          Queda registro de quién prescribió, quién autorizó, quién surtió y quién aplicó.
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ========================================================== -->
+    <!-- SECCIÓN: DEVOLUCIONES NATIVAS EN VERTICAL Y REFLEJO PASIVO -->
+    <!-- ========================================================== -->
+    <div class="pt-6 border-t-2 border-dashed border-slate-300">
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xl">🔄</span>
+          <h3 class="font-bold text-slate-900 text-sm uppercase tracking-wide">
+            Devoluciones: Proceso 100% Nativo en Vertical con Reflejo Automático en Bitácora
+          </h3>
+        </div>
+        <p class="text-xs text-slate-600 leading-relaxed mb-4">
+          La Bitácora <strong>no ejecuta devoluciones</strong>. Cuando se decide devolver un medicamento, el proceso ocurre en Vertical y la Bitácora se actualiza automáticamente al leer la base de datos:
+        </p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+            <div class="flex items-center gap-2 font-bold text-slate-900 mb-1.5 text-xs">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[11px]">1</span>
+              Decisión y Entrega Física
+            </div>
+            <p class="text-slate-600 leading-relaxed text-[11px]">
+              El médico o enfermería deciden que ya no se aplicará el fármaco. Enfermería regresa las piezas físicas sobrantes a la ventanilla de Farmacia.
+            </p>
+          </div>
+
+          <div class="bg-white p-4 rounded-xl border border-amber-200 shadow-2xs">
+            <div class="flex items-center gap-2 font-bold text-amber-900 mb-1.5 text-xs">
+              <span class="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[11px]">2</span>
+              Devolución en Vertical (PCIT / PCITDL)
+            </div>
+            <p class="text-slate-600 leading-relaxed text-[11px]">
+              Farmacia abre su pantalla de <strong>Devolución en Vertical</strong>. Vertical actualiza <code class="font-mono text-slate-800 font-bold">PCIT</code> (<code class="text-rose-700 font-mono">PCIT_ST = 'RT'</code>) e inserta en <code class="font-mono text-rose-700 font-bold">PCITDL</code> con objeto <em class="font-semibold text-rose-800">GoodsEntry</em>. <strong>SAP B1</strong> reingresa el stock y cancela el cargo al paciente.
+            </p>
+          </div>
+
+          <div class="bg-white p-4 rounded-xl border border-emerald-200 shadow-2xs">
+            <div class="flex items-center gap-2 font-bold text-emerald-900 mb-1.5 text-xs">
+              <span class="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px]">3</span>
+              Reflejo Automático en Bitácora
+            </div>
+            <p class="text-slate-600 leading-relaxed text-[11px]">
+              La Bitácora consulta <code class="font-mono text-slate-800 font-bold">PCITDL / PCIT</code>, detecta la devolución ya hecha y <strong>automáticamente actualiza el KARDEX y el expediente</strong> marcando la dosis como <em>"Devuelta a Farmacia"</em>.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../api';
 import { useDigitalPersona } from '../../hooks/useDigitalPersona';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import Button from '../../components/ui/Button';
+import AlertBanner from '../../components/ui/AlertBanner';
+import { pendingClinicalSyncMessage } from '../../utils/clinicalSyncResult';
+import { friendlyBiometricError, friendlyReaderStatus } from '../../utils/userMessages';
 import { MdFingerprint } from 'react-icons/md';
-import { FiCheckCircle, FiAlertCircle, FiCopy, FiCheck, FiX } from 'react-icons/fi';
+import { FiCheckCircle, FiAlertCircle, FiX } from 'react-icons/fi';
 
 /**
  * Modal Unificado de Firma Biométrica NOM-024.
@@ -14,7 +17,7 @@ export default function BiometricSignModal({
   isOpen,
   onClose,
   patientId,
-  title = "Firma Electrónica Avanzada Biométrica",
+  title = "Firma médica con huella",
   documentType = "Nota de Evolución de Urgencias",
   formatCode = "HE-DIRMED-SINPRO-PLT-87/01",
   evolutionSlot = 1,
@@ -25,95 +28,97 @@ export default function BiometricSignModal({
 }) {
   useEscapeKey(isOpen, onClose);
 
-  const { status: dpStatus, fmdTemplate: dpFmd, error: dpError, devices, resetFmd, startCapture, isAcquiring } = useDigitalPersona();
+  const { status: dpStatus, fmdTemplate: dpFmd, captureContext, challengeId, sessionId, error: dpError, devices, resetFmd, startCapture, isAcquiring } = useDigitalPersona();
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
-  const [selloDigital, setSelloDigital] = useState(null);
-  const [selloCopiado, setSelloCopiado] = useState(false);
-  const [challengeId, setChallengeId] = useState(null);
-
-  // Obtener challenge anti-replay al abrir el modal o reintentar
-  const fetchChallenge = async () => {
-    try {
-      const res = await api.post('/biometrics/challenge');
-      if (res.data?.challenge_id) {
-        setChallengeId(res.data.challenge_id);
-      }
-    } catch (e) {
-      // Continuar si falla la obtención de challenge
-    }
-  };
+  const operationVersion = useRef(0);
+  const closeTimer = useRef(null);
+  const [pendingSync, setPendingSync] = useState(null);
+  const startSignatureCapture = () => startCapture({
+    action: 'FIRMA_MEDICA',
+    patientRef: patientId,
+    documentCode: formatCode,
+    documentRef: evolutionSlot || 0
+  });
 
   // Inicializar captura cuando se abre el modal
   useEffect(() => {
+    operationVersion.current += 1;
     if (isOpen) {
+      setSubmitting(false);
+      setPendingSync(null);
       setErrorMsg(null);
       setSuccessMsg(null);
-      setSelloDigital(null);
-      setSelloCopiado(false);
-      fetchChallenge();
       resetFmd();
-      startCapture();
+      startSignatureCapture();
+      return () => {
+        operationVersion.current += 1;
+        clearTimeout(closeTimer.current);
+        resetFmd();
+      };
     }
-  }, [isOpen]);
+  }, [isOpen, patientId, formatCode, evolutionSlot, customEndpoint]);
 
   // ÚNICO EFECTO que reacciona a la adquisición de huella biométrica
   useEffect(() => {
     if (!isOpen || !dpFmd || submitting || successMsg) return;
+    if (captureContext?.action !== 'FIRMA_MEDICA' || String(captureContext.patientRef) !== String(patientId)
+      || captureContext.documentCode !== formatCode || String(captureContext.documentRef ?? 0) !== String(evolutionSlot ?? 0)) return;
 
     const executeSignature = async () => {
+      const version = operationVersion.current;
       try {
         setSubmitting(true);
         setErrorMsg(null);
 
         const endpoint = customEndpoint || `/ehr/paciente/${patientId}/firmar-biometrico`;
         const payload = customPayload 
-          ? { ...customPayload, fmd_template: dpFmd, challenge_id: challengeId }
+          ? { ...customPayload, fmd_template: dpFmd, challenge_id: challengeId, session_id: sessionId }
           : {
               codigo_formato: formatCode,
               tipo_documento: documentType,
               evolution_slot: evolutionSlot,
               fmd_template: dpFmd,
               challenge_id: challengeId,
-              contenido_resumen: summaryContent
+              session_id: sessionId,
             };
 
         const res = await api.post(endpoint, payload);
+        if (version !== operationVersion.current) return;
+        const pending = pendingClinicalSyncMessage(res);
+        if (pending) {
+          setPendingSync(pending);
+          resetFmd();
+          if (onSigned) await onSigned(res.data);
+          return;
+        }
 
         if (res.data && res.data.success) {
-          const sello = res.data.firma?.sello_digital || res.data.message || 'Sello generado exitosamente';
-          setSelloDigital(sello);
-          setSuccessMsg(`¡Documento firmado biométricamente con éxito! Sello: ${sello}`);
+          setSuccessMsg('Firma guardada correctamente.');
           
           if (onSigned) {
             await onSigned(res.data);
           }
 
-          setTimeout(() => {
+          if (version !== operationVersion.current) return;
+          closeTimer.current = setTimeout(() => {
             resetFmd();
             onClose();
           }, 2500);
         } else {
-          const msg = res.data?.error || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.";
+          const msg = res.data?.error || "No se confirmó la firma. Revise el estado del documento antes de reintentar.";
           setErrorMsg(msg);
           resetFmd();
-          fetchChallenge();
-          setTimeout(() => {
-            startCapture();
-          }, 800);
         }
       } catch (err) {
-        const msg = err.response?.data?.detail || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.";
-        setErrorMsg(msg);
+        if (version !== operationVersion.current) return;
+        const msg = err.response?.data?.detail || "No se confirmó la firma. Revise el estado del documento antes de reintentar.";
+        setErrorMsg(friendlyBiometricError(msg, 'No se pudo guardar la firma. Intente nuevamente.'));
         resetFmd();
-        fetchChallenge();
-        setTimeout(() => {
-          startCapture();
-        }, 800);
       } finally {
-        setSubmitting(false);
+        if (version === operationVersion.current) setSubmitting(false);
       }
     };
 
@@ -121,13 +126,6 @@ export default function BiometricSignModal({
   }, [dpFmd, isOpen]);
 
   if (!isOpen) return null;
-
-  const handleCopySello = () => {
-    if (!selloDigital) return;
-    navigator.clipboard.writeText(selloDigital);
-    setSelloCopiado(true);
-    setTimeout(() => setSelloCopiado(false), 2000);
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
@@ -141,9 +139,7 @@ export default function BiometricSignModal({
             </div>
             <div>
               <h3 className="text-lg font-black text-slate-800">{title}</h3>
-              <p className="text-xs text-slate-500 font-mono">
-                {formatCode} • Ranura {evolutionSlot}
-              </p>
+              <p className="text-xs text-slate-500">Revise el documento y coloque su dedo</p>
             </div>
           </div>
           <button
@@ -158,7 +154,7 @@ export default function BiometricSignModal({
         {/* Resumen del Documento */}
         <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-1">
           <div className="flex justify-between text-slate-500 font-bold">
-            <span>Tipo de Documento:</span>
+            <span>Documento:</span>
             <span className="text-slate-800">{documentType}</span>
           </div>
           {summaryContent && (
@@ -176,15 +172,17 @@ export default function BiometricSignModal({
           
           <div>
             <p className="text-xs font-bold text-slate-700">
-              {dpStatus || 'Coloque su dedo en el lector biométrico'}
+              {friendlyReaderStatus(dpStatus) || 'Coloque su dedo en el lector'}
             </p>
             <p className="text-[11px] text-slate-400">
-              Verificando firma con plantilla digital encriptada SHA-256
+              La huella se usará únicamente para confirmar esta firma.
             </p>
           </div>
         </div>
 
         {/* Mensajes de Estado */}
+        <AlertBanner title="Lector de huellas" message={dpError ? friendlyBiometricError(dpError) : null} />
+        <AlertBanner type="warning" title="Guardado pendiente" message={pendingSync} />
         {errorMsg && (
           <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100 flex items-center gap-2">
             <FiAlertCircle className="text-base flex-shrink-0" />
@@ -196,20 +194,8 @@ export default function BiometricSignModal({
           <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-xl border border-emerald-100 space-y-2">
             <div className="flex items-center gap-2 font-bold">
               <FiCheckCircle className="text-base flex-shrink-0" />
-              <span>Firma Biométrica Acreditada</span>
+              <span>Firma guardada correctamente</span>
             </div>
-            {selloDigital && (
-              <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200 font-mono text-[10px] break-all">
-                <span className="truncate pr-2">{selloDigital}</span>
-                <button
-                  onClick={handleCopySello}
-                  className="shrink-0 p-1 text-emerald-600 hover:text-emerald-800"
-                  title="Copiar Sello Digital"
-                >
-                  {selloCopiado ? <FiCheck className="text-sm text-green-600" /> : <FiCopy className="text-sm" />}
-                </button>
-              </div>
-            )}
           </div>
         )}
 
@@ -222,10 +208,11 @@ export default function BiometricSignModal({
             variant="primary"
             size="sm"
             isLoading={submitting}
+            disabled={Boolean(pendingSync || successMsg)}
             icon={<MdFingerprint />}
-            onClick={() => { resetFmd(); startCapture(); }}
+            onClick={() => { resetFmd(); startSignatureCapture(); }}
           >
-            Reintentar Huella
+            Intentar de nuevo
           </Button>
         </div>
 

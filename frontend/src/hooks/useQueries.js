@@ -1,6 +1,42 @@
 ﻿import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 
+export function useBiometricSignersQuery(patientId, enabled) {
+  return useQuery({
+    queryKey: ['biometric-signers', String(patientId)],
+    queryFn: async ({ signal }) => (await api.get(`/pacientes/${encodeURIComponent(patientId)}/firmantes-biometricos`, { signal })).data,
+    enabled: Boolean(enabled && patientId), staleTime: 0, gcTime: 0,
+  });
+}
+
+const documentSignatureOptions = (patientId, code, slot) => ({
+    queryKey: ['document-signatures', String(patientId), code, slot],
+    queryFn: async ({ signal }) => (await api.get(`/ehr/paciente/${encodeURIComponent(patientId)}/firmas-documento`, {
+      signal, params: { codigo_formato: code, slot },
+    })).data,
+    staleTime: 0, gcTime: 0,
+});
+
+export function useDocumentSignaturesQuery(patientId, code, slot, enabled) {
+  return useQuery({
+    ...documentSignatureOptions(patientId, code, slot),
+    enabled: Boolean(enabled && patientId && code),
+  });
+}
+
+export function useReadDocumentSignatures() {
+  const client = useQueryClient();
+  return (patientId, code, slot) => client.fetchQuery(documentSignatureOptions(patientId, code, slot));
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async credentials => (await api.post('/auth/change-password', credentials, { timeout: 15000 })).data,
+    retry: false,
+    gcTime: 0,
+  });
+}
+
 /**
  * Hook centralizado de queries con TanStack React Query.
  * Implementa Stale-While-Revalidate y caché instantánea en memoria.

@@ -49,34 +49,31 @@ const SkeletonCard = () => (
 );
 
 const StatusBadge = ({ status, size = 'sm' }) => {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.Libre;
-  const Icon = config.icon;
-  const sizes = {
-    sm: 'px-2 py-0.5 text-[10px]',
-    md: 'px-3 py-1 text-xs',
-    lg: 'px-4 py-1.5 text-sm',
-  };
+  const isOcupada = status === 'Ocupada';
+  const isInhab = status === 'Inhabilitada';
+  const cls = isOcupada ? 'he-status-ocup' : isInhab ? 'he-status-inhab' : 'he-status-libre';
+  const dot = isOcupada ? '●' : isInhab ? '■' : '●';
+  const label = isOcupada ? 'Ocupada' : isInhab ? 'Inhabilitada' : 'Disponible';
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full font-semibold border ${sizes[size]} ${config.bg} ${config.border} ${config.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`}></span>
-      {config.label}
+    <span className={`he-status-pill ${cls}`}>
+      <span style={{ fontSize: 8 }}>{dot}</span>
+      {label}
     </span>
   );
 };
 
 const CleaningBadge = ({ status, size = 'sm' }) => {
   if (!status) return null;
-  const config = CLEANING_STATUS_CONFIG[status] || CLEANING_STATUS_CONFIG['Disponible'];
-  const Icon = config.icon;
-  const sizes = {
-    sm: 'px-1.5 py-0.5 text-[9px]',
-    md: 'px-2 py-0.5 text-[10px]',
-    lg: 'px-3 py-1 text-xs',
-  };
+  const s = (status || '').toLowerCase();
+  const isSucia = s.includes('sucia');
+  const isLista = s.includes('disponible') || s.includes('limpia');
+  const cls = isSucia ? 'he-clean-sucia' : isLista ? 'he-clean-lista' : 'he-clean-other';
+  const icon = isSucia ? '🗑️' : isLista ? '✨' : '🧹';
+  const label = isSucia ? 'Sucia' : isLista ? (s.includes('limpia') ? 'Limpia' : 'Disponible') : status;
   return (
-    <span className={`inline-flex items-center gap-1 rounded font-semibold border ${sizes[size]} ${config.bg} ${config.border} ${config.text}`}>
-      <Icon className="w-2.5 h-2.5" />
-      {config.label}
+    <span className={`he-clean ${cls}`}>
+      <span>{icon}</span>
+      {label}
     </span>
   );
 };
@@ -126,8 +123,8 @@ const BedCard = ({ cama, onClick, isLimpiezaRole, isEnfermeriaRole, navigate }) 
     <button
       type="button"
       onClick={handleClick}
-      className={`relative group bg-white rounded-xl shadow-sm border transition-all duration-200 hover:shadow-lg hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-hes-blue-main/20 focus:ring-offset-2 ${isOcupada ? 'border-red-100' : isInhabilitada ? 'border-slate-200' : 'border-emerald-100'} ${cleaningConfig && !isClean ? cleaningConfig.bg + '/50' : ''}`}
-      style={{ minHeight: '160px' }}
+      className={`he-cama group ${isOcupada ? 'he-cama-ocupada' : isInhabilitada ? 'he-cama-inhab' : 'he-cama-libre'} focus:outline-none focus:ring-2 focus:ring-hes-blue-main/20 focus:ring-offset-2`}
+      style={{ minHeight: '168px' }}
       aria-label={`Cama ${cama.RoomName}, estado ${cama.Estatus}${cleaningStatus ? `, limpieza ${cleaningStatus}` : ''}`}
     >
       <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -153,69 +150,75 @@ const BedCard = ({ cama, onClick, isLimpiezaRole, isEnfermeriaRole, navigate }) 
         )}
       </div>
 
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-2.5 gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusConfig.dot}`} aria-hidden="true"></span>
-          <h3 className="text-sm font-semibold text-slate-800 truncate max-w-[120px]" title={cama.RoomName}>
+          <span className={`he-cama-dot ${isOcupada ? 'ocupada' : isInhabilitada ? 'inhab' : 'libre'}`} aria-hidden="true"></span>
+          <h3 className="text-[13px] font-black text-slate-900 tracking-tight truncate" title={cama.RoomName}>
             {cama.RoomName}
           </h3>
         </div>
         <StatusBadge status={cama.Estatus} size="sm" />
       </div>
 
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 min-h-[22px]">
         {showCleaningBadge && cleaningConfig && (
           <CleaningBadge status={cleaningStatus} size="sm" />
         )}
         {!showCleaningBadge && cleaningConfig && isClean && !isOcupada && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold rounded border bg-emerald-50 text-emerald-700 border-emerald-100">
-            <FaBroom className="w-2.5 h-2.5" />
+          <span className="he-clean he-clean-lista">
+            <span>🧹</span>
             Lista
           </span>
         )}
+        {cleaningStatus && cleaningStatus.toLowerCase().includes('mantenimiento') && (
+          <span className="he-clean he-clean-other">🔧 Mantenimiento</span>
+        )}
       </div>
 
-      <div className="flex-1 flex flex-col justify-center min-h-[60px]">
+      <div className="flex-1 flex flex-col justify-center min-h-[62px]">
         {isOcupada ? (
           <div className="space-y-2">
-            <div className="flex items-start gap-2">
-              <statusConfig.icon className="mt-0.5 flex-shrink-0 text-slate-400 text-[11px]" aria-hidden="true" />
-              <span className="text-xs text-slate-800 font-medium leading-tight truncate block">
+            <div className="he-patient-box flex items-start gap-2">
+              <span className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[11px] font-black shrink-0" style={{ background: 'linear-gradient(135deg,#dc2626,#f97316)' }}>
+                {(cama.PatientName || 'P').trim().charAt(0).toUpperCase()}
+              </span>
+              <span className="text-[12px] text-slate-900 font-bold leading-tight block">
                 {isLimpiezaRole ? "*** Paciente Oculto ***" : cama.PatientName || 'Sin nombre'}
               </span>
             </div>
             {cama.DoctorName && !isLimpiezaRole && (
-              <div className="flex items-start gap-2">
-                <FaUserMd className="mt-0.5 flex-shrink-0 text-slate-400 text-[11px]" aria-hidden="true" />
+              <div className="flex items-start gap-1.5 px-1">
+                <span className="text-[11px]">👨‍⚕️</span>
                 <span className="text-[11px] text-slate-500 leading-tight truncate block">{cama.DoctorName}</span>
               </div>
             )}
             {cama.PTNum && !isLimpiezaRole && (
               <button
                 onClick={(e) => handleEHRClick(e, cama.PTNum)}
-                className="mt-2 flex items-center justify-center gap-1.5 w-full py-1.5 px-2 bg-white hover:bg-slate-50 text-slate-600 rounded-lg text-[11px] font-medium border border-slate-200 hover:border-slate-300 transition-all shadow-sm"
+                className="he-exp-btn"
               >
-                <FiFileText className="text-xs text-slate-400" />
+                <FiFileText className="text-xs" />
                 <span>Expediente</span>
               </button>
             )}
           </div>
         ) : isInhabilitada ? (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 py-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 py-2 px-1">
             <FaLock className="text-slate-400 text-[11px]" aria-hidden="true" />
-            <span>No disponible</span>
+            <span className="font-bold">No disponible</span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 py-2">
-            <FaDoorOpen className="text-emerald-400 text-[11px]" aria-hidden="true" />
-            <span className="font-medium text-emerald-600">Disponible para ingreso</span>
+          <div className="he-disponible">
+            <span>🛏️</span>
+            <span>Disponible para ingreso</span>
           </div>
         )}
       </div>
 
       {cama.RoomCode && (
-        <div className="mt-3 pt-2 border-t border-slate-100">
-          <span className="text-[10px] text-slate-400 font-mono">{cama.RoomCode}</span>
+        <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+          <span className="he-roomcode">{cama.RoomCode}</span>
+          <span className="text-[10px] text-slate-300 font-bold">{isOcupada ? '🔴' : '🟢'}</span>
         </div>
       )}
     </button>
@@ -254,7 +257,7 @@ const PatientTimelineModal = ({ cama, timelineData, loadingTimeline, onClose, on
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 rounded-xl border border-blue-100">
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                      <FiInfoCircle className="w-4 h-4 text-hes-blue-main" />
+                      <FaInfoCircle className="w-4 h-4 text-hes-blue-main" />
                     </div>
                     <h3 className="font-semibold text-hes-blue-main">Ficha Rápida</h3>
                   </div>
@@ -400,10 +403,10 @@ const CleaningModal = ({ cama, estadoLimpieza, setEstadoLimpieza, notasLimpieza,
             </div>
           )}
 
-          {!requiresNotes && cleaningStatus && (
+          {!requiresNotes && cama?.estado_limpieza && (
             <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
               <p className="text-sm text-slate-600">
-                <span className="font-medium">Estado actual:</span> {cleaningStatus}
+                <span className="font-medium">Estado actual:</span> {cama.estado_limpieza}
               </p>
             </div>
           )}
@@ -433,27 +436,26 @@ const CleaningModal = ({ cama, estadoLimpieza, setEstadoLimpieza, notasLimpieza,
 
 const GroupHeader = ({ groupName, count }) => {
   const config = GROUP_CONFIG[groupName] || { icon: '📍', color: 'slate' };
-  const colorClasses = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-100',
-    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-    red: 'bg-red-50 text-red-700 border-red-100',
-    purple: 'bg-purple-50 text-purple-700 border-purple-100',
-    pink: 'bg-pink-50 text-pink-700 border-pink-100',
-    orange: 'bg-orange-50 text-orange-700 border-orange-100',
-    slate: 'bg-slate-50 text-slate-700 border-slate-100',
-    cyan: 'bg-cyan-50 text-cyan-700 border-cyan-100',
+  const grads = {
+    blue: 'linear-gradient(135deg,#004687,#0088c9)',
+    indigo: 'linear-gradient(135deg,#4f46e5,#06b6d4)',
+    red: 'linear-gradient(135deg,#dc2626,#f97316)',
+    purple: 'linear-gradient(135deg,#7c3aed,#06b6d4)',
+    pink: 'linear-gradient(135deg,#db2777,#f472b6)',
+    orange: 'linear-gradient(135deg,#ea580c,#f59e0b)',
+    slate: 'linear-gradient(135deg,#475569,#94a3b8)',
+    cyan: 'linear-gradient(135deg,#0e7490,#22d3ee)',
   };
-  const classes = colorClasses[config.color] || colorClasses.slate;
 
   return (
-    <div className="mb-6">
-      <h2 className="flex items-center gap-3 mb-4">
-        <span className="text-xl">{config.icon}</span>
-        <span className="text-lg font-semibold text-slate-800">{groupName}</span>
-        <span className={`ml-auto px-3 py-1 text-xs font-bold rounded-full border ${classes}`}>
-          {count} cama{count !== 1 ? 's' : ''}
+    <div className="mb-4">
+      <div className="he-group-head">
+        <span className="he-group-icon" style={{ background: grads[config.color] || grads.slate }}>{config.icon}</span>
+        <span className="text-[16px] font-black text-slate-900 tracking-tight">{groupName}</span>
+        <span className="ml-auto text-[11px] font-black px-3 py-1 rounded-full bg-white text-slate-700 border border-slate-200 shadow-sm">
+          🛏️ {count} cama{count !== 1 ? 's' : ''}
         </span>
-      </h2>
+      </div>
     </div>
   );
 };
@@ -467,7 +469,7 @@ const EmptyState = ({ title, description, icon: Icon, action }) => (
     <p className="text-sm text-slate-500 mb-6 max-w-sm">{description}</p>
     {action && (
       <button onClick={action} className="px-4 py-2 bg-hes-blue-main text-white font-medium rounded-lg hover:bg-hes-blue-cross transition-colors flex items-center gap-2">
-        <FiSync className="w-4 h-4" />
+        <FaSync className="w-4 h-4" />
         {action.label || 'Reintentar'}
       </button>
     )}
@@ -679,8 +681,8 @@ const CamasDashboard = () => {
 
   if (loading && camas.length === 0) {
     return (
-      <div className="w-full p-6 pb-10 bg-slate-50/50 min-h-screen">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <div className="he-camas-page w-full p-6 pb-10 min-h-screen">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {[...Array(10)].map((_, i) => <SkeletonCard key={i} />)}
         </div>
       </div>
@@ -688,7 +690,7 @@ const CamasDashboard = () => {
   }
 
   return (
-    <div className="w-full p-6 pb-10 bg-slate-50/50 min-h-screen">
+    <div className="he-camas-page w-full p-4 md:p-6 pb-10 min-h-screen">
       <style jsx>{`
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -699,29 +701,34 @@ const CamasDashboard = () => {
       `}</style>
 
       {/* Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-800 tracking-tight flex items-center gap-2">
-            <FaBed className="w-6 h-6 text-hes-blue-main" />
-            Ocupación de Camas
-          </h1>
-          <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
-            <span className="flex items-center gap-1">
-              <FaInfoCircle className="w-3 h-3" />
-              Fuente: V_MRPT & PC
-            </span>
-            <span className="text-slate-300">•</span>
-            <span className="flex items-center gap-1 text-emerald-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Auto-refresh (30s)
-            </span>
-            {lastUpdate && (
-              <>
-                <span className="text-slate-300">•</span>
-                <span>Actualizado: {lastUpdate.toLocaleTimeString('es-MX', { hour: '2-digit', minute:'2-digit' })}</span>
-              </>
-            )}
-          </p>
+      <div className="he-camas-header flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 p-4 md:p-5 pl-5 md:pl-6">
+        <div className="flex items-start gap-3">
+          <div className="he-camas-title-icon">🛏️</div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">🏥 Mapa hospitalario en vivo</span>
+              <h1 className="text-[22px] font-black text-slate-900 tracking-tight">
+                Ocupación de Camas
+              </h1>
+            </div>
+            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="flex items-center gap-1">
+                <FaInfoCircle className="w-3 h-3" />
+                Fuente: V_MRPT & PC
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Auto-refresh (30s)
+              </span>
+              {lastUpdate && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <span>Actualizado: {lastUpdate.toLocaleTimeString('es-MX', { hour: '2-digit', minute:'2-digit' })}</span>
+                </>
+              )}
+            </p>
+          </div>
         </div>
         
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
@@ -731,8 +738,8 @@ const CamasDashboard = () => {
             </div>
             <input
               type="text"
-              placeholder="Buscar cama, paciente, código..."
-              className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-xl text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-hes-blue-main/20 focus:border-hes-blue-main transition-all shadow-sm"
+              placeholder="🔍 Buscar cama, paciente, código..."
+              className="he-search-camas block w-full pl-10 pr-3 py-2.5 text-sm placeholder-slate-400 focus:outline-none transition-all shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               aria-label="Buscar camas"
@@ -740,10 +747,10 @@ const CamasDashboard = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1" role="group" aria-label="Vista">
+            <div className="he-view-toggle flex gap-1 p-1" role="group" aria-label="Vista">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-hes-blue-main text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`p-2 transition-colors ${viewMode === 'grid' ? 'active' : 'text-slate-500 hover:text-slate-700'}`}
                 aria-label="Vista cuadrícula"
                 aria-pressed={viewMode === 'grid'}
               >
@@ -751,7 +758,7 @@ const CamasDashboard = () => {
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-hes-blue-main text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`p-2 transition-colors ${viewMode === 'list' ? 'active' : 'text-slate-500 hover:text-slate-700'}`}
                 aria-label="Vista lista"
                 aria-pressed={viewMode === 'list'}
               >
@@ -759,7 +766,7 @@ const CamasDashboard = () => {
               </button>
             </div>
 
-            <div className="flex gap-1.5 text-xs font-medium overflow-x-auto pb-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
               <StatPill label="Total" value={stats.total} variant="default" />
               <StatPill label="Libres" value={stats.libres} variant="success" />
               <StatPill label="Ocupadas" value={stats.ocupadas} variant="danger" />
@@ -780,13 +787,13 @@ const CamasDashboard = () => {
       )}
 
       {camasProblematicas.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 mb-6 shadow-sm rounded-xl flex items-start gap-3" role="alert">
-          <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+        <div className="he-alert-limpieza p-4 mb-6 flex items-start gap-3" role="alert">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-white" style={{ background: 'linear-gradient(135deg,#f59e0b,#f97316)' }}>
             <FaBell className="w-4 h-4" />
           </div>
           <div>
-            <p className="font-semibold text-sm">Notificación de Mantenimiento / Limpieza</p>
-            <p className="text-xs text-amber-700 mt-0.5">
+            <p className="font-black text-sm text-amber-900">🔔 Notificación de Mantenimiento / Limpieza</p>
+            <p className="text-xs text-amber-800 mt-0.5">
               Hay <strong>{camasProblematicas.length}</strong> cama{camasProblematicas.length !== 1 ? 's' : ''} con paciente registrado 
               cuyo estado de limpieza <strong>NO es "Disponible"</strong>.
             </p>
@@ -808,7 +815,7 @@ const CamasDashboard = () => {
             <div key={groupName}>
               <GroupHeader groupName={groupName} count={groupCamasList.length} />
               
-              <div className={`grid gap-3 ${
+              <div className={`grid gap-4 ${
                 viewMode === 'grid' 
                   ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' 
                   : 'grid-cols-1'
@@ -864,17 +871,17 @@ const CamasDashboard = () => {
 };
 
 const StatPill = ({ label, value, variant }) => {
-  const variants = {
-    default: 'bg-slate-50 border-slate-200 text-slate-600',
-    success: 'bg-emerald-50 border-emerald-100 text-emerald-700',
-    danger: 'bg-red-50 border-red-100 text-red-700',
-    warning: 'bg-amber-50 border-amber-100 text-amber-700',
-    secondary: 'bg-slate-100 border-slate-200 text-slate-700',
+  const styles = {
+    default: { background: '#fff', color: '#334155', borderColor: '#cbd5e1' },
+    success: { background: 'linear-gradient(180deg,#ecfdf5,#d1fae5)', color: '#065f46', borderColor: '#6ee7b7' },
+    danger: { background: 'linear-gradient(180deg,#fef2f2,#fee2e2)', color: '#991b1b', borderColor: '#fca5a5' },
+    warning: { background: 'linear-gradient(180deg,#fffbeb,#fef3c7)', color: '#92400e', borderColor: '#fcd34d' },
+    secondary: { background: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' },
   };
   return (
-    <div className={`px-2.5 py-1.5 rounded-lg border whitespace-nowrap ${variants[variant]}`} role="status" aria-live="polite">
-      <span className="font-semibold">{value}</span>
-      <span className="ml-1 text-[10px] opacity-75">{label}</span>
+    <div className="he-stat-pill px-3.5 py-1.5 text-[12px] whitespace-nowrap flex items-center gap-1.5" style={styles[variant] || styles.default} role="status" aria-live="polite">
+      <span className="font-bold opacity-80">{label}:</span>
+      <span className="font-black text-[14px]">{value}</span>
     </div>
   );
 };

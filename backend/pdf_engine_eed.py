@@ -1,4 +1,5 @@
 import os
+import re
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak, NextPageTemplate
@@ -21,10 +22,12 @@ except ModuleNotFoundError:
 BLUE_BAR_COLOR = colors.HexColor('#005691')
 MIDNIGHT_BLUE = colors.HexColor('#191970')
 
-def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
+def generar_pdf_eed(pt_data: dict, force_output_path=None, firma_data: dict = None) -> str:
     pdf_dir = os.path.join(os.path.dirname(__file__), 'static', 'pdfs')
     os.makedirs(pdf_dir, exist_ok=True)
     output_path = force_output_path or os.path.join(pdf_dir, f"CI_EED_{pt_data.get('expediente', 'UNK')}.pdf")
+    if firma_data:
+        pt_data['firma_data'] = firma_data
 
     content_x = FRAME_X + 16.0
     content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
@@ -51,13 +54,13 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
         pageTemplates=[template_p1, template_later]
     )
 
-    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.0, leading=8.6, textColor=TEXT_MUTED)
-    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=TEXT_DARK)
-    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=RED_ALERT)
+    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.4, leading=9.0, textColor=TEXT_MUTED)
+    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.8, leading=9.5, textColor=TEXT_DARK)
+    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.8, leading=9.5, textColor=RED_ALERT)
     
     style_title = ParagraphStyle('Title', fontName='Helvetica-Bold', fontSize=10.5, leading=12.5, textColor=PRIMARY_BLUE, alignment=TA_CENTER, spaceAfter=8)
-    style_subtitle = ParagraphStyle('SubTitle', fontName='Helvetica-Bold', fontSize=8.5, leading=10.5, textColor=MIDNIGHT_BLUE, alignment=TA_CENTER, spaceAfter=6)
-    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=8.0, leading=10.5, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=6)
+    style_subtitle = ParagraphStyle('SubTitle', fontName='Helvetica-Bold', fontSize=8.8, leading=11.0, textColor=MIDNIGHT_BLUE, alignment=TA_CENTER, spaceAfter=6)
+    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=8.0, leading=11.2, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=8)
     
     story = []
 
@@ -104,35 +107,64 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
     story.append(Spacer(1, 10))
     
     # Firmas
-    sig_label = ParagraphStyle('SigLabel', fontName='Helvetica-Oblique', fontSize=7.0, leading=8.5, textColor=TEXT_MUTED, alignment=TA_CENTER)
-    sig_name = ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=8.0, leading=9.5, alignment=TA_CENTER)
+    sig_name = ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=7.8, leading=9.5, alignment=TA_CENTER)
+    sig_space_p = Paragraph("&nbsp;", ParagraphStyle('SigSpace', fontName='Helvetica', fontSize=8.0, leading=12.0, textColor=colors.transparent, alignment=TA_CENTER))
     
+    # Sello biométrico paciente si existe
+    firma_data = pt_data.get('firma_data', {})
+    if pt_data.get('firma_paciente_biometrica') or pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')):
+        sello_pac_val = str(pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')) or 'BIO-HES:OK')[:24]
+        pac_stamp_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ AUTORIZADO CON HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_pac_val}</font></font>
+        """
+        pac_sig_p = Paragraph(pac_stamp_html, ParagraphStyle('SigStampP', fontName='Helvetica', fontSize=5.0, leading=6.5, alignment=TA_CENTER))
+    else:
+        pac_sig_p = sig_space_p
+
     sig_col_w = (content_w - 40) / 2
+    raw_capaz = pt_data.get('paciente_capaz', True)
+    if isinstance(raw_capaz, str):
+        paciente_capaz = raw_capaz.lower() in ('true', '1', 'si', 'yes')
+    elif isinstance(raw_capaz, (int, float)):
+        paciente_capaz = bool(raw_capaz)
+    else:
+        paciente_capaz = bool(raw_capaz)
+
+    responsable_nom = (pt_data.get('responsable') or pt_data.get('pariente') or pt_data.get('representante_legal') or pt_data.get('declarante') or '').strip()
+    has_tutor = bool(responsable_nom) or (not paciente_capaz)
+
+    parentesco_tutor = (pt_data.get('parentesco') or pt_data.get('parentesco_declarante') or pt_data.get('parentesco_paciente') or 'Tutor / Representante Legal').strip()
+    if parentesco_tutor.upper() in ('PACIENTE', 'TITULAR', 'DIRECTO'):
+        parentesco_tutor = 'Tutor / Representante Legal'
+
+    paciente_clean = re.sub(r'\s*\([^)]*\)', '', str(pt_data.get('nombre', '') or '')).strip()
+    resp_clean = re.sub(r'\s*\([^)]*\)', '', str(responsable_nom or ('Tutor / Representante Legal' if not paciente_capaz else ''))).strip()
+
+    paciente_txt = f"<b>{paciente_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: Paciente</b></i></font>" if paciente_clean else "<b>Nombre completo del paciente</b>"
+    resp_txt = f"<b>{resp_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_tutor}</b></i></font>" if resp_clean else "<b>Nombre completo del familiar o tutor</b>"
+
     sig_row1 = [
         [
-            Paragraph("&nbsp;", ParagraphStyle('Sp1', fontSize=16, leading=16)), '',
-            Paragraph("&nbsp;", ParagraphStyle('Sp1', fontSize=16, leading=16)),
+            (pac_sig_p if paciente_capaz else sig_space_p), '',
+            (pac_sig_p if has_tutor else sig_space_p),
         ],
         [
-            Paragraph(f"<b>{pt_data.get('nombre', '')}</b>", sig_name), '',
-            Paragraph(f"<b>{pt_data.get('responsable', '')}</b>", sig_name),
-        ],
-        [
-            Paragraph("Nombre y Firma del Paciente", sig_label), '',
-            Paragraph("Nombre y Firma del Familiar o Responsable", sig_label),
+            Paragraph(paciente_txt, sig_name), '',
+            Paragraph(resp_txt, sig_name),
         ]
     ]
     t_r1 = Table(sig_row1, colWidths=[sig_col_w, 40, sig_col_w])
     t_r1.setStyle(TableStyle([
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+        ('VALIGN', (0,1), (-1,1), 'TOP'),
         ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
         ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
-        ('BOTTOMPADDING', (0,0), (-1,0), 1),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 1),
-        ('TOPPADDING', (0,2), (-1,2), 1),
-        ('BOTTOMPADDING', (0,2), (-1,2), 1),
+        ('TOPPADDING', (0,0), (-1,0), 0),
+        ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+        ('TOPPADDING', (0,1), (-1,1), 2.5),
+        ('BOTTOMPADDING', (0,1), (-1,1), 0),
     ]))
     story.append(t_r1)
     story.append(Spacer(1, 10))
@@ -145,26 +177,29 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
         sello_raw = str(firma_data.get('sello_digital') or firma_data.get('hash_sha256') or '')
         sello_resumido = (sello_raw[:28] + '...') if len(sello_raw) > 28 else sello_raw
         fecha_txt = firma_data.get('fecha_hora_firma') or pt_data.get('fecha_hora') or ''
-        stamp_html = f"<font size='5.8' color='#006633'><b>[FIRMADO BIOMÉTRICAMENTE CON HUELLA]</b></font><br/><font size='5' color='#004d26'><b>NOM-004-SSA3-2012 / NOM-024-SSA3-2012</b></font><br/><font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>"
+        stamp_html = f"<font size='5.8' color='#006633'><b>[✔ FIRMADO BIOMÉTRICAMENTE CON HUELLA]</b></font><br/><font size='5' color='#004d26'><b>NOM-004-SSA3-2012 / NOM-024-SSA3-2012</b></font><br/><font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>"
         top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
     else:
-        top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=16, leading=16))
+        top_sig_p = sig_space_p
         
+    doc_nom = pt_data.get('firma_data', {}).get('nombre_medico') or pt_data.get('medico', '') or 'Médico Autorizado'
+    doc_ced = pt_data.get('firma_data', {}).get('cedula') or pt_data.get('cedula', '')
+    doctor_sig_text_eed = f"<b>{doc_nom}</b><br/><font size='6.2' color='#334155'><i><b>CÉD. PROF. {doc_ced}</b></i></font>" if doc_ced else f"<b>{doc_nom}</b>"
+
     medico_sig_data = [
         [ top_sig_p ],
-        [ Paragraph(f"<b>{pt_data.get('firma_data', {}).get('nombre_medico') or pt_data.get('medico', '')}</b><br/><font size='7' color='#444'>Céd. Prof. {pt_data.get('firma_data', {}).get('cedula') or pt_data.get('cedula', '')}</font>", ParagraphStyle('SigM', fontName='Helvetica', fontSize=8.0, leading=9.5, alignment=TA_CENTER)) ],
-        [ Paragraph("<i>Nombre, firma y Cédula Profesional del Médico Autorizado</i>", sig_label) ]
+        [ Paragraph(doctor_sig_text_eed, ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)) ]
     ]
     t_med_sig = Table(medico_sig_data, colWidths=[med_col_w])
     t_med_sig.setStyle(TableStyle([
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('VALIGN', (0,0), (0,0), 'BOTTOM'),
+        ('VALIGN', (0,1), (0,1), 'TOP'),
         ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-        ('BOTTOMPADDING', (0,0), (-1,0), 1),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 1),
-        ('TOPPADDING', (0,2), (-1,2), 1),
-        ('BOTTOMPADDING', (0,2), (-1,2), 1),
+        ('TOPPADDING', (0,0), (-1,0), 0),
+        ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+        ('TOPPADDING', (0,1), (-1,1), 2.5),
+        ('BOTTOMPADDING', (0,1), (-1,1), 0),
     ]))
     
     wrapper = Table([[t_med_sig]], colWidths=[content_w])
@@ -259,6 +294,9 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
     story.append(Spacer(1, 4))
     story.append(Paragraph(pt_data.get("comentarios", "Sin comentarios.") or "Sin comentarios.", style_body))
 
+    expediente_val = pt_data.get('expediente') or pt_data.get('mrn') or pt_data.get('pt_num', '')
+    pt_num_val = str(pt_data.get('pt_num', '') or expediente_val or '')
+
     doc_info = {
         'title': 'CONSENTIMIENTO INFORMADO PARA ECOCARDIOGRAMA DE ESTRÉS CON DOBUTAMINA',
         'title_lines': [
@@ -266,6 +304,11 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
             'ECOCARDIOGRAMA DE ESTRÉS CON DOBUTAMINA'
         ],
         'code': 'HE-DIRMED-SINPRO-PLT-EED',
+        'expediente': expediente_val,
+        'folio': expediente_val,
+        'pt_num': pt_num_val,
+        'slot': pt_data.get('slot') or pt_data.get('mrnum') or 1,
+        'draw_qr': True
     }
 
     def make_canvas(*args, **kwargs):
@@ -276,3 +319,6 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None) -> str:
 
     doc.build(story, canvasmaker=make_canvas)
     return output_path
+
+generate_consentimiento_eed = generar_pdf_eed
+

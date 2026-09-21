@@ -1,0 +1,110 @@
+﻿[
+    {
+        "path":  "dummy_15.pdf",
+        "files":  1,
+        "bytes":  374124,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "dummy_19.pdf",
+        "files":  1,
+        "bytes":  375033,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_07_generated.pdf",
+        "files":  1,
+        "bytes":  371714,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_07_gen_p1.png",
+        "files":  1,
+        "bytes":  324399,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_07_page_1.png",
+        "files":  1,
+        "bytes":  361209,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_07_tutor_generated.pdf",
+        "files":  1,
+        "bytes":  371661,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_07_tutor_gen_p1.png",
+        "files":  1,
+        "bytes":  322109,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_page_1.png",
+        "files":  1,
+        "bytes":  287421,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_page_2.png",
+        "files":  1,
+        "bytes":  209946,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_perfect.pdf",
+        "files":  1,
+        "bytes":  374258,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_perfect_p1.png",
+        "files":  1,
+        "bytes":  313712,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_perfect_p2.png",
+        "files":  1,
+        "bytes":  216235,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_tune.pdf",
+        "files":  1,
+        "bytes":  374202,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_19_verify.pdf",
+        "files":  1,
+        "bytes":  374027,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_final_07.pdf",
+        "files":  1,
+        "bytes":  371500,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_final_07_tutor.pdf",
+        "files":  1,
+        "bytes":  371635,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "test_verified_07.pdf",
+        "files":  1,
+        "bytes":  372546,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    },
+    {
+        "path":  "pase_a_produccion",
+        "files":  126,
+        "bytes":  36141284,
+        "reason":  "Salida de prueba o paquete regenerable obsoleto"
+    }
+]

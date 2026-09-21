@@ -1,0 +1,6 @@
+-r requirements.txt
+
+alembic>=1.14,<2
+pytest>=8,<10
+pip-audit>=2.9,<3
+testcontainers[postgres]>=4.10,<5

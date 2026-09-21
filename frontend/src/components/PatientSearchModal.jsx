@@ -90,7 +90,7 @@ export default function PatientSearchModal({ isOpen, onClose }) {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar paciente por Nombre, Folio (#5704) o CURP..."
+              placeholder="Buscar paciente por Nombre, Folio o CURP..."
               className="w-full bg-transparent border-none outline-none text-slate-800 text-sm md:text-base font-bold placeholder:text-slate-400 placeholder:font-medium"
             />
           </div>

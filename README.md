@@ -1,4 +1,4 @@
-﻿# 🏥 Bitácora Médica HES (MediReg HES)
+# 🏥 Bitácora Médica HES (MediReg HES)
 
 Sistema integral de gestión clínica, control de atenciones médicas, expediente electrónico (EHR), auditoría biométrica, firma electrónica avanzada (FEA) y generación de formatos clínicos oficiales para el **Hospital Escandón**.
 
@@ -64,10 +64,12 @@ Bitacora_HES/
 │   ├── main.py                             # Orquestador, middlewares y endpoints
 │   ├── security.py                         # Seguridad JWT, bcrypt y decoradores require_role
 │   ├── crypto_fea.py                       # Criptografía asimétrica FEA con historial de llaves
-│   ├── test_crypto_fea.py                  # Suite de pruebas criptográficas FEA
+│   ├── tsa_client.py                       # Cliente de sellado de tiempo RFC 3161
+│   ├── vertical_signer.py                  # Integración de firma con API Vertical / ERP
 │   ├── models.py / schemas.py              # Modelos SQLAlchemy y esquemas Pydantic
 │   ├── kh_database.py                      # Conector de solo lectura a SQL Server (KH_HE)
-│   ├── pdf_engine_v2.py                    # Motor PDF ReportLab V2 (Formato 87/01, etc.)
+│   ├── pdf_engine_v2.py                    # Motor PDF ReportLab V2 (Formato 87/01 y Base)
+│   ├── pdf_engine_*.py                     # Motores PDF oficiales (Formatos 02, 04, 12, 15, 24, 25, 32, 34, EED)
 │   ├── pdf_generator.py                    # Comprobantes de atención con código QR
 │   ├── routers/
 │   │   ├── __init__.py

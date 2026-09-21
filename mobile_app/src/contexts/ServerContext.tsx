@@ -1,11 +1,17 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, type ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { useRouter } from 'expo-router';
 
-export const ServerContext = createContext(null);
+interface ServerContextValue {
+  serverUrl: string | null;
+  updateServerUrl: (url: string | null) => Promise<void>;
+  isReady: boolean;
+}
 
-export const ServerProvider = ({ children }) => {
-  const [serverUrl, setServerUrl] = useState(null);
+export const ServerContext = createContext<ServerContextValue | null>(null);
+
+export const ServerProvider = ({ children }: { children: ReactNode }) => {
+  const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -25,7 +31,7 @@ export const ServerProvider = ({ children }) => {
     loadServerUrl();
   }, []);
 
-  const updateServerUrl = async (url) => {
+  const updateServerUrl = async (url: string | null) => {
     try {
       if (!url) {
         await SecureStore.deleteItemAsync('server_url');

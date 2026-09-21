@@ -1,0 +1,6 @@
+{
+  "folder": "diario",
+  "format": "YYYY-MM-DD",
+  "template": "plantillas/Nota-Diaria.md",
+  "autorun": false
+}

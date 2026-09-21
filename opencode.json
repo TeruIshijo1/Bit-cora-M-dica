@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "docs/00_Inicio.md",
+    "docs/Guia-Desarrollo-IA.md",
+    "docs/Arquitectura.md",
+    "docs/*.md",
+    "docs/decisiones/*.md"
+  ],
+  "references": {
+    "vault-hes": {
+      "path": "docs",
+      "description": "Bóveda Obsidian fuente de verdad HES: arquitectura, FEA, biometría, PDFs, NOM, API, pases. Usar para cualquier tarea de backend, frontend, firma o deploy."
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useServer } from '../contexts/ServerContext';
 
 export default function ServerSetupScreen() {
@@ -15,16 +15,23 @@ export default function ServerSetupScreen() {
       return;
     }
     
-    // Validar formato de URL básico
-    if (!urlInput.startsWith('http://') && !urlInput.startsWith('https://')) {
-      setError('La URL debe empezar con http:// o https://');
+    let parsed: URL;
+    try {
+      parsed = new URL(urlInput.trim());
+    } catch {
+      setError('La URL del servidor no es válida.');
+      return;
+    }
+    const localDevelopment = __DEV__ && parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '10.0.2.2'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !localDevelopment) {
+      setError('El servidor debe usar HTTPS. HTTP sólo se permite en desarrollo local.');
       return;
     }
 
     try {
       await updateServerUrl(urlInput);
-      router.replace('/login');
-    } catch (err) {
+      router.replace('/login' as Href);
+    } catch {
       setError('Error al guardar la configuración.');
     }
   };

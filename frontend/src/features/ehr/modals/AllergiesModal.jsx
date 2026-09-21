@@ -126,27 +126,28 @@ export default function AllergiesModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-scaleUp max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-[18px] max-w-3xl w-full p-5 md:p-6 shadow-2xl border border-slate-200 space-y-5 animate-scaleUp max-h-[90vh] overflow-y-auto">
         
         {/* Cabecera */}
         <div className="flex justify-between items-start border-b border-slate-100 pb-3">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-red-50 text-red-600 rounded-2xl">
-              <FiAlertCircle className="text-2xl" />
+            <div className="p-2.5 bg-red-50 text-red-700 rounded-xl border border-red-100">
+              <FiAlertCircle className="text-xl" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-800">Catálogo de Alergias del Paciente</h3>
+              <h3 className="text-[17px] font-bold text-slate-900 tracking-tight">Alergias del paciente</h3>
               <p className="text-xs text-slate-500">
-                Sincronización de alergias con el catálogo oficial del hospital
+                Sincronizado con el catálogo oficial del hospital
               </p>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose} 
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+            className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors"
+            title="Cerrar"
           >
-            <FiX className="text-xl" />
+            <FiX className="text-lg" />
           </button>
         </div>
 
@@ -167,44 +168,45 @@ export default function AllergiesModal({
         {/* Sección 1: Alergias Activas */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-              <FiActivity className="text-red-500" /> Alergias Registradas del Paciente
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+              <FiActivity className="text-red-600" /> Alergias registradas
             </h4>
-            <span className="text-[11px] font-bold bg-red-50 text-red-700 px-2.5 py-0.5 rounded-full border border-red-100">
-              {allergiesList.length} Activas
+            <span className="text-[11px] font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full border border-slate-200">
+              {allergiesList.length} activas
             </span>
           </div>
 
           {allergiesList.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {allergiesList.map((al) => (
-                <div key={al.ptal_num} className="p-3.5 rounded-2xl border border-red-100 bg-red-50/30 hover:bg-red-50/60 transition-all flex flex-col justify-between gap-2 shadow-2xs">
-                  <div className="space-y-1">
+                <div key={al.ptal_num} className="he-alerg-card p-3.5 flex flex-col justify-between gap-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="font-extrabold text-slate-800 text-xs leading-snug">
+                      <span className="font-bold text-slate-900 text-[13px] leading-snug">
                         {al.allergy_name}
                       </span>
-                      <span className="text-[10px] font-mono bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
-                        Cód: {al.allergy_num}
+                      <span className="he-alerg-code shrink-0">
+                        Cód. {al.allergy_num}
                       </span>
                     </div>
                     {al.notes && (
-                      <p className="text-[11px] text-slate-600 bg-white/80 p-1.5 rounded-lg border border-red-50">
-                        <strong className="text-slate-700">Notas:</strong> {al.notes}
+                      <p className="text-[11.5px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 leading-relaxed">
+                        <strong className="text-slate-700 font-semibold">Notas:</strong> {al.notes}
                       </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-x-2 text-[10px] text-slate-400 pt-1">
-                      {al.allergic_since && <span>Desde: <strong>{al.allergic_since}</strong></span>}
-                      {al.allergic_since && <span>•</span>}
-                      <span>Por: <strong>{al.created_by}</strong> ({al.created_on})</span>
+                    <div className="flex flex-wrap items-center gap-x-2 text-[10.5px] text-slate-400 pt-0.5">
+                      {al.allergic_since && <span>Desde: <strong className="text-slate-600 font-semibold">{al.allergic_since}</strong></span>}
+                      {al.allergic_since && <span>·</span>}
+                      <span>Por: <strong className="text-slate-600 font-semibold">{al.created_by}</strong> ({al.created_on})</span>
                     </div>
                   </div>
-                  <div className="flex justify-end pt-1 border-t border-red-100/60">
+                  <div className="flex justify-end pt-2 border-t border-slate-100">
                     <Button
-                      variant="danger"
+                      variant="outline"
                       size="sm"
                       icon={<FiX className="text-xs" />}
                       onClick={() => handleInactivateAllergy(al.ptal_num)}
+                      className="!text-red-700 !border-red-200 hover:!bg-red-50 hover:!border-red-300"
                     >
                       Inactivar
                     </Button>
@@ -213,29 +215,29 @@ export default function AllergiesModal({
               ))}
             </div>
           ) : (
-            <div className="p-4 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-400">
+            <div className="p-5 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
               El paciente no tiene alergias registradas actualmente.
             </div>
           )}
         </div>
 
         {/* Sección 2: Formulario de Nueva Alergia */}
-        <form onSubmit={handleSaveAllergy} className="space-y-4 pt-4 border-t border-slate-100 bg-slate-50/70 p-4 rounded-2xl border border-slate-200">
-          <h4 className="text-xs font-black uppercase tracking-wider text-hes-blue-main flex items-center gap-1.5">
-            <FiPlus /> Registrar Nueva Alergia (Catálogo Oficial DIS_AL)
+        <form onSubmit={handleSaveAllergy} className="space-y-4 pt-4 border-t border-slate-100">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+            <FiPlus /> Registrar nueva alergia
           </h4>
 
           <div className="space-y-1 text-xs">
-            <label className="block text-[10px] font-bold text-slate-600 uppercase">
-              Buscar Alergia o Sustancia en Catálogo *
+            <label className="block text-[10px] font-bold text-slate-500 uppercase">
+              Buscar en catálogo oficial *
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={searchCatalog}
                 onChange={(e) => setSearchCatalog(e.target.value)}
-                placeholder="Escriba el nombre del fármaco o sustancia (ej. Penicilinas, Sulfas, Betanecol, Huevo)..."
-                className="w-full border border-slate-200 bg-white rounded-xl p-2.5 text-xs font-semibold focus:border-hes-blue-main outline-none"
+                placeholder="Nombre del fármaco o sustancia (ej. Penicilinas, Sulfas, Huevo)..."
+                className="he-search w-full p-2.5 text-xs font-semibold outline-none"
               />
               {loadingCatalog && (
                 <span className="absolute right-3 top-2.5 text-[10px] text-hes-blue-main font-bold animate-pulse">
@@ -265,19 +267,19 @@ export default function AllergiesModal({
             )}
 
             {selectedAllergy && (
-              <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-200 flex items-center justify-between mt-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] bg-hes-blue-main text-white font-extrabold px-1.5 py-0.5 rounded">
-                    ID #{selectedAllergy.allergy_id}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between mt-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] bg-[#0f2a4e] text-white font-bold px-1.5 py-0.5 rounded shrink-0">
+                    ID {selectedAllergy.allergy_id}
                   </span>
-                  <span className="text-xs font-black text-hes-blue-main">
+                  <span className="text-xs font-bold text-slate-900 truncate">
                     {selectedAllergy.name}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => { setSelectedAllergy(null); setSearchCatalog(''); }}
-                  className="text-xs text-slate-400 hover:text-red-500 font-bold"
+                  className="text-xs text-slate-400 hover:text-slate-700 font-semibold shrink-0"
                 >
                   Cambiar
                 </button>
@@ -326,13 +328,13 @@ export default function AllergiesModal({
         </form>
 
         {/* Sección 3: Texto de Formatos Clínicos */}
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
           <div>
-            <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">
-              Texto en Formatos y Notas Clínicas
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Texto impreso en formatos
             </h4>
-            <p className="text-[11px] text-slate-500">
-              Este texto se imprime en el Formato 87/01 y en Dietas.
+            <p className="text-[11px] text-slate-400">
+              Se imprime en el Formato 87/01 y en Dietas.
             </p>
           </div>
 

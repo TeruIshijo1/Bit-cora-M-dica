@@ -1,14 +1,17 @@
 // Imports and basic setup...
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import { FiUserPlus, FiAlertCircle, FiCheckCircle, FiUsers, FiTrash2, FiLock, FiCamera, FiBarChart2, FiDatabase, FiList, FiUser, FiActivity, FiFileText, FiFolder, FiUpload, FiSearch, FiEdit, FiPlusCircle } from 'react-icons/fi';
+import { FiUserPlus, FiAlertCircle, FiCheckCircle, FiUsers, FiTrash2, FiLock, FiCamera, FiBarChart2, FiDatabase, FiList, FiUser, FiActivity, FiFileText, FiFolder, FiUpload, FiSearch, FiEdit, FiEdit3, FiPlusCircle } from 'react-icons/fi';
 import { MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { PatientJourneyModal } from '../components/PatientModals';
+import { FirmantesEpisodioModal } from '../features/biometrics/FirmantesEpisodioModal';
 import AuditLogsTab from '../features/admin/AuditLogsTab';
 import UsersManagerTab from '../features/admin/UsersManagerTab';
+import { captureBelongsToMedicalFlow, medicalBiometricFlow } from '../utils/medicalBiometricEnrollment';
+import { friendlyBiometricError, friendlyReaderStatus } from '../utils/userMessages';
 
 const COLORS = ['#004687', '#0088c9', '#005fa9', '#00974a', '#FFBB28'];
 
@@ -54,8 +57,8 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard'); 
   const [rolActual, setRolActual] = useState(localStorage.getItem('rol'));
   
-  const { status: readerStatus, fmdTemplate, error, devices, resetFmd, startCapture, isAcquiring } = useDigitalPersona();
-  const isReady = devices?.length > 0 && !error;
+  const { status: readerStatus, fmdTemplate, captureContext, challengeId, sessionId, error, devices, resetFmd, startCapture, isAcquiring } = useDigitalPersona();
+  const isReady = devices?.length > 0;
   
   const [formData, setFormData] = useState({ numero_empleado: '', nombre_completo: '', especialidad: '', cedula: '' });
   const [foto, setFoto] = useState(null);
@@ -104,6 +107,9 @@ export default function AdminDashboard() {
   
   const [isHuellaModalOpen, setIsHuellaModalOpen] = useState(false);
   const [medicoParaHuella, setMedicoParaHuella] = useState(null);
+  const [motivoBiometrico, setMotivoBiometrico] = useState('');
+  const [biometricFeedback, setBiometricFeedback] = useState(null);
+  const [savingBiometric, setSavingBiometric] = useState(false);
   const editFileInputRef = useRef(null);
   
   const [stats, setStats] = useState(null);
@@ -118,6 +124,7 @@ export default function AdminDashboard() {
   
   const [trasladosModal, setTrasladosModal] = useState({ open: false, paciente: null, traslados: [] });
   const [journeyModal, setJourneyModal] = useState({ open: false, paciente: null });
+  const [firmantesModal, setFirmantesModal] = useState({ open: false, paciente: null });
   
   // Edit Paciente State
   const [editingPaciente, setEditingPaciente] = useState(null);
@@ -243,6 +250,22 @@ export default function AdminDashboard() {
     } catch(err) { alert("Error al eliminar archivo"); }
   };
 
+  const handleOpenEscaneo = async (id, nombreArchivo) => {
+    try {
+      const response = await api.get(`/escaneos/${id}/archivo`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        responseType: 'blob'
+      });
+      const objectUrl = URL.createObjectURL(response.data);
+      const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      if (!opened) URL.revokeObjectURL(objectUrl);
+      else window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      console.error(`No se pudo abrir ${nombreArchivo}`, err);
+      alert('No se pudo abrir el archivo autorizado');
+    }
+  };
+
   const handleRenameEscaneo = async (id, currentTitle) => {
     const newTitle = window.prompt("Nuevo título:", currentTitle);
     if(newTitle && newTitle !== currentTitle) {
@@ -255,7 +278,13 @@ export default function AdminDashboard() {
 
   const handleAltaPaciente = async (id) => {
     try {
-      await api.put(`/pacientes/${id}/alta`, {}, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const response = await api.put(`/pacientes/${id}/alta`, {}, { headers: {
+        Authorization: `Bearer ${getToken()}`,
+        'Idempotency-Key': crypto.randomUUID()
+      } });
+      if (response.status === 202) {
+        alert(`Alta guardada; sincronización pendiente (${response.data.operation_id}).`);
+      }
       fetchPacientes();
     } catch(e) { alert("Error al dar de alta al paciente"); }
   };
@@ -458,7 +487,6 @@ export default function AdminDashboard() {
       formDataToSend.append('nombre_completo', formData.nombre_completo);
       formDataToSend.append('especialidad', formData.especialidad);
       formDataToSend.append('cedula', formData.cedula);
-      if (fmdTemplate) formDataToSend.append('fmd_template', fmdTemplate);
       if (foto) formDataToSend.append('foto', foto);
       formDataToSend.append('bajo_contrato', bajoContrato);
       if (bajoContrato) {
@@ -541,6 +569,8 @@ export default function AdminDashboard() {
 
   const openHuellaModal = (medico) => {
     setMedicoParaHuella(medico);
+    setMotivoBiometrico('');
+    setBiometricFeedback(null);
     resetFmd();
     setIsHuellaModalOpen(true);
   };
@@ -548,6 +578,8 @@ export default function AdminDashboard() {
   const closeHuellaModal = () => {
     setMedicoParaHuella(null);
     setIsHuellaModalOpen(false);
+    setMotivoBiometrico('');
+    setBiometricFeedback(null);
     resetFmd();
   };
 
@@ -559,22 +591,59 @@ export default function AdminDashboard() {
   useEscapeKey(trasladosModal.open, () => setTrasladosModal({ open: false, paciente: null, traslados: [] }));
   useEscapeKey(cleanModal.open, () => setCleanModal(prev => ({ ...prev, open: false })));
 
-  const handleSaveHuella = async () => {
-    if (!fmdTemplate) {
-      alert("Debes capturar la huella primero.");
+  const biometricFlow = medicoParaHuella ? medicalBiometricFlow(medicoParaHuella) : null;
+  const captureMatchesBiometricFlow = captureBelongsToMedicalFlow(captureContext, medicoParaHuella, biometricFlow);
+
+  const handleStartMedicalCapture = () => {
+    const reason = motivoBiometrico.trim();
+    if (!medicoParaHuella || !biometricFlow) return;
+    if (biometricFlow.requiresReason && !reason) {
+      setBiometricFeedback({ type: 'error', text: 'Escriba el motivo obligatorio antes de capturar.' });
       return;
     }
+    setBiometricFeedback(null);
+    startCapture({
+      action: biometricFlow.action,
+      expectedIdentityRef: `medico:${medicoParaHuella.id}`,
+      documentRef: medicoParaHuella.id
+    });
+  };
+
+  const handleSaveHuella = async () => {
+    if (!fmdTemplate || !challengeId || !sessionId || !captureMatchesBiometricFlow) {
+      setBiometricFeedback({ type: 'error', text: 'La captura no corresponde a este médico o ya no es válida. Vuelva a capturar.' });
+      resetFmd();
+      return;
+    }
+    if (biometricFlow.requiresReason && !motivoBiometrico.trim()) {
+      setBiometricFeedback({ type: 'error', text: 'El motivo es obligatorio.' });
+      return;
+    }
+    setSavingBiometric(true);
+    setBiometricFeedback(null);
     try {
-      const form = new FormData();
-      form.append('fmd_template', fmdTemplate);
-      await api.put(`/medicos/${medicoParaHuella.id}/huella`, form, {
-        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' }
+      const response = await api.post(biometricFlow.endpoint, {
+        fmd_template: fmdTemplate,
+        challenge_id: challengeId,
+        session_id: sessionId,
+        motivo: biometricFlow.requiresReason ? motivoBiometrico.trim() : null
       });
-      alert("Huella registrada exitosamente");
+      const requiresFea = biometricFlow.kind === 'reenroll' && response.data?.requiere_actualizacion_fea;
+      alert(requiresFea
+        ? 'Huella actualizada. Para proteger la identidad del médico, otro usuario autorizado debe completar la activación desde este mismo botón.'
+        : biometricFlow.kind === 'fea'
+          ? 'Activación completada. El médico ya puede entrar y firmar con su huella.'
+          : 'Huella registrada exitosamente.');
       closeHuellaModal();
-      fetchMedicos();
+      await fetchMedicos();
     } catch (e) {
-      alert("Error al registrar huella");
+      setBiometricFeedback({
+        type: 'error',
+        text: friendlyBiometricError(e.response?.data?.detail, 'No fue posible guardar la huella. Intente nuevamente.')
+      });
+      resetFmd();
+    } finally {
+      setSavingBiometric(false);
     }
   };
 
@@ -873,7 +942,7 @@ export default function AdminDashboard() {
                         </div>
                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => handleRenameEscaneo(e.id, e.titulo)} className="text-slate-500 hover:text-blue-600 bg-white border border-slate-200 px-3 py-1 rounded text-xs font-semibold shadow-sm">Renombrar</button>
-                          <a href={`${e.ruta_archivo}`} target="_blank" rel="noreferrer" className="text-white bg-hes-blue-main hover:bg-[#003870] px-3 py-1 rounded text-xs font-semibold shadow-sm">Abrir</a>
+                          <button onClick={() => handleOpenEscaneo(e.id, e.nombre_archivo)} className="text-white bg-hes-blue-main hover:bg-[#003870] px-3 py-1 rounded text-xs font-semibold shadow-sm">Abrir</button>
                           <button onClick={() => handleDeleteEscaneo(e.id)} className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-semibold shadow-sm">X</button>
                         </div>
                       </li>
@@ -1090,6 +1159,13 @@ export default function AdminDashboard() {
                           <button onClick={() => openEditPacienteModal(p)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded font-semibold text-xs border border-blue-200 hover:bg-blue-100" title="Editar">Editar</button>
                           <button onClick={() => openTrasladosModal(p)} className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded font-semibold text-xs border border-indigo-200 hover:bg-indigo-100" title="Historial Traslados">Traslados</button>
                           <button 
+                            onClick={() => setFirmantesModal({ open: true, paciente: p })} 
+                            className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded font-semibold text-xs border border-emerald-200 hover:bg-emerald-100 flex items-center gap-1 shadow-sm" 
+                            title="Firmas y Biometría de Paciente, Tutor y Testigos"
+                          >
+                            <MdFingerprint className="text-sm text-emerald-600" /> Firmas
+                          </button>
+                          <button 
                             onClick={() => handleAltaPaciente(p.id)}
                             className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 rounded font-semibold text-xs border border-red-200"
                           >
@@ -1177,23 +1253,14 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 </div>
-                <div className="flex flex-col items-center justify-center bg-slate-50 p-6 rounded-xl border border-slate-200">
+                <div className="flex flex-col items-center justify-center bg-slate-50 p-6 rounded-xl border border-slate-200 text-center">
                   <h3 className="font-semibold text-slate-700 mb-4">Registro Biométrico</h3>
-                  <div className={`w-40 h-40 rounded-full border-4 flex items-center justify-center relative mb-6 ${fmdTemplate ? 'border-hes-green bg-[#e6f4ed]' : 'border-slate-100 bg-white'}`}>
-                    {isAcquiring && <div className="absolute inset-0 rounded-full border border-hes-blue-light animate-ping opacity-20"></div>}
-                    <MdFingerprint className={`text-7xl ${fmdTemplate ? 'text-hes-green' : isAcquiring ? 'text-hes-blue-main animate-pulse' : 'text-slate-300'}`} />
+                  <div className="w-40 h-40 rounded-full border-4 border-slate-100 bg-white flex items-center justify-center mb-6">
+                    <MdFingerprint className="text-7xl text-slate-300" />
                   </div>
-                  {!isReady && !error && <div className="text-center text-slate-500 text-sm">{(readerStatus === 'Desconectado' || readerStatus === 'Iniciando...') ? 'Iniciando lector...' : readerStatus}</div>}
-                  {error && <div className="text-center text-red-600 text-sm font-medium">{error}</div>}
-                  {isReady && !fmdTemplate && !error && (
-                    <>
-                      <div className="text-center text-hes-blue-main text-sm font-medium mb-3">{readerStatus}</div>
-                      {!isAcquiring && (
-                        <button onClick={startCapture} className="bg-hes-blue-main hover:bg-[#003870] text-white px-6 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all">Capturar Huella</button>
-                      )}
-                    </>
-                  )}
-                  {fmdTemplate && <button onClick={resetFmd} className="mt-4 text-sm text-slate-500 hover:text-slate-700 underline">Volver a capturar</button>}
+                  <p className="text-sm text-slate-600 max-w-xs">
+                    Primero guarde los datos del médico. Después vaya al Directorio y pulse el botón de huella para registrarla.
+                  </p>
                 </div>
               </div>
               <div className="bg-slate-50 p-6 flex flex-col items-center gap-4 border-t border-slate-100">
@@ -1251,7 +1318,11 @@ export default function AdminDashboard() {
                         <td className="p-3 text-sm text-slate-600">{m.especialidad}</td>
                         <td className="p-3 text-sm text-slate-600 text-xs">{m.bajo_contrato ? formatSchedule(m.horario_laboral) : <span className="text-slate-400">Sin Contrato</span>}</td>
                         <td className="p-3 text-sm">
-                          {m.tiene_huella ? (
+                          {m.requiere_actualizacion_fea ? (
+                            <span className="text-amber-700 font-semibold bg-amber-100 px-2 py-1 rounded text-xs flex items-center w-max gap-1"><FiAlertCircle/> Falta activar firma</span>
+                          ) : m.biometric_status === 'LEGACY_RAW' || m.requiere_reenrolamiento ? (
+                            <span className="text-orange-700 font-semibold bg-orange-100 px-2 py-1 rounded text-xs flex items-center w-max gap-1"><FiAlertCircle/> Actualizar huella</span>
+                          ) : m.tiene_huella ? (
                             <span className="text-green-600 font-semibold bg-green-100 px-2 py-1 rounded text-xs flex items-center w-max gap-1"><FiCheckCircle/> Registrada</span>
                           ) : (
                             <span className="text-slate-500 font-semibold bg-slate-200 px-2 py-1 rounded text-xs flex items-center w-max gap-1">Sin huella</span>
@@ -1472,30 +1543,58 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 bg-hes-blue-main text-white flex justify-between items-center">
-              <h2 className="text-xl font-bold">Registrar Huella</h2>
+              <h2 className="text-xl font-bold">{biometricFlow.title}</h2>
             </div>
             <div className="p-6 overflow-y-auto flex-1 text-center flex flex-col items-center">
               <p className="mb-4 text-slate-600 font-semibold">Doctor: {medicoParaHuella.nombre_completo}</p>
+              {biometricFlow.kind === 'reenroll' && (
+                <p className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 text-left">
+                  Se registrará una huella nueva. Las firmas anteriores se conservan. Después, otro usuario autorizado deberá completar la activación.
+                </p>
+              )}
+              {biometricFlow.kind === 'fea' && (
+                <p className="mb-4 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3 text-left">
+                  Último paso: coloque nuevamente la huella del médico. Por seguridad, debe hacerlo un usuario distinto de quien actualizó la huella.
+                </p>
+              )}
+              {biometricFlow.requiresReason && (
+                <div className="w-full text-left mb-4">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1" htmlFor="motivo-biometrico">Motivo de la actualización</label>
+                  <textarea
+                    id="motivo-biometrico"
+                    value={motivoBiometrico}
+                    onChange={event => setMotivoBiometrico(event.target.value)}
+                    disabled={isAcquiring || Boolean(fmdTemplate)}
+                    className="w-full min-h-20 border border-slate-300 rounded-lg p-2 text-sm disabled:bg-slate-100"
+                    placeholder={biometricFlow.kind === 'fea' ? 'Ej. Confirmación posterior al cambio de huella' : 'Ej. Cambio de dedo registrado o lectura anterior deficiente'}
+                  />
+                </div>
+              )}
               <div className={`w-32 h-32 rounded-full border-4 flex items-center justify-center relative mb-4 ${fmdTemplate ? 'border-hes-green bg-[#e6f4ed]' : 'border-slate-100 bg-white'}`}>
                 {isAcquiring && <div className="absolute inset-0 rounded-full border border-hes-blue-light animate-ping opacity-20"></div>}
                 <MdFingerprint className={`text-6xl ${fmdTemplate ? 'text-hes-green' : isAcquiring ? 'text-hes-blue-main animate-pulse' : 'text-slate-300'}`} />
               </div>
               {!isReady && !error && <div className="text-center text-slate-500 text-sm mb-2">{(readerStatus === 'Desconectado' || readerStatus === 'Iniciando...') ? 'Iniciando lector...' : readerStatus}</div>}
-              {error && <div className="text-center text-red-600 text-sm font-medium mb-2">{error}</div>}
-              {isReady && !fmdTemplate && !error && (
+              {error && <div className="text-center text-red-600 text-sm font-medium mb-2">{friendlyBiometricError(error)}</div>}
+              {isReady && !fmdTemplate && (
                 <>
-                  <div className="text-center text-hes-blue-main text-sm font-medium mb-3">{readerStatus}</div>
+                  <div className="text-center text-hes-blue-main text-sm font-medium mb-3">{friendlyReaderStatus(readerStatus)}</div>
                   {!isAcquiring && (
-                    <button onClick={startCapture} className="bg-hes-blue-main hover:bg-[#003870] text-white px-6 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all mb-2">Capturar Huella</button>
+                    <button onClick={handleStartMedicalCapture} className="bg-hes-blue-main hover:bg-[#003870] text-white px-6 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all mb-2">{error ? 'Intentar de nuevo' : 'Leer huella'}</button>
                   )}
                 </>
               )}
-              {fmdTemplate && <p className="text-green-600 font-bold mt-2">¡Huella capturada lista para guardar!</p>}
+              {fmdTemplate && captureMatchesBiometricFlow && <p className="text-green-600 font-bold mt-2">¡Huella capturada y vinculada a este médico!</p>}
               {fmdTemplate && <button onClick={resetFmd} className="mt-2 text-sm text-slate-500 hover:text-slate-700 underline">Volver a capturar</button>}
+              {biometricFeedback && (
+                <div className={`mt-4 w-full rounded-lg p-3 text-sm text-left ${biometricFeedback.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                  {biometricFeedback.text}
+                </div>
+              )}
             </div>
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
-              <button onClick={closeHuellaModal} className="px-6 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-200 transition-colors">Cancelar</button>
-              <button onClick={handleSaveHuella} disabled={!fmdTemplate} className={`px-6 py-2 rounded-lg font-bold text-white shadow-md transition-colors ${!fmdTemplate ? 'bg-slate-400' : 'bg-hes-blue-main hover:bg-[#003870]'}`}>Guardar Huella</button>
+              <button onClick={closeHuellaModal} disabled={savingBiometric} className="px-6 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50">Cancelar</button>
+              <button onClick={handleSaveHuella} disabled={!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric} className={`px-6 py-2 rounded-lg font-bold text-white shadow-md transition-colors ${!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric ? 'bg-slate-400' : 'bg-hes-blue-main hover:bg-[#003870]'}`}>{savingBiometric ? 'Guardando…' : biometricFlow.kind === 'fea' ? 'Terminar activación' : 'Guardar huella'}</button>
             </div>
           </div>
         </div>
@@ -1618,6 +1717,15 @@ export default function AdminDashboard() {
       )}
 
       <PatientJourneyModal isOpen={journeyModal.open} onClose={() => setJourneyModal({ open: false, paciente: null })} paciente={journeyModal.paciente} />
+      
+      {firmantesModal.open && (
+        <FirmantesEpisodioModal 
+          open={firmantesModal.open} 
+          onClose={() => setFirmantesModal({ open: false, paciente: null })} 
+          paciente={firmantesModal.paciente} 
+          onSaveSuccess={() => fetchPacientes()} 
+        />
+      )}
     </div>
   );
 }

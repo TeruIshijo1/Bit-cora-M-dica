@@ -21,6 +21,12 @@ Todos los formatos verticales del hospital deben regirse estrictamente por la **
 | **Borde Perimetral** | `MidnightBlue`, `1.25 pt` | `#191970`, `1.25 pt` | Trazo perimetral del formato |
 | **Ancho Contenido Texto** | `19.36 cm` | **`548.76 pt`** | Espacio interior libre para tablas y texto |
 
+### 📏 Regla Global de Distribución Vertical y Aprovechamiento de Hoja (Anti-Amontonamiento):
+1. **Aprovechamiento Integral de la Hoja**: Todo formato de 1 página debe distribuir armónicamente su contenido a lo largo de la altura útil del marco (~620 pt), abarcando desde la base del encabezado (58 pt) hasta la barra del pie de página (38 pt), evitando dejar vacíos en la parte inferior.
+2. **Separación Armónica entre Secciones**: No compactar el contenido en el tercio superior. Aplicar espaciadores calibrados (`Spacer(1, 6.0)` a `Spacer(1, 10.0)`) y padding vertical en celdas (`3.8 pt` a `4.5 pt`) entre bloques de datos, autorizaciones, descripciones clínicas y marco legal.
+3. **Tipografía Institucional Cómoda**: Utilizar fuentes legibles de `7.8 pt` con interlineado de `10.0 - 10.8 pt` para el cuerpo clínico, y de `6.8 pt` con leading `8.8 pt` para el articulado legal y leyendas de excepción.
+4. **Posicionamiento Inferior de Firmas**: Las firmas y sellos biométricos deben situarse en la parte baja de la hoja, próximos al pie de página, garantizando una holgura generosa (`14 - 16 pt`) entre la primera y segunda fila de firmantes.
+
 ---
 
 ## 🚀 2. Flujo de Creación de un Nuevo Formato (Paso a Paso)
@@ -110,16 +116,46 @@ class RDLCCanvas(canvas.Canvas):
         # 3. Membrete lateral vertical de Fundación
         self.drawImage("lateral_hes_oficial_bold.png", FRAME_X + FRAME_W - 14.5, FRAME_Y + 42.0, width=12.0, height=560.0, mask='auto')
 
-        # 4. Pie de página con numeración dinámica "Página X de Y"
+        # 4. Pie de página institucional con QR de Verificación y Paginación
         foot_h = 38.0
         foot_y = FRAME_Y + 0.5
         self.drawImage("pie_hes_sin_disenador.png", FRAME_X, foot_y, width=FRAME_W, height=foot_h, mask='auto')
         self.setFillColor(BLUE_BAR_COLOR)
         self.rect(FRAME_X, foot_y + foot_h - 4.5, FRAME_W, 4.5, fill=True, stroke=False)
         
-        self.setFont("Helvetica-Bold", 7.5)
+        # QR dinámico de verificación NOM-004 / NOM-024
+        import qrcode, io
+        from reportlab.lib.utils import ImageReader
+        base_url = os.getenv("VERIFICATION_BASE_URL", "https://sistemaspc.tail0c0f17.ts.net").rstrip('/')
+        qr_url = f"{base_url}/verificar?doc={self.doc_info.get('code','HE-CONSUL')}&pt={self.doc_info.get('pt_num','')}&folio={self.doc_info.get('folio','')}"
+        
+        qr = qrcode.QRCode(box_size=4, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        buf = io.BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(buf, format='PNG')
+        buf.seek(0)
+        
+        qr_sz = 25.5
+        qr_x = FRAME_X + FRAME_W - qr_sz - 6.0
+        qr_y = foot_y + 3.5
+        
+        self.setFillColor(colors.white)
+        self.setStrokeColor(BORDER_GREY)
+        self.setLineWidth(0.5)
+        self.roundRect(qr_x - 1.0, qr_y - 1.0, qr_sz + 2.0, qr_sz + 2.0, 1.2, fill=True, stroke=True)
+        self.drawImage(ImageReader(buf), qr_x, qr_y, width=qr_sz, height=qr_sz, mask='auto')
+        
+        # Metadatos de cotejo
+        self.setFont("Helvetica-Bold", 6.2)
         self.setFillColor(PRIMARY_BLUE)
-        self.drawRightString(FRAME_X + FRAME_W - 6, foot_y + 8, f"Página {self._pageNumber} de {total_pages}")
+        self.drawRightString(qr_x - 5.0, foot_y + 19.0, f"Página {self._pageNumber} de {total_pages}")
+        self.setFont("Helvetica-Bold", 4.8)
+        self.setFillColor(DARK_BLUE)
+        self.drawRightString(qr_x - 5.0, foot_y + 12.0, "VERIFICACIÓN ECE")
+        self.setFont("Helvetica", 4.2)
+        self.setFillColor(TEXT_MUTED)
+        self.drawRightString(qr_x - 5.0, foot_y + 6.0, "Cotejo NOM-004-SSA3")
 
         self.restoreState()
 ```
@@ -199,9 +235,111 @@ En **todos los formatos clínicos y consentimientos informados habidos y por hab
    - El campo para ingresar el nombre completo del **Padre, Madre, Tutor o Representante Legal** se vuelve **estrictamente obligatorio** para guardar o firmar el formato.
 
 3. **Supresión Dinámica de Casillas Vacías de Tutor (Estética y Precisión Jurídica)**:
-   - Si el paciente es mayor de edad y capaz (`paciente_capaz = true`), la casilla, línea azul y texto de *'Nombre completo y firma del familiar, tutor o representante legal'* **NO debe dibujarse en blanco ni quedar huérfana**.
-   - El motor PDF reconfigura dinámicamente el bloque de firmas en disposición triangular/piramidal armónica:
-     - **Arriba Izquierda**: Nombre completo y firma del paciente.
-     - **Arriba Derecha**: Nombre completo y firma del testigo.
-     - **Abajo Centrado**: Nombre completo, cédulas y firma del médico tratante (con su Sello Biométrico DigitalPersona) perfectamente centrado entre ambas firmas superiores.
+   - Si el paciente es mayor de edad y capaz (`paciente_capaz = true`), la casilla, línea azul y texto de tutor **NO debe dibujarse en blanco ni quedar huérfana**.
+   - El motor PDF reconfigura dinámicamente el bloque de firmas en disposición triangular/piramidal armónica (Paciente y Testigo arriba; Médico Tratante centrado abajo).
    - La casilla del tutor únicamente se dibuja en cuadrícula 2x2 cuando realmente existe un tutor asignado (menor de edad o paciente incapacitado).
+
+4. **Lógica Dual Dinámica: Autorizo vs No Autorizo / Disentimiento (Formato 15 y equivalentes)**:
+   - Los consentimientos quirúrgicos que contemplan disentimiento disponen de un selector de decisión:
+     - **🟢 SÍ Autorizo (Consentimiento Informado - Hoja 1)**: Genera el formato clínico con los 7 puntos médicos, justificación, riesgos obstétricos/quirúrgicos, alternativas y firmas con distribución piramidal inteligente.
+     - **🔴 NO Autorizo (Disentimiento Informado - Hoja 2)**: Genera el formato de revocación/negativa informada con motivo de no aceptación, cláusula de deslinde de responsabilidad (NOM-004-SSA3-2012), datos de testigo/parentesco y sello biométrico de constancia médica.
+
+---
+
+## ✍️ 7. Regla de Oro Universal para el Bloque de Firmas (Todos los Formatos Habidos y por Haber)
+
+Queda estrictamente establecido como **estándar corporativo obligatorio** para todos los formatos actuales y futuros:
+
+1. **Sobre la Línea Azul (`PRIMARY_BLUE`)**:
+   - **Paciente, Familiares y Testigos**: Se deja el espacio superior en blanco (`Paragraph("&nbsp;", style_sig_space)`) para que se estampe la firma autógrafa física o digital.
+   - **Médico Tratante / Autorizado**: Se posiciona directamente sobre la línea azul el **Sello Biométrico Digital NOM-004 / NOM-024 (DigitalPersona)** si el documento ya fue firmado biométricamente, o el espacio libre en blanco si está pendiente de firma.
+
+2. **Bajo la Línea Azul (Sustitución Total de Etiquetas Genéricas)**:
+   - **NUNCA** deben mostrarse textos genéricos de captura como *"Nombre completo y firma del paciente"*, *"Nombre completo y firma del testigo"* o *"Nombre completo, cédulas y firma del médico tratante"*.
+   - **Paciente**: Se imprime su **Nombre Completo** en negrita: `<b>{paciente_nombre}</b>`.
+   - **Tutor / Representante**: Se imprime su **Nombre Completo** en negrita: `<b>{pariente}</b>` (únicamente si existe tutor activo).
+   - **Testigos**: Se imprime el **Nombre Completo del Testigo** en negrita: `<b>{testigo}</b>`.
+   - **Médico Tratante**:
+     - **Renglón 1**: Nombre completo del médico en negritas (`<b>{medico}</b>`).
+     - **Renglón 2**: Cédula profesional en **cursiva y negrita**: `<font size='6.4' color='#334155'><i><b>CÉD. PROF. {cedula}</b></i></font>`.
+   - **Médico Interno (MIP)**: Nombre en negrita (`<b>{mip_nombre}</b>`) y debajo en cursiva negrita `<i><b>MÉDICO INTERNO DE PREGRADO</b></i>`.
+
+---
+
+## 📋 8. Catálogo de Formatos Activos Implementados
+
+| Código Formato | Nombre Oficial | Servicio | Tabla SQL Server | PK | Motor PDF |
+|---|---|---|---|---|---|
+| `HE-DIRMED-SINPRO-PLT-87/01` | Nota de Evolución (Hasta 3 notas) | Urgencias | `MR_NE_URG` | `MRNum_NE_URG` | `pdf_engine_v2.py` |
+| `HE-DIRMED-CONSUL-PLT-34/01` | Consentimiento Mesa Inclinada (Tilt Test) | Cardiología | `MR_CI_EMI` | `MRNum_CI_EMI` | `pdf_engine_34_01.py` |
+| `HE-DIRMED-CONSUL-PLT-32/01` | Consentimiento Ecocardiograma Transesofágico | Cardiología | `MR_CI_ETE_CARD` | `MRNum_CI_ETE_CARD` | `pdf_engine_32_01.py` |
+| `HE-DIRMED-CONSUL-PLT-EED` | Consentimiento Endoscopia Esofagogastroduodenal | Gastroenterología | `MR_CI_EED` | `MRNum_CI_EED` | `pdf_engine_eed.py` |
+| `HE-DIRMED-CONSUL-PLT-25` | Consentimiento Gineco y Obstetricia (CE) | Consulta Externa | `MR_CI_RGO_CE` | `MRNum_CI_RGO_CE` | `pdf_engine_25.py` |
+| `HE-DIRMED-CONSUL-PLT-12` | Consentimiento Gineco y Obstetricia (Hosp/Urg) | Hosp. y Urgencias | `MR_CI_RGO_HU` | `MRNum_CI_RGO_HU` | `pdf_engine_12.py` |
+| `HE-DIRMED-CONSUL-PLT-04` | Consentimiento Colocación de Catéter Venoso Central | Procedimientos / Cirugía | `MR_CI_CC` | `MRNum_CI_CC` | `pdf_engine_04.py` |
+| `HE-DIRMED-CONSUL-PLT-15` | Consentimiento Informado para Cesárea / Disentimiento | Ginecología y Obstetricia | `MR_CI_CES` | `MRNum_CI_CES` | `pdf_engine_15.py` |
+| `HE-DIRMED-CONSUL-PLT-08` | Consentimiento Tratamiento y Diagnóstico en Admisión Continua | Admisión Continua / Urgencias | `MR_08_CI_DIAGNOSTICO_ADMISION_CONTI` | `MRNum_08_CI_DIAGNOSTICO_ADMISION_CONTI` | `pdf_engine_08.py` |
+| `HE-DIRMED-CONSUL-PLT-02` | Consentimiento Informado Tratamiento Quirúrgico / Disentimiento | Cirugía y Quirófano | `MR_02_CI_TRATAMIENTO_QUIRURGICO` | `MRNum_02_CI_TRATAMIENTO_QUIRURGICO` | `pdf_engine_02.py` |
+
+---
+
+## 📱 9. Estándar Universal de Código QR y Cotejo ECE en Tiempo Real (NOM-004-SSA3-2012 / NOM-024-SSA3-2012)
+
+Para **todos los formatos y consentimientos informados habidos y por haber**:
+
+1. **Inclusión Automática en el Canvas Base (`RDLCCanvas` / `CleanConsentCanvas`)**:
+   - Todo motor de PDF que herede de `RDLCCanvas` o `CleanConsentCanvas` (`backend/pdf_engine_v2.py`) dibuja automáticamente el código QR de cotejo en la esquina inferior derecha del pie de página sin requerir archivos pregenerados en disco.
+   - El código QR se genera en memoria (`io.BytesIO`) y se renderiza con `ImageReader` directamente sobre el pie de página institucional.
+
+2. **Calibración y Dimensiones Físicas del QR**:
+   - **Tamaño:** `25.5 pt × 25.5 pt` (`qr_sz = 25.5`).
+   - **Posición X:** `FRAME_X + FRAME_W - qr_sz - 6.0 pt`.
+   - **Posición Y:** `foot_y + 3.5 pt` (encajado perfectamente dentro del pie de página, sin tocar la barra azul superior).
+   - **Marco Contenedor:** Fondo blanco puro (`colors.white`) con bordes redondeados de `0.5 pt` y radio `1.2 pt` (`roundRect`) que garantiza legibilidad 100% ante cualquier cámara de smartphone.
+   - **Metadatos a la Izquierda del QR:**
+     - `Página X de Y` (Helvetica-Bold 6.2 pt, Azul Institucional `#0056b3`).
+     - `VERIFICACIÓN ECE` (Helvetica-Bold 4.8 pt, Azul Marino `#002855`).
+     - `Cotejo NOM-004-SSA3` (Helvetica 4.2 pt, Gris `#64748b`).
+
+3. **Estructura de la URL de Cotejo**:
+   ```text
+   https://sistemaspc.tail0c0f17.ts.net/verificar?doc={codigo_formato}&pt={pt_num}&folio={folio}
+   ```
+   - La variable de entorno `VERIFICATION_BASE_URL` en `backend/.env` define el dominio o túnel seguro (Tailscale Funnel / Dominio institucional).
+
+4. **Portal Institucional de Verificación (`/verificar`)**:
+   - Al escanear el QR desde cualquier smartphone, el servidor responde con la pantalla institucional oficial:
+     - **Encabezado:** Logo oficial de Hospital Escandón (`logo_hes_oficial.png` en base64) y acreditación NOM-004-SSA3 / NOM-024-SSA3.
+     - **Distintivo:** `Expediente Electrónico Válido e Íntegro`.
+     - **Datos del Paciente:** Nombre completo del paciente consultado en tiempo real desde el ECE, número de expediente y edad.
+     - **Acto Médico:** Nombre del formato normado y estado `AUTORIZADO Y FIRMADO`.
+     - **Atribución y Firma:** Nombre del médico tratante, cédula profesional, fecha/hora de firma, método biométrico DigitalPersona y sellos digitales criptográficos (SHA-256 y FEA).
+     - **Botón de Descarga:** Acceso directo para abrir y descargar el PDF original (`/api/ehr/paciente/{pt_num}/pdf-consentimiento-04`).
+     - **Redes y Canales Oficiales:** Enlaces directos a Facebook, Instagram, TikTok, X, YouTube y Sitio Web de Hospital Escandón.
+     - **Firma de Autoría:** Crédito sutil con enlace interactivo a GitHub (`Autor: Ing. Alberto García M.`).
+
+---
+
+## ⚡ 10. Motor Universal de Resolución, Firma y Sincronización Automática con Vertical (Para los 100+ Formatos)
+
+Para garantizar que **cualquiera de los 100+ formatos clínicos institucionales** (actuales y futuros) funcione de forma automática y transparente sin requerir código manual en cada uno:
+
+1. **Resolución Inteligente de Controladores (`vertical_signer.resolve_vertical_controller_and_pk`)**:
+   - **Caché en Memoria de Esquema SQL Server:** Inspecciona automáticamente todas las tablas clínicas (`MR_%`) de `KH_HE`.
+   - **Inferencia Numérica Multinivel:** Detecta códigos numéricos en el identificador (ej. `02`, `08`, `15`, `24`, `26`, `32`, `34`, `79`, `87`, `88`, etc.) y los vincula automáticamente con su tabla correspondiente (`MR_02_...`, `MR_08_...`, `MR_24_...`, `MR_26_...`).
+   - **Puntuación Semántica de Tokens Clínicos:** Normaliza y compara palabras clave clínicas (`HISTERECTOMIA`, `NO_REANIMACION`, `REANIMACION`, `TINA`, `TERM_EMB`, `AUT_TRANS_HEMO`, `SOL_OP`, `SOL_DIET`, `LV_SPI`, `RTOE_PACE`, `RPS_FQ`, `VRA_HOS`, `ERC_HOS`, `HC_HOS`, `HC_URG`, etc.) asignando la tabla correspondiente con 100% de precisión.
+   - **Regla Estándar de Primary Key:** Resuelve dinámicamente la columna PK como `MRNum_{tabla.replace('MR_', '')}` (estándar homogéneo en el 100% de las 37 tablas clínicas de Vertical).
+
+2. **Firma Nativa Transparente en Vertical (`vertical_signer.sign_in_vertical_api`)**:
+   - Actualiza de forma inmediata en SQL Server:
+     ```sql
+     UPDATE {controller_name} 
+     SET SignedBy = ?, SignedOn = GETDATE(), MR_ST = 'SG', ESignature = COALESCE(ESignature, 'FIRMADO_BIOMETRICAMENTE') 
+     WHERE {pk_field} = ?
+     ```
+   - Invoca la API nativa de Vertical (`_invoke/Execute -> SignRecord`) con credenciales del sistema, generando el token interno y el sello digital nativo.
+   - Auto-relogin transparente en caso de expiración de sesión.
+
+3. **Tarjeta Universal de Expediente en Frontend (`PatientDashboard.jsx`)**:
+   - Cualquier formato del catálogo que se seleccione muestra en tiempo real su historial de folios (`Doc #1`, `Doc #2`), su estado de firma (`FIRMADO` vs `PENDIENTE DE FIRMA`) y botón para **Firmar con Huella** dactilar DigitalPersona.
+   - Si un paciente no tiene registros previos en Vertical para ese formato, ofrece el botón **Crear Registro Inicial en Vertical**, inicializando la fila en SQL Server y habilitando la firma inmediata.

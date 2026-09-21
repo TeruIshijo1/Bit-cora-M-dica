@@ -1,4 +1,7 @@
-﻿import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { purgeBiometrics } from '../hooks/useDigitalPersona';
+import { api } from '../api';
+import { useQueryClient } from '@tanstack/react-query';
 
 const AuthContext = createContext(null);
 
@@ -7,6 +10,7 @@ const AuthContext = createContext(null);
  * Sincroniza de forma reactiva el estado de autenticación y roles con localStorage.
  */
 export function AuthProvider({ children }) {
+  const queryClient = useQueryClient();
   const [token, setToken] = useState(() => localStorage.getItem('token') || null);
   const [user, setUser] = useState(() => {
     const savedToken = localStorage.getItem('token');
@@ -40,6 +44,8 @@ export function AuthProvider({ children }) {
    * @param {string|object} userData Rol en string u objeto con detalles del usuario/médico
    */
   const login = useCallback((authToken, userData) => {
+    queryClient.clear();
+    ['token','rol','usuario','medico','medico_id','nombre_completo','permisos_modulos','formatos_permitidos'].forEach(key=>localStorage.removeItem(key));
     localStorage.setItem('token', authToken);
     
     let userObj = {};
@@ -61,20 +67,32 @@ export function AuthProvider({ children }) {
 
     setToken(authToken);
     setUser(userObj);
-  }, []);
+  }, [queryClient]);
 
   /**
-   * Cierra la sesión activa y purga el almacenamiento local.
+   * Cierra la sesión activa y purga el almacenamiento local y biométrico.
    */
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('rol');
-    localStorage.removeItem('usuario');
-    localStorage.removeItem('medico');
-    localStorage.removeItem('medico_id');
-    setToken(null);
-    setUser(null);
-  }, []);
+  const logout = useCallback(async () => {
+    try {
+      if (localStorage.getItem('token')) await api.post('/auth/logout', null, { timeout: 5000 });
+    } catch {
+      // Local cleanup is mandatory even when the server is unreachable.
+    } finally {
+      purgeBiometrics();
+      localStorage.removeItem('token');
+      localStorage.removeItem('rol');
+      localStorage.removeItem('usuario');
+      localStorage.removeItem('medico');
+      localStorage.removeItem('medico_id');
+      localStorage.removeItem('nombre_completo');
+      localStorage.removeItem('permisos_modulos');
+      localStorage.removeItem('formatos_permitidos');
+      sessionStorage.clear();
+      queryClient.clear();
+      setToken(null);
+      setUser(null);
+    }
+  }, [queryClient]);
 
   /**
    * Verifica si el usuario actual posee alguno de los roles autorizados.

@@ -3,6 +3,8 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText, FiCalendar, FiSearch } from 'react-icons/fi';
 import { MdLocalHospital } from 'react-icons/md';
 import PatientSearchModal from './PatientSearchModal';
+import { purgeBiometrics } from '../hooks/useDigitalPersona';
+import { useQueryClient } from '@tanstack/react-query';
 
 const serverIP = window.location.hostname;
 
@@ -11,6 +13,7 @@ export default function Layout() {
   const [searchOpen, setSearchOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const rol = localStorage.getItem('rol');
   
   // Atajo global Ctrl+K o Cmd+K para abrir buscador
@@ -33,22 +36,37 @@ export default function Layout() {
   }
 
   const handleLogout = () => {
+    // 1. Purga total e inmediata de la memoria y hardware biométrico
+    purgeBiometrics();
+
+    // 2. Limpieza exhaustiva de claves de sesión de usuario
     localStorage.removeItem('token');
     localStorage.removeItem('rol');
     localStorage.removeItem('medico');
+    localStorage.removeItem('usuario');
+    localStorage.removeItem('medico_id');
+    localStorage.removeItem('nombre_completo');
     localStorage.removeItem('permisos_modulos');
     localStorage.removeItem('formatos_permitidos');
+    sessionStorage.clear();
+
+    // 3. Purga de datos en memoria caché de React Query
+    try {
+      queryClient.clear();
+    } catch (_) {}
+
+    // 4. Redirigir a login
     navigate('/login');
   };
 
   const menuItems = [
-    { path: '/admin', label: 'Dashboard Global', icon: <FiActivity />, roles: ['admin', 'sistemas'] },
-    { path: '/rh', label: 'Recursos Humanos', icon: <FiUsers />, roles: ['admin', 'rh', 'sistemas'] },
-    { path: '/agenda', label: 'Mi Agenda', icon: <FiCalendar />, roles: ['admin', 'medico', 'enfermeria', 'sistemas', 'rh'] },
-    { path: '/camas', label: 'Pacientes (Camas)', icon: <MdLocalHospital />, roles: ['admin', 'sistemas', 'enfermeria', 'medico', 'rh'] },
-    { path: '/ehr', label: 'Expediente Clínico', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria', 'sistemas'] },
-    { path: '/captura', label: 'Captura (Enfermería)', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
-    { path: '/firma-express', label: 'Captura / Firmas', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] }
+    { path: '/admin', label: 'Inicio', icon: <FiActivity />, roles: ['admin', 'sistemas'] },
+    { path: '/rh', label: 'Personal', icon: <FiUsers />, roles: ['admin', 'rh', 'sistemas'] },
+    { path: '/agenda', label: 'Agenda', icon: <FiCalendar />, roles: ['admin', 'medico', 'enfermeria', 'sistemas', 'rh'] },
+    { path: '/camas', label: 'Camas y pacientes', icon: <MdLocalHospital />, roles: ['admin', 'sistemas', 'enfermeria', 'medico', 'rh'] },
+    { path: '/ehr', label: 'Expedientes', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria', 'sistemas'] },
+    { path: '/captura', label: 'Registro de enfermería', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
+    { path: '/firma-express', label: 'Firmas pendientes', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] }
   ];
 
   let permisosModulos = {};
@@ -74,7 +92,7 @@ export default function Layout() {
   return (
     <div className="flex flex-col h-screen bg-slate-50">
       {/* Top Header - Minimalist Style */}
-      <header className="bg-hes-blue-main text-white shadow-sm z-20 flex flex-col relative border-b border-slate-700/50">
+      <header className="he-global-header text-white shadow-sm z-20 flex flex-col relative border-b border-slate-700/50">
         <div className="flex justify-between items-center px-4 md:px-6 h-14 md:h-16">
           <div className="flex items-center gap-3">
             <button 
@@ -83,10 +101,13 @@ export default function Layout() {
             >
               {mobileMenuOpen ? <FiX className="text-2xl" /> : <FiMenu className="text-2xl" />}
             </button>
-            <div className="flex items-center justify-center h-8 bg-white rounded-md shadow-sm px-2">
+              <div className="flex items-center justify-center h-9 bg-white rounded-xl shadow-md px-2.5 border border-white/60">
               <img src="/logo.png?v=6" alt="Hospital Escandón" className="h-full w-auto object-contain" />
             </div>
-            <span className="font-semibold text-lg tracking-wide hidden sm:block ml-1">Bitácora HE</span>
+            <div className="flex flex-col leading-none ml-1">
+              <span className="font-black text-[17px] tracking-tight hidden sm:block">Bitácora HE</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300 hidden sm:block">Sistema clínico</span>
+            </div>
           </div>
 
           {/* Desktop Navigation */}
@@ -96,10 +117,10 @@ export default function Layout() {
                 <li key={item.path}>
                   <Link
                     to={item.path}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all font-semibold text-[13px] border border-transparent ${
                       location.pathname === item.path 
-                      ? 'bg-white/10 text-white shadow-sm' 
-                      : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      ? 'he-nav-active text-white shadow-sm' 
+                      : 'text-slate-300 hover:text-white hover:bg-white/10 hover:border-white/10'
                     }`}
                   >
                     <span className="text-base opacity-80">{item.icon}</span>
@@ -116,7 +137,7 @@ export default function Layout() {
               type="button"
               onClick={() => setSearchOpen(true)}
               className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10 transition-all group"
-              title="Buscar Paciente por Nombre, Folio (#5704) o CURP (Ctrl + K)"
+              title="Buscar paciente por nombre, folio o CURP"
             >
               <FiSearch className="text-sm opacity-70 group-hover:opacity-100 transition-opacity" />
               <span className="hidden sm:inline">Buscar</span>
@@ -193,8 +214,13 @@ export default function Layout() {
       <PatientSearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* Main Content Area */}
-      <main className="page-content-scroll">
-        <Outlet />
+      <main className="page-content-scroll flex-1 flex flex-col justify-between">
+        <div className="flex-1">
+          <Outlet />
+        </div>
+        <footer className="py-4 px-6 text-right bg-transparent text-[11px] text-slate-400 font-mono select-none">
+          Uso interno · Hospital Escandón
+        </footer>
       </main>
     </div>
   );

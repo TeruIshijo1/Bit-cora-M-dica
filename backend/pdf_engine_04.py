@@ -1,4 +1,5 @@
 import os
+import re
 import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
@@ -46,16 +47,16 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
     )
 
     # Estilos tipográficos institucionales
-    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.2, leading=9.5, textColor=TEXT_MUTED)
+    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.5, leading=9.5, textColor=TEXT_MUTED)
     style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=8.0, leading=10.5, textColor=TEXT_DARK)
     style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=8.0, leading=10.5, textColor=RED_ALERT)
     
-    style_autoriza = ParagraphStyle('Autoriza', fontName='Helvetica', fontSize=7.8, leading=10.5, textColor=TEXT_DARK, alignment=TA_JUSTIFY)
-    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=7.2, leading=9.8, textColor=TEXT_DARK, alignment=TA_JUSTIFY)
+    style_autoriza = ParagraphStyle('Autoriza', fontName='Helvetica', fontSize=8.0, leading=10.8, textColor=TEXT_DARK, alignment=TA_JUSTIFY)
+    style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=7.8, leading=10.6, textColor=TEXT_DARK, alignment=TA_JUSTIFY)
 
-    style_sig_name = ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=7.8, leading=8.5, textColor=TEXT_DARK, alignment=TA_CENTER)
+    style_sig_name = ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=7.8, leading=9.5, textColor=TEXT_DARK, alignment=TA_CENTER)
     style_sig_label = ParagraphStyle('SigLbl', fontName='Helvetica', fontSize=6.5, leading=8.2, textColor=TEXT_MUTED, alignment=TA_CENTER)
-    style_sig_stamp = ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.5, leading=6.8, textColor=colors.HexColor('#005522'), alignment=TA_CENTER)
+    style_sig_stamp = ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.8, textColor=colors.HexColor('#005522'), alignment=TA_CENTER)
     style_sig_blank = ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=6.0, leading=7.0, textColor=colors.transparent, alignment=TA_CENTER)
 
     story = []
@@ -66,7 +67,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
     fecha_nac = pt_data.get('fecha_nacimiento') or pt_data.get('dob', '')
     edad_raw = str(pt_data.get('edad', '')).strip()
     edad_display = f"{edad_raw} años" if edad_raw and "año" not in edad_raw.lower() else (edad_raw or '____')
-    medico = pt_data.get('medico_tratante') or pt_data.get('n_medico', 'DR. JOSE JOSE PRUEBA ENRIQUEZ')
+    medico = pt_data.get('medico_tratante') or pt_data.get('n_medico') or ''
     cedula = pt_data.get('cedula', '')
     fecha_val = pt_data.get('fecha_atencion') or pt_data.get('fecha_ingreso') or datetime.datetime.now().strftime('%d/%m/%Y')
     hora_val = pt_data.get('hora_atencion') or pt_data.get('hora_ingreso') or datetime.datetime.now().strftime('%H:%M')
@@ -89,14 +90,14 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor('#CBD5E1')),
         ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
-        ('TOPPADDING', (0, 0), (-1, -1), 3.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 3.8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3.8),
         ('LEFTPADDING', (0, 0), (-1, -1), 5.0),
         ('RIGHTPADDING', (0, 0), (-1, -1), 5.0),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     story.append(t_info)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 6.5))
 
     # 2. Párrafo de Autorización Específica
     autoriza_p = Paragraph(
@@ -104,7 +105,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_autoriza
     )
     story.append(autoriza_p)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 5.5))
 
     # 3. Objetivo y Técnica
     obj_p = Paragraph(
@@ -121,7 +122,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(obj_p)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 5.5))
 
     # 4. Riesgos Potenciales
     riesgos_p = Paragraph(
@@ -138,7 +139,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(riesgos_p)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 5.5))
 
     # 5. Beneficios
     benef_p = Paragraph(
@@ -147,7 +148,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(benef_p)
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 5.0))
 
     # 6. Alternativas
     alt_p = Paragraph(
@@ -156,7 +157,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(alt_p)
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 5.0))
 
     # 7. Revocación
     revoc_p = Paragraph(
@@ -165,7 +166,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(revoc_p)
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 5.0))
 
     # 8. Entendimiento y Preguntas
     ent_p = Paragraph(
@@ -175,7 +176,7 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(ent_p)
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 5.0))
 
     # 9. Autorización de Contingencias
     cont_p = Paragraph(
@@ -184,17 +185,41 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         style_body
     )
     story.append(cont_p)
-    story.append(Spacer(1, 32))
 
-    # 10. Bloque de Firmas Dinámico (Oculta tutor en blanco si el paciente es capaz)
-    pariente = pt_data.get('pariente') or pt_data.get('representante_legal', '')
-    es_mayor = pt_data.get('paciente_capaz', True)
+    # 10. Bloque de Firmas Dinámico (Solo incluye testigos si cuentan con firma/huella)
+    pariente = pt_data.get('pariente') or pt_data.get('representante_legal') or pt_data.get('declarante') or ''
+    raw_mayor = pt_data.get('paciente_capaz', True)
+    if isinstance(raw_mayor, str):
+        es_mayor = raw_mayor.lower() in ('true', '1', 'si', 'yes')
+    elif isinstance(raw_mayor, (int, float)):
+        es_mayor = bool(raw_mayor)
+    else:
+        es_mayor = bool(raw_mayor)
     has_tutor = bool(pariente) or (not es_mayor)
     testigo1 = pt_data.get('testigo1', '')
-
     sig_col_w = (content_w - 30.0) / 2.0  # ~245 pt
 
-    # Sello biométrico médico si existe
+    has_t1 = bool(
+        pt_data.get('firma_testigo1_biometrica') or 
+        pt_data.get('sello_testigo1') or 
+        (firma_data and (firma_data.get('sello_testigo1') or firma_data.get('firma_testigo1_biometrica')))
+    )
+
+    parentesco_tutor = pt_data.get('parentesco') or pt_data.get('parentesco_declarante') or pt_data.get('parentesco_paciente') or 'Tutor / Representante Legal'
+    if str(parentesco_tutor).upper() in ('PACIENTE', 'TITULAR', 'DIRECTO'):
+        parentesco_tutor = 'Tutor / Representante Legal'
+    parentesco_test = pt_data.get('parentesco_testigo1') or pt_data.get('parentesco_testigo') or 'Testigo Presencial'
+    paciente_clean = re.sub(r'\s*\([^)]*\)', '', str(paciente_nombre or '')).strip()
+    testigo1_clean = re.sub(r'\s*\([^)]*\)', '', str(testigo1 or '')).strip()
+    pariente_clean = re.sub(r'\s*\([^)]*\)', '', str(pariente or '')).strip()
+
+    # Textos bajo la línea
+    patient_sig_text = f"<b>{paciente_clean}</b><br/><font size='6.0' color='#334155'><i><b>Parentesco: Paciente</b></i></font>" if paciente_clean else "<b>Nombre completo del paciente</b>"
+    witness_sig_text = f"<b>{testigo1_clean}</b><br/><font size='6.0' color='#334155'><i><b>Parentesco: {parentesco_test}</b></i></font>" if testigo1_clean else "<b>Nombre completo y firma del testigo</b>"
+    tutor_sig_text = f"<b>{pariente_clean}</b><br/><font size='6.0' color='#334155'><i><b>Parentesco: {parentesco_tutor}</b></i></font>" if pariente_clean else "<b>Nombre completo y firma del tutor o representante legal</b>"
+    doctor_sig_text = f"<b>{medico}</b><br/><font size='6.0' color='#334155'><i><b>CÉD. PROF. {cedula}</b></i></font>" if cedula else f"<b>{medico}</b>"
+
+    # Sello biométrico médico si existe sobre la línea
     if firma_data and firma_data.get('sello_digital'):
         sello_resumido = str(firma_data['sello_digital'])[:34] + "..."
         fecha_txt = firma_data.get('fecha_hora_firma') or firma_data.get('fecha_hora') or ''
@@ -205,75 +230,141 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         """
         top_med_p = Paragraph(med_stamp_html, style_sig_stamp)
     else:
-        top_med_p = Paragraph(f"<b>{medico}</b>" + (f"<br/><font size='6.2'>CÉD: {cedula}</font>" if cedula else ""), style_sig_name)
+        top_med_p = Paragraph("&nbsp;", ParagraphStyle('SigSpace', fontName='Helvetica', fontSize=8.0, leading=12.0, textColor=colors.transparent, alignment=TA_CENTER))
 
-    if has_tutor:
-        # Caso con tutor / familiar (Menor o Mayor incapacitado): Cuadrícula 2x2
+    # Sello Biométrico Paciente / Representante
+    if pt_data.get('firma_paciente_biometrica') or pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')):
+        sello_pac_val = str(pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')) or 'BIO-HES:OK')[:24]
+        pac_stamp_html = f"""
+        <font size='5.0' color='#006633'><b>[✔ AUTORIZADO CON HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_pac_val}</font></font>
+        """
+        pac_sig_p = Paragraph(pac_stamp_html, style_sig_stamp)
+    else:
+        pac_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigSpace', fontName='Helvetica', fontSize=8.0, leading=12.0, textColor=colors.transparent, alignment=TA_CENTER))
+
+    # Sello Biométrico Testigo 1
+    if has_t1:
+        sello_test_val = str(pt_data.get('sello_testigo1') or (firma_data and firma_data.get('sello_testigo1')) or 'BIO-HES:OK')[:24]
+        test_stamp_html = f"""
+        <font size='5.0' color='#006633'><b>[✔ TESTIGO - HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_test_val}</font></font>
+        """
+        test_sig_p = Paragraph(test_stamp_html, style_sig_stamp)
+    else:
+        test_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigSpace', fontName='Helvetica', fontSize=8.0, leading=12.0, textColor=colors.transparent, alignment=TA_CENTER))
+
+    sig_space_p = Paragraph("&nbsp;", ParagraphStyle('SigSpace', fontName='Helvetica', fontSize=8.0, leading=12.0, textColor=colors.transparent, alignment=TA_CENTER))
+
+    if has_tutor and has_t1:
+        # Caso 1: Con tutor y testigo firmado -> Cuadrícula 2x2
+        story.append(Spacer(1, 14.0))
         sig_grid = [
-            # Fila 0: Nombres superiores
             [
-                Paragraph(f"<b>{paciente_nombre}</b>" if es_mayor else "&nbsp;", style_sig_name),
+                pac_sig_p if es_mayor else Paragraph("&nbsp;", style_sig_blank),
                 '',
-                Paragraph(f"<b>{pariente}</b>" if pariente else "&nbsp;", style_sig_name)
+                pac_sig_p if not es_mayor else sig_space_p
             ],
-            # Fila 1: Etiquetas de cargo fila 1
             [
-                Paragraph("Nombre completo y firma del paciente", style_sig_label),
+                Paragraph(patient_sig_text if es_mayor else "&nbsp;", style_sig_name),
                 '',
-                Paragraph("Nombre completo y firma del familiar,<br/>tutor o representante legal", style_sig_label)
+                Paragraph(tutor_sig_text, style_sig_name)
             ],
-            # Fila 2: Nombres / Sellos fila 2
             [
                 top_med_p,
                 '',
-                Paragraph(f"<b>{testigo1}</b>" if testigo1 else "&nbsp;", style_sig_name)
+                test_sig_p
             ],
-            # Fila 3: Etiquetas de cargo fila 2
             [
-                Paragraph("Nombre completo, cédulas y<br/>firma del médico tratante", style_sig_label),
+                Paragraph(doctor_sig_text, style_sig_name),
                 '',
-                Paragraph("Nombre completo y firma del testigo", style_sig_label)
+                Paragraph(witness_sig_text, style_sig_name)
             ]
         ]
         table_styles = [
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
             ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('VALIGN', (0,2), (-1,2), 'BOTTOM'),
             ('VALIGN', (0,3), (-1,3), 'TOP'),
-            
-            # Línea de firma Paciente y Tutor/Representante
             ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
             ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
-            
-            # Línea de firma Médico y Testigo
             ('LINEABOVE', (0,3), (0,3), 0.8, PRIMARY_BLUE),
             ('LINEABOVE', (2,3), (2,3), 0.8, PRIMARY_BLUE),
-            
             ('TOPPADDING', (0,0), (-1,0), 0),
             ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
-            ('TOPPADDING', (0,1), (-1,1), 3.0),
-            ('BOTTOMPADDING', (0,1), (-1,1), 18.0),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 12.0),
             ('TOPPADDING', (0,2), (-1,2), 0),
             ('BOTTOMPADDING', (0,2), (-1,2), 0.5),
-            ('TOPPADDING', (0,3), (-1,3), 3.0),
+            ('TOPPADDING', (0,3), (-1,3), 2.5),
             ('BOTTOMPADDING', (0,3), (-1,3), 0),
         ]
         t_sigs = Table(sig_grid, colWidths=[sig_col_w, 30.0, sig_col_w])
         t_sigs.setStyle(TableStyle(table_styles))
         story.append(KeepTogether(t_sigs))
-    else:
-        # Caso Paciente Mayor Capaz (Paciente y Testigo arriba; Médico Tratante Centrado abajo entre los dos):
+
+    elif has_tutor and not has_t1:
+        # Caso 2: Con tutor, pero SIN testigo
+        if es_mayor:
+            # Paciente + Tutor arriba, Médico abajo centrado
+            story.append(Spacer(1, 14.0))
+            t_top = Table([
+                [pac_sig_p, '', sig_space_p],
+                [Paragraph(patient_sig_text, style_sig_name), '', Paragraph(tutor_sig_text, style_sig_name)]
+            ], colWidths=[sig_col_w, 30.0, sig_col_w])
+            t_top.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            t_bot = Table([
+                [top_med_p],
+                [Paragraph(doctor_sig_text, style_sig_name)]
+            ], colWidths=[sig_col_w], hAlign='CENTER')
+            t_bot.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (0,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (0,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            story.append(KeepTogether([t_top, Spacer(1, 12), t_bot]))
+        else:
+            # Menor de edad: Tutor (Izq) y Médico (Der) lado a lado
+            story.append(Spacer(1, 30.0))
+            t_pair = Table([
+                [pac_sig_p, '', top_med_p],
+                [Paragraph(tutor_sig_text, style_sig_name), '', Paragraph(doctor_sig_text, style_sig_name)]
+            ], colWidths=[sig_col_w, 30.0, sig_col_w])
+            t_pair.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            story.append(KeepTogether([t_pair]))
+
+    elif has_t1:
+        # Caso 3: Paciente Mayor Capaz + Testigo firmado
+        story.append(Spacer(1, 14.0))
         t_top = Table([
-            [
-                Paragraph(f"<b>{paciente_nombre}</b>", style_sig_name),
-                '',
-                Paragraph(f"<b>{testigo1}</b>" if testigo1 else "&nbsp;", style_sig_name)
-            ],
-            [
-                Paragraph("Nombre completo y firma del paciente", style_sig_label),
-                '',
-                Paragraph("Nombre completo y firma del testigo", style_sig_label)
-            ]
+            [pac_sig_p, '', test_sig_p],
+            [Paragraph(patient_sig_text, style_sig_name), '', Paragraph(witness_sig_text, style_sig_name)]
         ], colWidths=[sig_col_w, 30.0, sig_col_w])
         t_top.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
@@ -283,13 +374,13 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
             ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
             ('TOPPADDING', (0,0), (-1,0), 0),
             ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
-            ('TOPPADDING', (0,1), (-1,1), 3.0),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
             ('BOTTOMPADDING', (0,1), (-1,1), 0),
         ]))
 
         t_bot = Table([
             [top_med_p],
-            [Paragraph("Nombre completo, cédulas y<br/>firma del médico tratante", style_sig_label)]
+            [Paragraph(doctor_sig_text, style_sig_name)]
         ], colWidths=[sig_col_w], hAlign='CENTER')
         t_bot.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
@@ -298,13 +389,32 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
             ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
             ('TOPPADDING', (0,0), (-1,0), 0),
             ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
-            ('TOPPADDING', (0,1), (-1,1), 3.0),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
             ('BOTTOMPADDING', (0,1), (-1,1), 0),
         ]))
+        story.append(KeepTogether([t_top, Spacer(1, 12), t_bot]))
 
-        story.append(KeepTogether([t_top, Spacer(1, 18), t_bot]))
+    else:
+        # Caso 4: Paciente Mayor Capaz SIN testigo -> Paciente y Médico lado a lado abajo
+        story.append(Spacer(1, 32.0))
+        t_pair = Table([
+            [pac_sig_p, '', top_med_p],
+            [Paragraph(patient_sig_text, style_sig_name), '', Paragraph(doctor_sig_text, style_sig_name)]
+        ], colWidths=[sig_col_w, 30.0, sig_col_w])
+        t_pair.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]))
+        story.append(KeepTogether([t_pair]))
 
-    # Parámetros del membrete institucional unificado
+    # Parámetros del membrete institucional unificado con QR de verificación
     doc_info = {
         'title_lines': [
             'CONSENTIMIENTO INFORMADO PARA',
@@ -314,7 +424,12 @@ def generate_consentimiento_04(pt_data: dict, output_path: str = None, firma_dat
         'code': 'HE-DIRMED-CONSUL-PLT-04',
         'draw_header_dates': False,
         'fecha_ingreso': fecha_val,
-        'hora_ingreso': hora_val
+        'hora_ingreso': hora_val,
+        'expediente': expediente,
+        'folio': expediente or pt_data.get('pt_num', ''),
+        'pt_num': str(pt_data.get('pt_num', '')),
+        'slot': pt_data.get('slot') or pt_data.get('mrnum') or 1,
+        'draw_qr': True
     }
 
     def make_canvas(*args, **kwargs):

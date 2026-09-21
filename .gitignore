@@ -34,8 +34,18 @@ test_fmd.json
 .DS_Store
 Thumbs.db
 
+# Obsidian vault (docs/) — compartir config, ignorar estado personal
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+docs/.obsidian/cache/
+docs/diario/*
+!docs/diario/.gitkeep
+
 # Ignorar archivos generados de pacientes
 backend/generados/
+backend/private_storage/
+backups/
+artifacts/
 backend/static/pdfs/
 backend/static/qr/
 backend/pruebas/
@@ -46,7 +56,15 @@ pase_a_produccion/
 backups/
 scratch/
 test_*.py
+!backend/tests/
+!backend/tests/test_*.py
 test_*.pdf
 view_images.html
 svg_helper.py
 
+# Reproducible offline workstation payload (build_station_kit.ps1)
+Instalacion_Enfermeria/HES-Agent/
+Instalacion_Enfermeria/MANIFEST.sha256.json
+.pytest_cache/
+test_*.png
+dummy_*.pdf

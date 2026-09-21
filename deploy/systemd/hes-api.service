@@ -1,0 +1,24 @@
+[Unit]
+Description=Bitacora Medica HES API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hes
+Group=hes
+WorkingDirectory=/opt/hes/backend
+Environment=APP_ENV=production
+EnvironmentFile=/etc/hes/hes-api.env
+ExecStart=/opt/hes/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

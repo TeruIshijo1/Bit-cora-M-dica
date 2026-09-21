@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { 
   FiCalendar, FiClock, FiUser, FiPlus, FiFilter, FiCheckCircle, 
@@ -21,11 +21,19 @@ export default function AgendaMedica() {
   const [formData, setFormData] = useState({
     medico_id: '',
     nombre_paciente_manual: '',
+    pt_num: '',
+    expediente: '',
+    paciente_id: null,
     fecha_hora: '',
     motivo: '',
     lugar: 'Consultorio 12 - Consulta Externa',
     notas: ''
   });
+
+  const [patientResults, setPatientResults] = useState([]);
+  const [searchingPatients, setSearchingPatients] = useState(false);
+  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
+  const searchPatientTimeout = useRef(null);
 
   // Cargar lista de médicos
   useEffect(() => {
@@ -45,12 +53,7 @@ export default function AgendaMedica() {
             } catch(e) {}
           }
           
-          // 2. Fallback a JOSE JOSE PRUEBA
-          if (!defaultMedico) {
-            defaultMedico = res.data.find(m => m.nombre.includes('JOSE JOSE PRUEBA'));
-          }
-          
-          // 3. Fallback al primer médico de la lista
+          // 2. Fallback al primer médico de la lista
           if (!defaultMedico && res.data.length > 0) {
             defaultMedico = res.data[0];
           }
@@ -99,6 +102,44 @@ export default function AgendaMedica() {
     fetchCitas();
   }, [selectedMedicoId]);
 
+  const handlePatientInputChange = (e) => {
+    const val = e.target.value;
+    setFormData(prev => ({ ...prev, nombre_paciente_manual: val, pt_num: '', expediente: '' }));
+    
+    if (searchPatientTimeout.current) clearTimeout(searchPatientTimeout.current);
+    if (!val || val.trim().length < 2) {
+      setPatientResults([]);
+      setShowPatientDropdown(false);
+      return;
+    }
+
+    searchPatientTimeout.current = setTimeout(async () => {
+      try {
+        setSearchingPatients(true);
+        const res = await api.get(`/ehr/pacientes/buscar?q=${encodeURIComponent(val)}&limit=8`);
+        if (res.data && Array.isArray(res.data)) {
+          setPatientResults(res.data);
+          setShowPatientDropdown(true);
+        }
+      } catch (err) {
+        console.error("Error searching patients in agenda:", err);
+      } finally {
+        setSearchingPatients(false);
+      }
+    }, 250);
+  };
+
+  const handleSelectPatientFromSearch = (pt) => {
+    setFormData(prev => ({
+      ...prev,
+      nombre_paciente_manual: `${pt.name} (PT-${pt.pt_num})`,
+      pt_num: pt.pt_num,
+      expediente: pt.pt_num,
+      paciente_id: pt.pt_num
+    }));
+    setShowPatientDropdown(false);
+  };
+
   const handleCreateCita = async (e) => {
     e.preventDefault();
     if (!formData.nombre_paciente_manual || !formData.fecha_hora || !formData.motivo) {
@@ -113,9 +154,13 @@ export default function AgendaMedica() {
         medico_id: formData.medico_id ? parseInt(formData.medico_id) : (selectedMedicoId ? parseInt(selectedMedicoId) : null)
       });
       setShowModal(false);
+      setShowPatientDropdown(false);
       setFormData({
         medico_id: selectedMedicoId,
         nombre_paciente_manual: '',
+        pt_num: '',
+        expediente: '',
+        paciente_id: null,
         fecha_hora: '',
         motivo: '',
         lugar: 'Consultorio 12 - Consulta Externa',
@@ -133,35 +178,38 @@ export default function AgendaMedica() {
   const currentDoctor = medicos.find(m => m.id.toString() === selectedMedicoId);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="he-agenda-page p-4 md:p-6 max-w-7xl mx-auto space-y-5 min-h-screen">
       
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 bg-blue-50 text-hes-blue-main rounded-xl"><FiCalendar className="text-xl" /></span>
-            <h1 className="text-2xl font-bold text-slate-800">Agenda Médica y Programación de Visitas</h1>
+      <div className="he-agenda-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-5 md:p-6">
+        <div className="flex items-start gap-3.5">
+          <div className="he-agenda-icon">📅</div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">🩺 Control por especialista</span>
+              <h1 className="text-[22px] font-black text-slate-900 tracking-tight">Agenda Médica y Programación de Visitas</h1>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">Control de citas, pases de visita y seguimiento ambulatorio/hospitalario por especialista.</p>
           </div>
-          <p className="text-xs text-slate-500 mt-1">Control de citas, pases de visita y seguimiento ambulatorio/hospitalario por especialista.</p>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto">
+        <div className="flex items-center gap-2.5 w-full md:w-auto flex-wrap">
           <a
             href="/camas"
-            className="flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-4 py-2.5 rounded-xl font-semibold text-sm shadow-sm transition-all"
+            className="he-btn-camas flex items-center gap-2 px-4 py-2.5 text-sm transition-all"
             title="Ver mapa de camas"
           >
             <MdOutlineMedicalServices className="text-lg" /> Ver Camas
           </a>
           <button 
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-hes-blue-main hover:bg-hes-blue-dark text-white px-4 py-2.5 rounded-xl font-semibold text-sm shadow-sm transition-all"
+            className="he-btn-programar flex items-center gap-2 text-white px-4 py-2.5 text-sm transition-all"
           >
             <FiPlus /> Programar Nueva Cita / Visita
           </button>
           <button 
             onClick={fetchCitas}
-            className="p-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors"
+            className="he-btn-ghost p-2.5 transition-colors"
             title="Refrescar agenda"
           >
             <FiRefreshCw />
@@ -170,17 +218,17 @@ export default function AgendaMedica() {
       </div>
 
       {/* FILTER & DOCTOR PROFILE CARD */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         
         {/* DOCTOR SELECTOR */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-            <MdOutlineMedicalServices /> Médico Especialista
+        <div className="he-agenda-card p-5 space-y-3" style={{ '--he-accent': 'linear-gradient(90deg,#0e7490,#06b6d4)' }}>
+          <label className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 flex items-center gap-1.5">
+            <span className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs" style={{ background: 'linear-gradient(135deg,#0e7490,#06b6d4)' }}><MdOutlineMedicalServices /></span> Médico Especialista
           </label>
           
           {rolActual === 'medico' ? (
-            <div className="w-full border border-slate-200 bg-slate-100 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 cursor-not-allowed">
-              {currentDoctor ? `${currentDoctor.nombre} (${currentDoctor.especialidad})` : 'Cargando su perfil...'}
+            <div className="w-full border border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100 rounded-xl px-3.5 py-3 text-sm font-bold text-slate-800">
+              👨‍⚕️ {currentDoctor ? `${currentDoctor.nombre} (${currentDoctor.especialidad})` : 'Cargando su perfil...'}
             </div>
           ) : (
             <select 
@@ -189,7 +237,7 @@ export default function AgendaMedica() {
                 setSelectedMedicoId(e.target.value);
                 setFormData(prev => ({ ...prev, medico_id: e.target.value }));
               }}
-              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-hes-blue-main transition-colors"
+              className="he-search w-full px-3.5 py-2.5 text-sm font-bold text-slate-800 outline-none transition-colors"
             >
               <option value="">-- Todos los Médicos --</option>
               {medicos.map(m => (
@@ -201,33 +249,33 @@ export default function AgendaMedica() {
           )}
 
           {currentDoctor && (
-            <div className="pt-3 border-t border-slate-100 text-xs space-y-1">
-              <div className="text-slate-500">Cédula: <span className="font-bold text-slate-700">{currentDoctor.cedula}</span></div>
-              <div className="text-slate-500">Horario: <span className="font-medium text-slate-700">{currentDoctor.horario}</span></div>
+            <div className="pt-3 border-t border-slate-100 text-xs space-y-1.5 bg-slate-50/70 rounded-xl p-3">
+              <div className="text-slate-500">🪪 Cédula: <span className="font-black text-slate-800">{currentDoctor.cedula}</span></div>
+              <div className="text-slate-500">🕗 Horario: <span className="font-bold text-slate-700">{currentDoctor.horario}</span></div>
             </div>
           )}
         </div>
 
         {/* STATS 1 */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+        <div className="he-agenda-card p-5 flex items-center justify-between" style={{ '--he-accent': 'linear-gradient(90deg,#059669,#00d1a1)' }}>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Citas Programadas</div>
-            <div className="text-3xl font-extrabold text-slate-800 mt-1">{citas.length}</div>
-            <div className="text-xs text-emerald-600 font-medium mt-0.5">Activas para seguimiento</div>
+            <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Citas Programadas</div>
+            <div className="he-agenda-num text-4xl font-black mt-1">{citas.length}</div>
+            <div className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1">● Activas para seguimiento</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-bold">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl text-white shrink-0" style={{ background: 'linear-gradient(135deg,#059669,#00b48a)', boxShadow: '0 8px 18px -8px rgba(5,150,105,.7)' }}>
             <FiCheckCircle />
           </div>
         </div>
 
         {/* STATS 2 (Pendientes de Firma) */}
-        <a href="/firma-express" className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between hover:border-orange-300 hover:shadow-md transition-all cursor-pointer group">
+        <a href="/firma-express" className="he-agenda-card p-5 flex items-center justify-between cursor-pointer group" style={{ '--he-accent': 'linear-gradient(90deg,#ea580c,#f59e0b)' }}>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 group-hover:text-orange-500 transition-colors">Capturas por Firmar</div>
-            <div className="text-3xl font-extrabold text-slate-800 mt-1">{pendientesCount}</div>
-            <div className="text-xs text-orange-600 font-medium mt-0.5">Requieren firma biométrica</div>
+            <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400 group-hover:text-orange-500 transition-colors">Capturas por Firmar</div>
+            <div className="he-agenda-num text-4xl font-black mt-1">{pendientesCount}</div>
+            <div className="text-xs text-orange-600 font-bold mt-1 flex items-center gap-1">✍️ Requieren firma biométrica</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center text-2xl font-bold group-hover:bg-orange-100 group-hover:scale-110 transition-all">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl text-white shrink-0 group-hover:scale-110 transition-all" style={{ background: 'linear-gradient(135deg,#ea580c,#f59e0b)', boxShadow: '0 8px 18px -8px rgba(234,88,12,.7)' }}>
             <FiEdit3 />
           </div>
         </a>
@@ -235,52 +283,59 @@ export default function AgendaMedica() {
       </div>
 
       {/* APPOINTMENTS LIST */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-          <h2 className="font-bold text-slate-800 text-base">Listado Cronológico de Citas y Visitas</h2>
-          <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-medium">
+      <div className="he-agenda-card overflow-hidden" style={{ '--he-accent': 'linear-gradient(90deg,#4f46e5,#06b6d4)' }}>
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-b from-white to-slate-50/60">
+          <h2 className="font-black text-slate-900 text-[16px] flex items-center gap-2">🗂️ Listado Cronológico de Citas y Visitas</h2>
+          <span className="text-[11px] font-black bg-slate-800 text-white px-3 py-1 rounded-full">
             {citas.length} registros
           </span>
         </div>
 
         {loading ? (
-          <div className="py-12 text-center text-slate-500 text-sm">Cargando agenda médica...</div>
+          <div className="py-12 text-center text-slate-500 text-sm flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            Cargando agenda médica...
+          </div>
         ) : citas.length === 0 ? (
-          <div className="py-12 text-center text-slate-500 text-sm">No hay citas registradas para este médico.</div>
+          <div className="py-14 text-center space-y-2">
+            <div className="text-4xl">📭</div>
+            <div className="font-black text-slate-700 text-sm">Sin citas programadas</div>
+            <div className="text-xs text-slate-400">No hay citas registradas para este médico.</div>
+          </div>
         ) : (
           <div className="divide-y divide-slate-100">
             {citas.map((c) => (
-              <div key={c.id} className="p-5 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div key={c.id} className="he-cita-row p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 text-hes-blue-main rounded-xl font-bold flex flex-col items-center justify-center min-w-[70px]">
-                    <span className="text-xs font-medium">{c.fecha}</span>
-                    <span className="text-base font-extrabold">{c.hora}</span>
+                  <div className="he-cita-fecha p-3 font-bold flex flex-col items-center justify-center min-w-[74px]">
+                    <span className="text-[11px] font-bold opacity-80">{c.fecha}</span>
+                    <span className="text-[16px] font-black">{c.hora}</span>
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-800 text-base">{c.paciente_nombre}</span>
-                      <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded font-semibold border border-teal-100">
-                        {c.estatus}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-slate-900 text-[15px]">{c.paciente_nombre}</span>
+                      <span className="text-[10px] font-black bg-teal-50 text-teal-700 px-2.5 py-0.5 rounded-full border border-teal-200">
+                        ● {c.estatus}
                       </span>
                     </div>
-                    <div className="text-xs font-semibold text-hes-blue-main mt-0.5">{c.motivo}</div>
-                    <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
-                      <span className="flex items-center gap-1"><FiMapPin /> {c.lugar}</span>
-                      <span>Médico: <strong className="text-slate-700">{c.medico_nombre}</strong></span>
+                    <div className="text-xs font-bold text-indigo-700 mt-1">🩺 {c.motivo}</div>
+                    <div className="flex items-center gap-4 text-xs text-slate-500 mt-1.5 flex-wrap">
+                      <span className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md"><FiMapPin /> {c.lugar}</span>
+                      <span>👨‍⚕️ Médico: <strong className="text-slate-700">{c.medico_nombre}</strong></span>
                     </div>
                     {c.notas && (
-                      <p className="text-xs text-slate-600 mt-1.5 bg-slate-50 p-2 rounded-lg border border-slate-100 max-w-2xl">
-                        Nota: {c.notas}
+                      <p className="text-xs text-slate-600 mt-2 bg-amber-50/70 p-2.5 rounded-xl border border-amber-100 max-w-2xl">
+                        📝 Nota: {c.notas}
                       </p>
                     )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 self-end md:self-center">
-                  {c.paciente_id && (
+                  {(c.pt_num || c.expediente || c.paciente_id) && (
                     <a
-                      href={`/ehr/${c.paciente_id}`}
-                      className="text-xs font-semibold text-hes-blue-main hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors flex items-center gap-1"
+                      href={`/ehr/${c.pt_num || c.expediente || c.paciente_id}`}
+                      className="he-btn-ghost text-xs font-bold px-3.5 py-2 transition-colors flex items-center gap-1.5"
                     >
                       <FiFileText /> Ver Expediente
                     </a>
@@ -294,10 +349,10 @@ export default function AgendaMedica() {
 
       {/* MODAL PROGRAMAR CITA */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="he-agenda-card max-w-lg w-full p-6 space-y-4" style={{ '--he-accent': 'linear-gradient(90deg,#4f46e5,#00b48a)' }}>
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-800">Programar Cita / Visita Médica</h3>
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">📅 Programar Cita / Visita Médica</h3>
               <button 
                 onClick={() => setShowModal(false)}
                 className="text-slate-400 hover:text-slate-600 text-lg font-bold"
@@ -322,25 +377,50 @@ export default function AgendaMedica() {
                 </select>
               </div>
 
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre del Paciente / Expediente *</label>
                 <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={formData.nombre_paciente_manual}
-                    onChange={(e) => setFormData({ ...formData, nombre_paciente_manual: e.target.value })}
-                    placeholder="Ej. COMODIN COMODIN COMODIN (PT-5704)"
-                    className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm"
-                    required
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => setFormData({ ...formData, nombre_paciente_manual: "COMODIN COMODIN COMODIN (PT-5704)", paciente_id: 5704 })}
-                    className="text-xs bg-blue-50 text-hes-blue-main font-semibold px-2 py-1 rounded-lg border border-blue-200 hover:bg-blue-100"
-                  >
-                    Usar Demo
-                  </button>
+                  <div className="relative flex-1">
+                    <input 
+                      type="text" 
+                      value={formData.nombre_paciente_manual}
+                      onChange={handlePatientInputChange}
+                      onFocus={() => { if (patientResults.length > 0) setShowPatientDropdown(true); }}
+                      placeholder="Buscar por Nombre, Folio o CURP..."
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-hes-blue-main outline-none"
+                      required
+                    />
+                    {searchingPatients && (
+                      <span className="absolute right-3 top-2.5 text-xs text-hes-blue-main animate-pulse font-bold">
+                        Buscando...
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* DROPDOWN DE RESULTADOS */}
+                {showPatientDropdown && patientResults.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-100">
+                    {patientResults.map(pt => (
+                      <div
+                        key={pt.pt_num}
+                        onClick={() => handleSelectPatientFromSearch(pt)}
+                        className="p-2.5 hover:bg-blue-50 cursor-pointer transition-colors flex justify-between items-center text-xs"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-800">{pt.name}</div>
+                          <div className="text-slate-400 text-[11px] flex gap-2">
+                            <span>Exp: <strong className="text-hes-blue-main">#{pt.pt_num}</strong></span>
+                            {pt.cama && <span>• Cama: {pt.cama}</span>}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold bg-blue-100 text-hes-blue-main px-2 py-0.5 rounded-full">
+                          Seleccionar
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -400,7 +480,7 @@ export default function AgendaMedica() {
                 <button 
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-sm font-semibold shadow-sm transition-all"
+                  className="he-btn-programar px-5 py-2.5 text-white text-sm transition-all"
                 >
                   {submitting ? 'Guardando...' : 'Programar Cita'}
                 </button>

@@ -11,6 +11,8 @@ Calibración exacta según especificaciones RDLC:
 
 import os
 import re
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
@@ -49,10 +51,10 @@ LATERAL_IMG = find_asset('lateral_hes_oficial_bold.png', 'official_lateral_600dp
 # ─────────────────────────────────────────────────────────────
 PAGE_W, PAGE_H = letter # 612.0 x 792.0 pt (21.59 x 27.94 cm)
 
-FRAME_X = 21.12  # 0.7 cm + 0.045 cm = 21.12 pt
 FRAME_W = 569.76 # 20.1 cm exactos
 FRAME_H = 722.84 # 25.5 cm exactos
-FRAME_Y = 42.24  # Posición Y original RDLC exacta (42.24 pt)
+FRAME_X = (PAGE_W - FRAME_W) / 2.0  # 21.12 pt (centrado horizontal perfecto)
+FRAME_Y = (PAGE_H - FRAME_H) / 2.0  # 34.58 pt (centrado vertical perfecto)
 
 # ─────────────────────────────────────────────────────────────
 # PALETA INSTITUCIONAL RDLC
@@ -116,17 +118,12 @@ class RDLCCanvas(canvas.Canvas):
     def draw_letterhead(self, total_pages):
         self.saveState()
 
-        # 1. MARCO PERIMETRAL RDLC (MidnightBlue Solid 1.0pt)
-        self.setStrokeColor(MIDNIGHT_BLUE)
-        self.setLineWidth(1.0)
-        self.rect(FRAME_X, FRAME_Y, FRAME_W, FRAME_H, fill=False, stroke=True)
-
-        # 2. ENCABEZADO INSTITUCIONAL (58 pt de alto, idéntico en todas las hojas)
+        # 1. ENCABEZADO INSTITUCIONAL (58 pt de alto, idéntico en todas las hojas)
         head_h = 58.0
         head_y = (FRAME_Y + FRAME_H) - head_h
 
         if os.path.exists(HEADER_P1_IMG):
-            self.drawImage(HEADER_P1_IMG, FRAME_X + 0.5, head_y + 0.5, width=FRAME_W - 1.0, height=head_h - 1.0, preserveAspectRatio=False)
+            self.drawImage(HEADER_P1_IMG, FRAME_X, head_y, width=FRAME_W, height=head_h, preserveAspectRatio=False)
 
         # Posicionar Fecha y Hora en casillas solo si el formato lo requiere
         if self.doc_info.get('draw_header_dates', False):
@@ -155,25 +152,28 @@ class RDLCCanvas(canvas.Canvas):
             if single_title:
                 title_lines = [single_title]
         if title_lines:
-            self.setFont("Helvetica-Bold", 8.5)
+            n_lines = len(title_lines)
+            f_size = 7.6 if n_lines >= 4 else 8.5
+            l_step = 8.8 if n_lines >= 4 else 10.5
+            self.setFont("Helvetica-Bold", f_size)
             self.setFillColor(PRIMARY_BLUE)
-            y_txt = head_y + head_h - 18.0
+            y_txt = head_y + head_h - (13.0 if n_lines >= 4 else 16.0)
             for line in title_lines:
                 self.drawString(FRAME_X + 6.0, y_txt, line)
-                y_txt -= 10.5
+                y_txt -= l_step
 
             # Código del formato fijado en la parte inferior vertical del encabezado con subrayado fino
             code = self.doc_info.get('code', '')
             if code:
-                code_y = head_y + 8.0
-                line_y = head_y + 6.0
-                self.setFont("Helvetica", 6.8)
+                code_y = head_y + 4.5
+                line_y = head_y + 3.0
+                self.setFont("Helvetica", 6.5)
                 self.setFillColor(TEXT_DARK)
                 self.drawString(FRAME_X + 6.0, code_y, code)
-                code_w = self.stringWidth(code, "Helvetica", 6.8)
+                code_w = self.stringWidth(code, "Helvetica", 6.5)
                 self.setStrokeColor(TEXT_DARK)
                 self.setLineWidth(0.6)
-                self.line(FRAME_X + 6.0, line_y, FRAME_X + 6.0 + max(code_w + 15.0, 120.0), line_y)
+                self.line(FRAME_X + 6.0, line_y, FRAME_X + 6.0 + max(code_w + 15.0, 115.0), line_y)
 
         # 3. LATERAL DERECHO VERTICAL (Membrete Fundación)
         if os.path.exists(LATERAL_IMG):
@@ -196,11 +196,66 @@ class RDLCCanvas(canvas.Canvas):
             self.setFillColor(BLUE_BAR_COLOR)
             self.rect(foot_x, foot_y + foot_h - 4.5, foot_w, 4.5, fill=True, stroke=False)
 
-            # Folio de página institucional
-            self.setFont("Helvetica-Bold", 7.5)
-            self.setFillColor(PRIMARY_BLUE)
-            page_text = f"Página {self._pageNumber} de {total_pages}"
-            self.drawRightString(foot_x + foot_w - 6, foot_y + 8, page_text)
+            # QR DE VERIFICACIÓN INSTITUCIONAL (Esquina Inferior Derecha)
+            qr_data = self.doc_info.get('qr_data') or self.doc_info.get('qr_url')
+            draw_qr = bool(qr_data) and self.doc_info.get('draw_qr', True)
+            
+            if draw_qr:
+                try:
+                    import qrcode
+                    import io
+                    from reportlab.lib.utils import ImageReader
+
+                    qr = qrcode.QRCode(box_size=4, border=1)
+                    qr.add_data(qr_data)
+                    qr.make(fit=True)
+                    img_qr = qr.make_image(fill_color="black", back_color="white")
+                    buf = io.BytesIO()
+                    img_qr.save(buf, format='PNG')
+                    buf.seek(0)
+                    qr_reader = ImageReader(buf)
+
+                    qr_sz = 25.5
+                    qr_x = foot_x + foot_w - qr_sz - 6.0
+                    qr_y = foot_y + 3.5
+
+                    # Fondo blanco con marco nítido para asegurar legibilidad perfectamente contenido
+                    self.setFillColor(colors.white)
+                    self.setStrokeColor(BORDER_GREY)
+                    self.setLineWidth(0.5)
+                    self.roundRect(qr_x - 1.0, qr_y - 1.0, qr_sz + 2.0, qr_sz + 2.0, 1.2, fill=True, stroke=True)
+
+                    self.drawImage(qr_reader, qr_x, qr_y, width=qr_sz, height=qr_sz, mask='auto')
+
+                    # Metadatos de cotejo a la izquierda del QR
+                    self.setFont("Helvetica-Bold", 6.2)
+                    self.setFillColor(PRIMARY_BLUE)
+                    self.drawRightString(qr_x - 5.0, foot_y + 19.0, f"Página {self._pageNumber} de {total_pages}")
+
+                    self.setFont("Helvetica-Bold", 4.8)
+                    self.setFillColor(DARK_BLUE)
+                    self.drawRightString(qr_x - 5.0, foot_y + 12.0, "VERIFICACIÓN ECE")
+
+                    self.setFont("Helvetica", 4.2)
+                    self.setFillColor(TEXT_MUTED)
+                    self.drawRightString(qr_x - 5.0, foot_y + 6.0, "Cotejo NOM-004-SSA3")
+                except Exception as eqr:
+                    # En caso de excepción, imprimir paginación estándar
+                    self.setFont("Helvetica-Bold", 7.5)
+                    self.setFillColor(PRIMARY_BLUE)
+                    page_text = f"Página {self._pageNumber} de {total_pages}"
+                    self.drawRightString(foot_x + foot_w - 6, foot_y + 8, page_text)
+            else:
+                self.setFont("Helvetica-Bold", 7.5)
+                self.setFillColor(PRIMARY_BLUE)
+                page_text = f"Página {self._pageNumber} de {total_pages}"
+                self.drawRightString(foot_x + foot_w - 6, foot_y + 8, page_text)
+
+        # 5. MARCO PERIMETRAL RDLC (MidnightBlue Solid 1.25pt)
+        # Se dibuja al final para garantizar que el marco superior, inferior y lateral quede 100% visible sobre cualquier imagen
+        self.setStrokeColor(MIDNIGHT_BLUE)
+        self.setLineWidth(1.25)
+        self.rect(FRAME_X, FRAME_Y, FRAME_W, FRAME_H, fill=False, stroke=True)
 
         self.restoreState()
 
@@ -241,72 +296,186 @@ def format_clinical_text(raw_text: str) -> str:
 
 def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, content_w: float, firma_data: dict = None):
     """Construye la tabla de firmas normada con sello biométrico NOM estético para impresión."""
-    sig_col_w = (content_w - 74) / 2
+    sig_col_w = (content_w - 40.0) / 2.0
 
-    # Si hay firma biométrica verificada
+    # Sello biométrico médico
     if firma_data and (firma_data.get('sello_digital') or firma_data.get('hash_sha256')):
         sello_raw = str(firma_data.get('sello_digital') or firma_data.get('hash_sha256') or '')
         sello_resumido = (sello_raw[:28] + '...') if len(sello_raw) > 28 else sello_raw
         fecha_txt = firma_data.get('fecha_hora_firma') or firma_data.get('fecha_hora') or datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         stamp_html = f"""
-        <font size='5.8' color='#006633'><b>[✓ FIRMADO BIOMÉTRICAMENTE CON HUELLA]</b></font><br/>
+        <font size='5.8' color='#006633'><b>[✔ FIRMADO BIOMÉTRICAMENTE CON HUELLA]</b></font><br/>
         <font size='5' color='#004d26'><b>NOM-004-SSA3-2012 / NOM-024-SSA3-2012</b></font><br/>
         <font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>
         """
         top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
     else:
-        top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=10, leading=14))
+        top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
 
-    sig_data = [
-        [
-            top_sig_p,
-            '',
-            Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=10, leading=14))
-        ],
-        [
-            Paragraph(f"<b>{medico_nombre}</b><br/><font size='7' color='#444'>Céd. Prof. {medico_ced}</font>", ParagraphStyle('SigM', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER)),
-            '',
-            Paragraph(f"<b>{mip_nombre or '&nbsp;'}</b><br/><font size='7' color='#444'>&nbsp;</font>", ParagraphStyle('SigMIP', fontName='Helvetica', fontSize=8, leading=9.5, alignment=TA_CENTER))
-        ],
-        [
-            Paragraph("<i>Nombre Completo , Firma y Cédulas del Médico</i>", ParagraphStyle('SigL1', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER)),
-            '',
-            Paragraph("<i>Nombre Completo y Firma del MIP</i>", ParagraphStyle('SigL2', fontName='Helvetica-Oblique', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED, alignment=TA_CENTER))
-        ]
-    ]
+    # Sello biométrico paciente
+    pac_stamp_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
+    if firma_data and (firma_data.get('sello_paciente') or firma_data.get('firma_paciente_biometrica')):
+        sello_pac_val = str(firma_data.get('sello_paciente') or 'BIO-HES:OK')[:24]
+        pac_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ AUTORIZADO CON HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_pac_val}</font></font>
+        """
+        pac_stamp_p = Paragraph(pac_html, ParagraphStyle('SigStampPac', fontName='Helvetica', fontSize=5.0, leading=6.5, alignment=TA_CENTER))
 
-    t_sig = Table(sig_data, colWidths=[sig_col_w, 74, sig_col_w])
-    t_sig.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
-        ('LINEABOVE', (0,1), (0,1), 1, PRIMARY_BLUE),
-        ('LINEABOVE', (2,1), (2,1), 1, PRIMARY_BLUE),
-        ('TOPPADDING', (0,0), (-1,0), 2),
-        ('BOTTOMPADDING', (0,0), (-1,0), 1),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 1),
-        ('TOPPADDING', (0,2), (-1,2), 1),
-        ('BOTTOMPADDING', (0,2), (-1,2), 1),
-    ]))
-    return t_sig
+    # Sello biométrico testigo 1
+    test_stamp_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
+    if firma_data and (firma_data.get('sello_testigo1') or firma_data.get('firma_testigo1_biometrica')):
+        sello_t1_val = str(firma_data.get('sello_testigo1') or 'BIO-HES:OK')[:24]
+        test_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ TESTIGO - HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_t1_val}</font></font>
+        """
+        test_stamp_p = Paragraph(test_html, ParagraphStyle('SigStampT1', fontName='Helvetica', fontSize=5.0, leading=6.5, alignment=TA_CENTER))
+
+    doc_ced_text = f"<br/><font size='6.2' color='#334155'><i><b>CÉD. PROF. {medico_ced}</b></i></font>" if (medico_ced and medico_ced != 'N/D') else ""
+    
+    has_t1 = bool(firma_data and (firma_data.get('sello_testigo1') or firma_data.get('firma_testigo1_biometrica')))
+    has_pac = bool(firma_data and (firma_data.get('sello_paciente') or firma_data.get('firma_paciente_biometrica') or firma_data.get('firmante_paciente')))
+
+    if has_pac or has_t1:
+        pac_nom = re.sub(r'\s*\([^)]*\)', '', str(firma_data.get('firmante_paciente') or 'Paciente / Titular')).strip()
+        pac_par = firma_data.get('parentesco_paciente') or 'Paciente'
+        test_nom = re.sub(r'\s*\([^)]*\)', '', str(firma_data.get('firmante_testigo1') or 'Testigo Presencial')).strip()
+        test_par = firma_data.get('parentesco_testigo1') or 'Testigo Presencial'
+
+        pac_txt = f"<b>{pac_nom}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {pac_par}</b></i></font>"
+        test_txt = f"<b>{test_nom}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {test_par}</b></i></font>"
+
+        if has_t1:
+            t_top = Table([
+                [pac_stamp_p, '', test_stamp_p],
+                [Paragraph(pac_txt, ParagraphStyle('SigPac', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)), '', Paragraph(test_txt, ParagraphStyle('SigTest', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER))]
+            ], colWidths=[sig_col_w, 40.0, sig_col_w])
+            t_top.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+
+            t_bot = Table([
+                [top_sig_p],
+                [Paragraph(f"<b>{medico_nombre}</b>{doc_ced_text}", ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER))]
+            ], colWidths=[sig_col_w], hAlign='CENTER')
+            t_bot.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (0,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (0,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+
+            wrapper = Table([
+                [t_top],
+                [Spacer(1, 10.0)],
+                [t_bot]
+            ], colWidths=[content_w], hAlign='CENTER')
+            wrapper.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+            return wrapper
+        else:
+            # Solo paciente y médico lado a lado
+            sig_data = [
+                [pac_stamp_p, '', top_sig_p],
+                [Paragraph(pac_txt, ParagraphStyle('SigPac', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)), '', Paragraph(f"<b>{medico_nombre}</b>{doc_ced_text}", ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER))]
+            ]
+            t_sig = Table(sig_data, colWidths=[sig_col_w, 40.0, sig_col_w])
+            t_sig.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            return t_sig
+    else:
+        has_mip = bool(mip_nombre and mip_nombre.strip() and mip_nombre.strip().upper() not in ['NONE', 'NULL', 'N/D', ''])
+
+        if has_mip:
+            mip_clean = mip_nombre.strip()
+            mip_sub_text = "<br/><font size='6.2' color='#334155'><i><b>MÉDICO INTERNO DE PREGRADO / RESIDENTE</b></i></font>"
+            sig_data = [
+                [top_sig_p, '', Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))],
+                [Paragraph(f"<b>{medico_nombre}</b>{doc_ced_text}", ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)), '', Paragraph(f"<b>{mip_clean}</b>{mip_sub_text}", ParagraphStyle('SigMIP', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER))]
+            ]
+            t_sig = Table(sig_data, colWidths=[sig_col_w, 40.0, sig_col_w])
+            t_sig.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            return t_sig
+        else:
+            single_sig_w = 250.0
+            gap_w = max(0, (content_w - single_sig_w) / 2.0)
+            sig_data = [
+                ['', top_sig_p, ''],
+                [
+                    '',
+                    Paragraph(f"<b>{medico_nombre}</b>{doc_ced_text}", ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)),
+                    ''
+                ]
+            ]
+            t_sig = Table(sig_data, colWidths=[gap_w, single_sig_w, gap_w])
+            t_sig.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+                ('VALIGN', (0,1), (-1,1), 'TOP'),
+                ('LINEABOVE', (1,1), (1,1), 0.8, PRIMARY_BLUE),
+                ('TOPPADDING', (0,0), (-1,0), 0),
+                ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+                ('TOPPADDING', (0,1), (-1,1), 2.5),
+                ('BOTTOMPADDING', (0,1), (-1,1), 0),
+            ]))
+            return t_sig
 
 
-def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None) -> str:
+def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None, evoluciones_list: list = None) -> str:
     """
     Genera el PDF oficial de la Nota de Urgencias:
-    - is_general=True: Imprime el documento general unificado con las 3 evoluciones y 1 sola firma al final.
+    - is_general=True: Imprime el documento general unificado con todas las evoluciones consecutivas (1..N) y 1 sola firma al final.
     - is_general=False: Imprime la nota individual con su propia firma.
     """
     if output_path and os.path.dirname(output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    content_x = FRAME_X + 5.0
-    content_w = FRAME_W - 5.0 - 16.0 # ~548.76 pt
+    content_x = FRAME_X + 16.0
+    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
 
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
     frame_h_p1 = frame_top_p1 - frame_bottom
 
-    frame_top_later = (FRAME_Y + FRAME_H) - 38.0
+    frame_top_later = (FRAME_Y + FRAME_H) - 68.0
     frame_h_later = frame_top_later - frame_bottom
 
     frame_p1 = Frame(content_x, frame_bottom, content_w, frame_h_p1, id='p1_frame',
@@ -324,11 +493,11 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         pageTemplates=[template_p1, template_later]
     )
 
-    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.0, leading=8.6, textColor=TEXT_MUTED)
-    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=TEXT_DARK)
-    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.5, leading=9.0, textColor=RED_ALERT)
-    style_soap_h = ParagraphStyle('SoapH', fontName='Helvetica-Bold', fontSize=8.0, leading=10.0, textColor=DARK_BLUE, spaceBefore=4.0, spaceAfter=1.5)
-    style_soap_body = ParagraphStyle('SoapB', fontName='Helvetica', fontSize=7.5, leading=9.8, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=3.0)
+    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=8.0, leading=10.0, textColor=TEXT_MUTED)
+    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=8.5, leading=11.0, textColor=TEXT_DARK)
+    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=8.5, leading=11.0, textColor=RED_ALERT)
+    style_soap_h = ParagraphStyle('SoapH', fontName='Helvetica-Bold', fontSize=9.2, leading=12.0, textColor=DARK_BLUE, spaceBefore=7.0, spaceAfter=2.5)
+    style_soap_body = ParagraphStyle('SoapB', fontName='Helvetica', fontSize=8.8, leading=12.5, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=5.0)
 
     story = []
 
@@ -336,7 +505,7 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
     # 1. FICHA DEMOGRÁFICA DEL PACIENTE (PÁGINA 1)
     # ─────────────────────────────────────────────────────────────
     sexo = str(pt_data.get('sexo', '')).upper()
-    sex_str = "<b>M</b> [X] &nbsp; <b>F</b> [ ]" if ('M' in sexo and 'F' not in sexo) else ("<b>M</b> [ ] &nbsp; <b>F</b> [X]" if 'F' in sexo else "<b>M</b> [ ] &nbsp; <b>F</b> [ ]")
+    sex_str = "MASCULINO" if ('M' in sexo and 'F' not in sexo) else ("FEMENINO" if 'F' in sexo else "NO ESPECIFICADO")
 
     meta_table_data = [
         # Fila 1: Nombre + Fecha de Nacimiento
@@ -350,7 +519,7 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         # Fila 2: Expediente, Cama, Edad, Sexo, Grupo RH
         [
             Paragraph('Expediente:', style_label),
-            Paragraph(f"<b>{pt_data.get('mrn', '')}</b> &nbsp;&nbsp; <font color='#555'>Cama:</font> <b>{pt_data.get('cama', '')}</b> &nbsp;&nbsp; <font color='#555'>Edad:</font> <b>{pt_data.get('edad', '')} años</b>", style_val),
+            Paragraph(f"<b>{pt_data.get('mrn', '')}</b> &nbsp;&nbsp; <font color='#555'>Cama:</font> <b>{pt_data.get('cama', '')}</b> &nbsp;&nbsp; <font color='#555'>Edad:</font> <b>{str(pt_data.get('edad', '')).replace('años', '').strip()} años</b>", style_val),
             Paragraph('Sexo:', style_label),
             Paragraph(sex_str, style_val),
             Paragraph('Grupo/RH:', style_label),
@@ -379,13 +548,13 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         ]
     ]
 
-    t_meta = Table(meta_table_data, colWidths=[82, 208, 68, 90, 44, 56])
+    t_meta = Table(meta_table_data, colWidths=[76.0, 195.0, 64.0, 85.0, 44.0, content_w - (76.0 + 195.0 + 64.0 + 85.0 + 44.0)])
     t_meta.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 0.8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
-        ('LEFTPADDING', (0,0), (-1,-1), 1),
-        ('RIGHTPADDING', (0,0), (-1,-1), 1),
+        ('TOPPADDING', (0,0), (-1,-1), 1.8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.8),
+        ('LEFTPADDING', (0,0), (-1,-1), 1.5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 1.5),
         ('SPAN', (1,0), (1,0)),
         ('SPAN', (3,0), (5,0)),
         ('SPAN', (1,1), (1,1)),
@@ -399,12 +568,15 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         ('LINEBELOW', (0,4), (-1,4), 0.6, PRIMARY_BLUE),
     ]))
     story.append(t_meta)
-    story.append(Spacer(1, 2))
+    story.append(Spacer(1, 4))
 
     # ─────────────────────────────────────────────────────────────
-    # RENDERIZADOR DE EVOLUCIONES
+    # RENDERIZADOR DE EVOLUCIONES CONSECUTIVAS
     # ─────────────────────────────────────────────────────────────
-    active_evols = [e for e in [evol1, evol2, evol3] if e and (e.get('subjetivo') or e.get('fecha'))]
+    if evoluciones_list:
+        active_evols = [e for e in evoluciones_list if e and (e.get('subjetivo') or e.get('fecha'))]
+    else:
+        active_evols = [e for e in [evol1, evol2, evol3] if e and (e.get('subjetivo') or e.get('fecha'))]
     if not active_evols and evol1:
         active_evols = [evol1]
 
@@ -413,13 +585,11 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         is_cont = (idx > 0)
         
         if is_cont:
-            story.append(CondPageBreak(200))
+            req_space = 290 if (is_general and idx == len(active_evols) - 1) else 200
+            story.append(CondPageBreak(req_space))
         
         turno = str(ev.get('turno', 'Matutino')).upper()
-        t_mat = "[X]" if 'MAT' in turno else "[ ]"
-        t_ves = "[X]" if 'VESP' in turno else "[ ]"
-        t_noc = "[X]" if 'NOCT' in turno else "[ ]"
-        turno_str = f"<b>Matutino</b> {t_mat} &nbsp;&nbsp; <b>Vespertino</b> {t_ves} &nbsp;&nbsp; <b>Nocturno</b> {t_noc}"
+        turno_str = "MATUTINO" if 'MAT' in turno else ("VESPERTINO" if 'VESP' in turno else ("NOCTURNO" if 'NOCT' in turno else turno))
 
         nota_header_data = [
             [
@@ -429,25 +599,25 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
                 Paragraph(turno_str, style_val)
             ]
         ]
-        t_nhead = Table(nota_header_data, colWidths=[82, 208, 45, 213])
+        t_nhead = Table(nota_header_data, colWidths=[76.0, 185.0, 42.0, content_w - (76.0 + 185.0 + 42.0)])
         t_nhead.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 0.8),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
-            ('LEFTPADDING', (0,0), (-1,-1), 1),
-            ('RIGHTPADDING', (0,0), (-1,-1), 1),
+            ('TOPPADDING', (0,0), (-1,-1), 1.8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.8),
+            ('LEFTPADDING', (0,0), (-1,-1), 1.5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 1.5),
         ]))
 
         ban_text = f"<b><i>Evolución y observaciones {num} {'(Continuación)' if is_cont else ''}</i></b>"
         t_banner = Table(
-            [[Paragraph(ban_text, ParagraphStyle('Ban', fontName='Helvetica-BoldOblique', fontSize=8.5, leading=10, textColor=PRIMARY_BLUE, alignment=TA_CENTER))]],
+            [[Paragraph(ban_text, ParagraphStyle('Ban', fontName='Helvetica-BoldOblique', fontSize=8.5, leading=10.5, textColor=PRIMARY_BLUE, alignment=TA_CENTER))]],
             colWidths=[content_w]
         )
         t_banner.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,-1), BANNER_BG),
             ('BOX', (0,0), (-1,-1), 0.5, BANNER_BORDER),
-            ('TOPPADDING', (0,0), (-1,-1), 1.5),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
+            ('TOPPADDING', (0,0), (-1,-1), 2.2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2.2),
         ]))
 
         v_ta = ev.get('vitals_ta', '--')
@@ -468,39 +638,46 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
                 Paragraph(f"TALLA: <b>{v_talla}</b>", style_val)
             ]
         ]
-        t_vitals = Table(vitals_data, colWidths=[70, 79, 79, 79, 80, 80, 81])
+        t_vitals = Table(vitals_data, colWidths=[62.0, 72.0, 72.0, 72.0, 78.0, 80.0, content_w - (62.0 + 72.0 + 72.0 + 72.0 + 78.0 + 80.0)])
         t_vitals.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 1.0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
+            ('TOPPADDING', (0,0), (-1,-1), 1.8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.8),
             ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#cccccc')),
         ]))
 
         evol_header_block = [
             t_nhead,
-            Spacer(1, 1.5),
+            Spacer(1, 2.5),
             t_banner,
-            Spacer(1, 1.5),
+            Spacer(1, 2.5),
             t_vitals,
-            Spacer(1, 2)
+            Spacer(1, 3.5)
         ]
-        story.append(KeepTogether(evol_header_block))
 
+        if not is_cont:
+            story.extend(evol_header_block)
+        else:
+            story.append(KeepTogether(evol_header_block))
+
+        soap_parts = []
         if ev.get('subjetivo'):
-            story.append(Paragraph("<b>(S) Subjetivo:</b>", style_soap_h))
-            story.append(Paragraph(format_clinical_text(ev.get('subjetivo', '')), style_soap_body))
+            soap_parts.append(Paragraph("<b>(S) Subjetivo:</b>", style_soap_h))
+            soap_parts.append(Paragraph(format_clinical_text(ev.get('subjetivo', '')), style_soap_body))
 
         if ev.get('objetivo'):
-            story.append(Paragraph("<b>(O) Objetivo:</b>", style_soap_h))
-            story.append(Paragraph(format_clinical_text(ev.get('objetivo', '')), style_soap_body))
+            soap_parts.append(Paragraph("<b>(O) Objetivo:</b>", style_soap_h))
+            soap_parts.append(Paragraph(format_clinical_text(ev.get('objetivo', '')), style_soap_body))
 
         if ev.get('analisis'):
-            story.append(Paragraph("<b>(A) Análisis:</b>", style_soap_h))
-            story.append(Paragraph(format_clinical_text(ev.get('analisis', '')), style_soap_body))
+            soap_parts.append(Paragraph("<b>(A) Análisis:</b>", style_soap_h))
+            soap_parts.append(Paragraph(format_clinical_text(ev.get('analisis', '')), style_soap_body))
 
         if ev.get('plan'):
-            story.append(Paragraph("<b>(P) Plan (laboratorios solicitados y tratamientos a establecer):</b>", style_soap_h))
-            story.append(Paragraph(format_clinical_text(ev.get('plan', '')), style_soap_body))
+            soap_parts.append(Paragraph("<b>(P) Plan (laboratorios solicitados y tratamientos a establecer):</b>", style_soap_h))
+            soap_parts.append(Paragraph(format_clinical_text(ev.get('plan', '')), style_soap_body))
+        
+        story.extend(soap_parts)
 
         if not is_general:
             med_nom = str(ev.get('medico', '')).upper()
@@ -511,7 +688,7 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
             story.append(KeepTogether([t_sig]))
         else:
             if idx < len(active_evols) - 1:
-                story.append(Spacer(1, 18))
+                story.append(Spacer(1, 8))
                 t_div = Table([['']], colWidths=[content_w])
                 t_div.setStyle(TableStyle([
                     ('LINEABOVE', (0,0), (-1,-1), 0.75, colors.HexColor('#0056b3')),
@@ -528,7 +705,7 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         mip_nom = str(last_ev.get('mip', '')).upper()
         
         t_sig = build_signature_table(med_nom, med_c, mip_nom, content_w, firma_data=firma_data)
-        story.append(Spacer(1, 22))
+        story.append(Spacer(1, 14))
         story.append(KeepTogether([t_sig]))
 
     doc_info = {
@@ -548,3 +725,35 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
 
 class CleanConsentCanvas(RDLCCanvas):
     pass
+
+
+def build_biometric_stamp_p(tipo_firmante: str = "PACIENTE", sello_id: str = "BIO-HES:OK", fecha_txt: str = "") -> Paragraph:
+    """
+    Genera un Paragraph con diseño tipográfico oficial para el Sello Biométrico de Paciente, Familiar o Testigo.
+    """
+    style_stamp = ParagraphStyle(
+        'BioStampUnified',
+        fontName='Helvetica',
+        fontSize=5.0,
+        leading=6.5,
+        textColor=colors.HexColor('#006633'),
+        alignment=TA_CENTER
+    )
+    
+    tipo_upper = tipo_firmante.upper()
+    if "TESTIGO" in tipo_upper:
+        titulo_stamp = "[✔ TESTIGO - HUELLA BIOMÉTRICA]"
+    elif "RECHAZO" in tipo_upper or "DISENTIMIENTO" in tipo_upper:
+        titulo_stamp = "[✔ RECHAZO VALIDADO CON HUELLA]"
+    else:
+        titulo_stamp = "[✔ AUTORIZADO CON HUELLA BIOMÉTRICA]"
+
+    sello_short = str(sello_id)[:24]
+    fecha_part = f" | {fecha_txt}" if fecha_txt else ""
+    
+    html = f"""
+    <font size='5.0' color='#006633'><b>{titulo_stamp}</b></font><br/>
+    <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_short}</font>{fecha_part}</font>
+    """
+    return Paragraph(html, style_stamp)
+

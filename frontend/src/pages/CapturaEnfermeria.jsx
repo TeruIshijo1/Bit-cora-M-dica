@@ -294,8 +294,13 @@ export default function CapturaEnfermeria() {
   const handleAltaPaciente = async (id) => {
     if (!window.confirm("¿Confirma que desea dar de alta al paciente seleccionado?")) return;
     try {
-      await api.put(`/pacientes/${id}/alta`, {}, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setActionFeedback({ message: "Alta hospitalaria procesada exitosamente.", type: "success" });
+      const response = await api.put(`/pacientes/${id}/alta`, {}, { headers: {
+        Authorization: `Bearer ${getToken()}`,
+        'Idempotency-Key': crypto.randomUUID()
+      } });
+      setActionFeedback(response.status === 202
+        ? { message: `Alta guardada; sincronización pendiente (${response.data.operation_id}).`, type: "warning" }
+        : { message: "Alta hospitalaria procesada exitosamente.", type: "success" });
       fetchData();
       if(pacienteSeleccionado?.id === id) {
         setPacienteSeleccionado(null);
@@ -420,25 +425,25 @@ export default function CapturaEnfermeria() {
           onClick={() => setActiveTab('captura')}
           className={`pb-3 px-4 font-semibold ${activeTab === 'captura' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <div className="flex items-center gap-2"><FiFileText /> Nueva Captura</div>
+          <div className="flex items-center gap-2"><FiFileText /> Registrar atención</div>
         </button>
         <button 
           onClick={() => setActiveTab('mis_registros')}
           className={`pb-3 px-4 font-semibold ${activeTab === 'mis_registros' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <div className="flex items-center gap-2"><FiList /> Mis Registros</div>
+          <div className="flex items-center gap-2"><FiList /> Mis atenciones</div>
         </button>
         <button 
           onClick={() => setActiveTab('registros')}
           className={`pb-3 px-4 font-semibold ${activeTab === 'registros' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <div className="flex items-center gap-2"><FiActivity /> Registros</div>
+          <div className="flex items-center gap-2"><FiActivity /> Historial general</div>
         </button>
         <button 
           onClick={() => setActiveTab('pacientes')}
           className={`pb-3 px-4 font-semibold ${activeTab === 'pacientes' ? 'text-hes-blue-main border-b-2 border-hes-blue-main' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <div className="flex items-center gap-2"><FiUser /> Gestión de Pacientes</div>
+          <div className="flex items-center gap-2"><FiUser /> Pacientes y camas</div>
         </button>
       </div>
 
@@ -462,7 +467,7 @@ export default function CapturaEnfermeria() {
               
               {pacienteSeleccionado ? (
                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 font-medium text-blue-900 flex justify-between items-center">
-                  <span>Paciente Actual: {pacienteSeleccionado.nombre_completo} (Cama: {pacienteSeleccionado.num_habitacion})</span>
+                  <span>Paciente seleccionado: {pacienteSeleccionado.nombre_completo} (Cama: {pacienteSeleccionado.num_habitacion})</span>
                   <span className="text-xs text-blue-500 font-bold bg-blue-100 px-2 py-1 rounded">Ingresado</span>
                 </div>
               ) : habitacion.length > 0 ? (
@@ -471,7 +476,7 @@ export default function CapturaEnfermeria() {
                      <div className="flex flex-col gap-2">
                         <span className="text-orange-800 font-medium">No se encontró paciente con ese dato.</span>
                         <button onClick={() => setIsCreatingPaciente(true)} className="flex items-center gap-1 text-sm font-bold text-orange-700 hover:text-orange-900 w-max">
-                           <FiPlusCircle /> Ingresar paciente nuevo a esta cama
+                           <FiPlusCircle /> Agregar paciente a esta cama
                         </button>
                      </div>
                   ) : (
@@ -507,7 +512,7 @@ export default function CapturaEnfermeria() {
 
           {/* 2. Tipo y Procedimiento */}
           <section className="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
-            <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FaStethoscope /> 2. Clasificación de la Atención</h2>
+            <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FaStethoscope /> 2. Datos de la atención</h2>
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de Atención</label>
@@ -575,7 +580,7 @@ export default function CapturaEnfermeria() {
             </div>
             
             <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 flex-1">
-               <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FiEdit3 /> 4. Detalle (Opcional)</h2>
+               <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FiEdit3 /> 4. Observaciones (opcional)</h2>
                <textarea 
                   className="w-full h-32 border border-slate-300 rounded-lg p-3 resize-none"
                   placeholder="Describe brevemente observaciones clínicas..."
@@ -595,7 +600,7 @@ export default function CapturaEnfermeria() {
             icon={<FiCheckCircle className="text-2xl" />}
             className="w-full py-4 text-lg font-semibold rounded-xl shadow-md"
           >
-            Guardar Pre-Captura
+            Guardar atención
           </Button>
         </div>
       )}
@@ -604,7 +609,7 @@ export default function CapturaEnfermeria() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <FiActivity className="text-hes-blue-main" /> {activeTab === 'mis_registros' ? 'Mis Registros' : 'Historial de Registros Global'}
+              <FiActivity className="text-hes-blue-main" /> {activeTab === 'mis_registros' ? 'Mis atenciones' : 'Historial general'}
             </h2>
             <button onClick={() => activeTab === 'mis_registros' ? fetchMisRegistros() : fetchHistorialGlobal()} className="text-sm font-medium text-hes-blue-main hover:underline">Refrescar</button>
           </div>
@@ -700,7 +705,7 @@ export default function CapturaEnfermeria() {
 
               <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold text-slate-700">Ingresar Nuevo Paciente</h3>
+                  <h3 className="text-lg font-bold text-slate-700">Agregar paciente</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                     <div>
@@ -726,7 +731,7 @@ export default function CapturaEnfermeria() {
                     icon={<FiPlusCircle />}
                     className="h-[42px] mt-4"
                   >
-                    Ingresar Paciente
+                    Agregar paciente
                   </Button>
               </div>
 
@@ -744,7 +749,7 @@ export default function CapturaEnfermeria() {
                         onChange={e => setFilterPacientesTab(e.target.value)}
                       />
                     </div>
-                    <button onClick={fetchData} className="text-sm font-medium text-hes-blue-main hover:underline whitespace-nowrap">Sincronizar Camas</button>
+                    <button onClick={fetchData} className="text-sm font-medium text-hes-blue-main hover:underline whitespace-nowrap">Actualizar camas</button>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">

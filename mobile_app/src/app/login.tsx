@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import axios from 'axios';
 import api from '../api';
 import * as SecureStore from 'expo-secure-store';
 import { useServer } from '../contexts/ServerContext';
@@ -32,12 +33,13 @@ export default function LoginScreen() {
       if (response.data.access_token) {
         await SecureStore.setItemAsync('token', response.data.access_token);
         await SecureStore.setItemAsync('rol', response.data.rol || 'USER');
-        router.replace('/camas');
+        router.replace('/camas' as Href);
       } else {
         setError('Error en la autenticación');
       }
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Error de conexión o credenciales inválidas');
+    } catch (err: unknown) {
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : null;
+      setError(detail || 'Error de conexión o credenciales inválidas');
     } finally {
       setLoading(false);
     }
@@ -100,7 +102,7 @@ export default function LoginScreen() {
 
         <TouchableOpacity 
           className="mt-6 p-2 items-center"
-          onPress={() => router.push('/server-setup')}
+          onPress={() => router.push('/server-setup' as Href)}
         >
           <Text className="text-hes-blue-light text-sm font-medium">Cambiar Configuración de Servidor</Text>
         </TouchableOpacity>

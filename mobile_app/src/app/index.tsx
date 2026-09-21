@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { Redirect } from 'expo-router';
+import { Redirect, type Href } from 'expo-router';
 import { useServer } from '../contexts/ServerContext';
 import * as SecureStore from 'expo-secure-store';
 
 export default function EntryScreen() {
   const { serverUrl, isReady } = useServer();
-  const [targetRoute, setTargetRoute] = useState(null);
+  const [targetRoute, setTargetRoute] = useState<Href | null>(null);
 
   useEffect(() => {
     if (!isReady) return;

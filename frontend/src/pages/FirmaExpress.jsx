@@ -44,7 +44,8 @@ export default function FirmaExpress() {
   const [rolActual] = useState(localStorage.getItem('rol'));
 
   const navigate = useNavigate();
-  const { status, fmdTemplate, error, devices, resetFmd, isAcquiring, startCapture } = useDigitalPersona();
+  const { status, fmdTemplate, challengeId, sessionId, error, devices, resetFmd, isAcquiring, startCapture } = useDigitalPersona();
+  const startBatchCapture = () => startCapture({ action: 'FIRMA_LOTE' });
   const isReady = devices?.length > 0 && !error;
 
   useEffect(() => {
@@ -138,6 +139,8 @@ export default function FirmaExpress() {
         const res = await api.post('/atenciones/firmar-lote', {
             huella_token: "digitalpersona", 
             fmd_template,
+            challenge_id: challengeId,
+            session_id: sessionId,
             medico_id: medico?.medico_id,
             folios: [selectedFolio]
         });
@@ -150,7 +153,7 @@ export default function FirmaExpress() {
         alert(err.response?.data?.detail || "Huella no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.");
         resetFmd();
         setTimeout(() => {
-          startCapture();
+          startBatchCapture();
         }, 800);
     } finally {
         setIsProcessing(false);
@@ -230,52 +233,52 @@ export default function FirmaExpress() {
   if(!medico) return null;
 
   const sidebarItems = [
-    { id: 'pendientes', label: 'Atenciones Pendientes', icon: <FiActivity /> },
-    { id: 'captura', label: 'Nueva Captura Manual', icon: <FiFileText /> },
-    { id: 'historial', label: 'Historial de Firmadas', icon: <FiClock /> },
-    { id: 'pacientes', label: 'Directorio de Pacientes', icon: <FiUsers /> }
+    { id: 'pendientes', label: 'Pendientes por firmar', icon: <FiActivity /> },
+    { id: 'captura', label: 'Registrar atención', icon: <FiFileText /> },
+    { id: 'historial', label: 'Firmas realizadas', icon: <FiClock /> },
+    { id: 'pacientes', label: 'Pacientes', icon: <FiUsers /> }
   ];
 
   return (
-    <div className="flex w-full h-full">
+    <div className="he-firma-layout flex w-full h-full">
       {/* Left Sidebar (Sub-menu) */}
-      <div className="w-64 bg-white border-r border-slate-200 flex flex-col shadow-sm z-10 overflow-y-auto">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Menú Médico</h2>
+      <div className="he-firma-side w-64 flex flex-col shadow-sm z-10 overflow-y-auto shrink-0">
+        <div className="p-4 border-b border-slate-100">
+          <h2 className="text-xs font-bold text-slate-500">Área médica</h2>
         </div>
         
         {/* Doctor Profile Widget */}
-        <div className="p-6 border-b border-slate-100 flex flex-col items-center text-center bg-white">
-          <div className="w-28 h-28 rounded-full overflow-hidden mb-4 border-4 border-white shadow-lg bg-slate-100 flex items-center justify-center">
+        <div className="p-6 border-b border-slate-100 flex flex-col items-center text-center">
+          <div className="he-doctor-avatar w-24 h-24 rounded-full overflow-hidden mb-3 bg-slate-100 flex items-center justify-center">
              {medico.foto_url ? (
                <img src={`${medico.foto_url}`} alt="Perfil Médico" className="w-full h-full object-cover" />
              ) : (
                <FaStethoscope className="text-4xl text-slate-300" />
              )}
           </div>
-          <h3 className="font-bold text-slate-800 text-[13px] tracking-wide leading-tight px-2 uppercase">
-             {medico.medico_id} - {medico.nombre_completo}
+          <h3 className="font-black text-slate-900 text-[12px] tracking-wide leading-tight px-2 uppercase">
+             {medico.nombre_completo}
           </h3>
-          <div className="mt-3 bg-red-500/90 text-white text-[11px] font-bold px-3 py-1 rounded shadow-sm tracking-widest uppercase">
+          <div className="he-spec-badge mt-2.5 text-white text-[10px] font-black px-3.5 py-1.5 rounded-full uppercase">
              {medico.especialidad || 'MÉDICO'}
           </div>
         </div>
 
-        <ul className="flex-1 py-4">
+        <ul className="flex-1 py-3">
           {sidebarItems.map(item => (
             <li key={item.id}>
               <button
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-6 py-3 text-left transition-colors font-medium border-l-4 ${
+                className={`he-side-item flex items-center gap-3 px-4 py-3 text-left text-[13.5px] ${
                   activeTab === item.id 
-                    ? 'border-hes-blue-main bg-blue-50/50 text-hes-blue-main' 
-                    : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-hes-blue-main'
+                    ? 'he-side-active' 
+                    : 'text-slate-600 hover:text-hes-blue-main'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <span className="text-lg shrink-0">{item.icon}</span>
                 {item.label}
                 {item.id === 'pendientes' && pendientes.length > 0 && (
-                  <span className="ml-auto bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">{pendientes.length}</span>
+                  <span className="ml-auto bg-orange-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-sm animate-pulse">{pendientes.length}</span>
                 )}
               </button>
             </li>
@@ -284,12 +287,18 @@ export default function FirmaExpress() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 bg-slate-50 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto p-5 md:p-8">
         <div className="max-w-5xl mx-auto w-full">
-          <div className="flex justify-between items-center mb-6 border-b pb-4 border-slate-200">
-            <h1 className="text-2xl font-bold text-slate-800">
-              {sidebarItems.find(i => i.id === activeTab)?.label}
-            </h1>
+          <div className="he-firma-main-card flex justify-between items-center mb-5 p-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-xl shrink-0 bg-hes-blue-main"><FiFileText /></div>
+              <div>
+                <h1 className="text-[20px] font-black text-slate-900 tracking-tight leading-none">
+                  {sidebarItems.find(i => i.id === activeTab)?.label}
+                </h1>
+                <p className="text-xs text-slate-500 mt-1">Revise sus registros y fírmelos con su huella</p>
+              </div>
+            </div>
             <button 
               onClick={() => {
                 if (medico?.medico_id) {
@@ -298,7 +307,7 @@ export default function FirmaExpress() {
                   fetchCatalogos();
                 }
               }}
-              className="text-sm font-bold text-hes-blue-main hover:underline flex items-center gap-1 bg-blue-50 px-3 py-1 rounded-full"
+              className="he-btn-ghost text-[13px] font-bold px-4 py-2 flex items-center gap-1.5 transition-all"
             >
               <FiActivity /> Refrescar
             </button>
@@ -321,15 +330,16 @@ export default function FirmaExpress() {
           {activeTab === 'pendientes' && (
             <>
               {pendientes.length === 0 ? (
-                  <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-slate-100 flex flex-col items-center">
-                      <FiCheckCircle className="text-green-500 text-6xl mb-4" />
-                      <h3 className="text-xl font-semibold text-slate-700">Todo al día</h3>
-                      <p className="text-slate-500">No tienes atenciones pendientes por firmar en este momento.</p>
+                  <div className="he-firma-main-card he-empty-ok p-12 text-center flex flex-col items-center">
+                      <div className="he-empty-check mb-4">✓</div>
+                      <h3 className="text-[20px] font-black text-slate-900">Todo al día</h3>
+                      <p className="text-slate-500 text-sm mt-1">No tienes atenciones pendientes por firmar en este momento.</p>
+                      <span className="mt-4 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">Sin firmas pendientes</span>
                   </div>
               ) : (
                   <div className="space-y-4">
                       {pendientes.map(p => (
-                          <div key={p.folio} className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 flex justify-between items-center hover:border-blue-200 transition">
+                          <div key={p.folio} className="he-pend-card p-5 md:p-6 pl-6 md:pl-7 flex flex-col md:flex-row justify-between md:items-center gap-4">
                               <div className="flex-1">
                                   <div className="flex items-center gap-3 mb-2">
                                       <select 
@@ -413,7 +423,7 @@ export default function FirmaExpress() {
                                   ) : (
                                     <button 
                                       onClick={() => setSelectedFolio(p.folio)}
-                                      className="mt-2 bg-hes-blue-main hover:bg-blue-800 text-white px-4 py-2 rounded shadow-sm text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                                      className="he-btn-programar mt-2 text-white px-4 py-2.5 text-xs flex items-center justify-center gap-1.5"
                                     >
                                       <MdFingerprint className="text-lg"/> Preparar Firma
                                     </button>
@@ -428,9 +438,9 @@ export default function FirmaExpress() {
                           onClick={() => {
                             if (!selectedFolio && pendientes.length > 0) {
                               setSelectedFolio(pendientes[0].folio);
-                              if (isReady && !isAcquiring) startCapture();
+                              if (isReady && !isAcquiring) startBatchCapture();
                             } else if (selectedFolio && !fmdTemplate && isReady && !isAcquiring) {
-                              startCapture();
+                              startBatchCapture();
                             } else if (selectedFolio && fmdTemplate) {
                               handleFirmarUnica(fmdTemplate);
                             }
@@ -456,13 +466,17 @@ export default function FirmaExpress() {
           )}
 
           {activeTab === 'historial' && (
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+            <div className="he-firma-main-card p-5 md:p-6">
                {historial.length === 0 ? (
-                   <p className="text-center text-slate-500 py-8">No hay atenciones firmadas aún.</p>
+                   <div className="py-12 text-center space-y-2">
+                     <div className="text-4xl">📁</div>
+                     <p className="font-black text-slate-700 text-sm">Sin firmas aún</p>
+                     <p className="text-xs text-slate-400">No hay atenciones firmadas aún.</p>
+                   </div>
                ) : (
-                   <div className="space-y-4">
+                   <div className="space-y-3">
                       {historial.map(h => (
-                        <div key={h.folio} className="border p-4 rounded-lg flex justify-between items-center bg-slate-50">
+                        <div key={h.folio} className="border border-slate-200 p-4 rounded-2xl flex flex-col md:flex-row justify-between md:items-center gap-3 bg-gradient-to-b from-slate-50 to-white hover:border-emerald-300 hover:shadow-md transition-all">
                             <div>
                                 <p className="font-bold text-slate-800 cursor-pointer hover:text-blue-600 hover:underline flex items-center gap-1 w-fit" onClick={() => setJourneyModal({ open: true, paciente: h.paciente })}>
                                   {h.paciente.nombre_completo}
@@ -490,7 +504,7 @@ export default function FirmaExpress() {
            )}
 
           {activeTab === 'pacientes' && (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden p-6">
+            <div className="he-firma-main-card overflow-hidden p-5 md:p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                     <FiUsers className="text-hes-blue-main" /> Pacientes Activos
@@ -557,8 +571,8 @@ export default function FirmaExpress() {
           )}
 
           {activeTab === 'captura' && (
-            <div className="flex flex-col gap-6">
-              <section className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 flex gap-6">
+            <div className="flex flex-col gap-4">
+              <section className="he-firma-main-card p-5 md:p-6 flex flex-col md:flex-row gap-5">
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FiUser /> 1. Paciente y Área</h2>
                   <div className="grid grid-cols-2 gap-4 mb-4">
@@ -617,8 +631,8 @@ export default function FirmaExpress() {
                 </div>
               </section>
 
-              <section className="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
-                <h2 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-4"><FaStethoscope /> 2. Clasificación de la Atención</h2>
+              <section className="he-firma-main-card p-5 md:p-6">
+                <h2 className="text-[16px] font-black text-slate-900 flex items-center gap-2 mb-4">🩺 2. Clasificación de la Atención</h2>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de Atención</label>
@@ -695,7 +709,7 @@ export default function FirmaExpress() {
 
               <button 
                 onClick={handleGuardarCaptura}
-                className="w-full bg-hes-blue-main hover:bg-[#003870] text-white text-lg font-semibold py-4 rounded-xl shadow-md transition-colors flex justify-center items-center gap-2"
+                className="he-btn-programar w-full text-white text-[16px] py-4 shadow-md flex justify-center items-center gap-2"
               >
                 <FiFileText /> Guardar Pre-Captura Manual
               </button>

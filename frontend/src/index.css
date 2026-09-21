@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/he-premium.css";
 
 @theme {
     --color-hes-blue-main: #004687;
@@ -22,7 +23,9 @@ html, body {
     padding: 0;
     overflow: hidden;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #f8fafc;
+    background-color: #f4f7f6;
+    color: #24313d;
+    font-size: 15px;
 }
 
 #root {
@@ -38,4 +41,22 @@ html, body {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+}
+
+button, input, select, textarea {
+    font: inherit;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 3px solid rgba(40, 95, 115, 0.28);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

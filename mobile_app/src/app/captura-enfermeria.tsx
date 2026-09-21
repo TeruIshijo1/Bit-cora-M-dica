@@ -4,19 +4,22 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import api from '../api';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import type { CatalogoApi, MedicoApi, PacienteApi } from '../types';
 
 export default function CapturaEnfermeriaScreen() {
   const router = useRouter();
-  const { pacienteId, camaNumero } = useLocalSearchParams();
+  const params = useLocalSearchParams<{ pacienteId?: string | string[]; camaNumero?: string | string[] }>();
+  const pacienteId = Array.isArray(params.pacienteId) ? params.pacienteId[0] : params.pacienteId;
+  const camaNumero = Array.isArray(params.camaNumero) ? params.camaNumero[0] : params.camaNumero;
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [paciente, setPaciente] = useState(null);
+  const [paciente, setPaciente] = useState<PacienteApi | null>(null);
   
   // Catálogos
-  const [medicos, setMedicos] = useState([]);
-  const [tiposAtencion, setTiposAtencion] = useState([]);
-  const [areas, setAreas] = useState([]);
+  const [medicos, setMedicos] = useState<MedicoApi[]>([]);
+  const [tiposAtencion, setTiposAtencion] = useState<CatalogoApi[]>([]);
+  const [areas, setAreas] = useState<CatalogoApi[]>([]);
   
   // Formulario
   const [medicoId, setMedicoId] = useState('');
@@ -35,15 +38,15 @@ export default function CapturaEnfermeriaScreen() {
           api.get(`/api/catalogos/areas`)
         ]);
         
-        const pacienteEncontrado = resP.data.find(p => p.id === parseInt(pacienteId));
-        setPaciente(pacienteEncontrado);
+        const pacienteEncontrado = (resP.data as PacienteApi[]).find(p => p.id === Number(pacienteId));
+        setPaciente(pacienteEncontrado || null);
         
         setMedicos(resM.data);
         setTiposAtencion(resT.data);
         setAreas(resA.data);
         
         if (resA.data.length > 0) {
-          const hosp = resA.data.find(a => a.nombre.toLowerCase().includes('hosp'));
+          const hosp = (resA.data as CatalogoApi[]).find(a => a.nombre.toLowerCase().includes('hosp'));
           setAreaHospitalaria(hosp ? hosp.nombre : resA.data[0].nombre);
         }
       } catch (error) {
@@ -74,8 +77,9 @@ export default function CapturaEnfermeriaScreen() {
       const fechaRealizacion = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:00`;
 
       await api.post('/api/atenciones/pre-captura', {
-        paciente_id: parseInt(pacienteId),
-        medico_id: parseInt(medicoId),
+        paciente_id: Number(pacienteId),
+        medico_id: Number(medicoId),
+        habitacion_capturada: camaNumero || paciente?.num_habitacion || '',
         area_hospitalaria: areaHospitalaria,
         tipo_atencion: tipoAtencion,
         nombre_procedimiento: nombreProcedimiento,
@@ -143,7 +147,7 @@ export default function CapturaEnfermeriaScreen() {
             >
               <Picker.Item label="Selecciona un médico..." value="" color="#94a3b8" />
               {medicos.map(m => (
-                <Picker.Item key={m.id} label={`${m.nombres} ${m.apellidos}`} value={m.id} />
+                <Picker.Item key={m.id} label={m.nombre_completo} value={String(m.id)} />
               ))}
             </Picker>
           </View>

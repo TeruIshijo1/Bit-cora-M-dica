@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useServer } from '../contexts/ServerContext';
 import { Feather } from '@expo/vector-icons';
+import api from '../api';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -19,9 +20,14 @@ export default function DashboardScreen() {
   }, []);
 
   const handleLogout = async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } catch {
+      // Always clear device credentials even if the backend is unreachable.
+    }
     await SecureStore.deleteItemAsync('token');
     await SecureStore.deleteItemAsync('rol');
-    router.replace('/login');
+    router.replace('/login' as Href);
   };
 
   return (
@@ -51,7 +57,7 @@ export default function DashboardScreen() {
 
         <TouchableOpacity 
           className="w-full bg-hes-blue-main py-4 rounded-xl items-center flex-row justify-center active:bg-hes-blue-cross shadow-sm"
-          onPress={() => router.push('/camas')}
+          onPress={() => router.push('/camas' as Href)}
         >
           <Feather name="log-out" size={20} color="white" style={{ marginRight: 8, transform: [{ rotate: '180deg' }] }} />
           <Text className="text-white font-bold text-lg">Ver Panel de Camas</Text>

@@ -6,19 +6,36 @@ from sqlalchemy.engine import Engine
 
 import os
 from dotenv import load_dotenv
+from app_config import load_settings
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
+
+# Fail closed before the engine is constructed in production.
+SETTINGS = load_settings()
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 if not SQLALCHEMY_DATABASE_URL:
     raise ValueError("Falta DATABASE_URL en el archivo .env. Configure la URL de conexión a la base de datos.")
+
+APP_ENV = os.getenv("APP_ENV", "")
+if APP_ENV.strip().lower() == "test":
+    from testing.database_guards import validate_postgres_test_database
+
+    validate_postgres_test_database(APP_ENV, SQLALCHEMY_DATABASE_URL)
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
     )
 else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=int(os.getenv("DB_POOL_RECYCLE_SECONDS", "300")),
+        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        connect_args={"connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))},
+    )
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")
@@ -83,7 +100,8 @@ def check_and_add_columns(eng):
     except Exception as e:
         print(f"Aviso de auto-migracion: {e}")
 
-check_and_add_columns(engine)
+# Schema changes are exclusively Alembic-managed.  Importing the application
+# never attempts ad-hoc DDL, which keeps multi-worker startup deterministic.
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -1,241 +1,326 @@
-import os
+"""ECDSA P-256 key custody and exact-key verification for HES FEA."""
+
+from __future__ import annotations
+
+import base64
+import datetime
 import hashlib
 import hmac
-import base64
 import logging
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-import datetime
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
+import os
+import uuid
+from dataclasses import dataclass
+from typing import Optional
+
+from cryptography.exceptions import InvalidSignature
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-logger = logging.getLogger('hes.crypto_fea')
 
-def get_hes_secret():
-    secret = os.getenv('HES_HMAC_SECRET')
+logger = logging.getLogger("hes.crypto_fea")
+CIPHER_VERSION = "FERNET_HKDF_SHA256_V1"
+
+
+class PrivateKeyDecryptionError(RuntimeError):
+    """The encrypted private key cannot be opened; automatic rotation is forbidden."""
+
+
+class FEAKeyStateError(RuntimeError):
+    """The physician does not have one unambiguous active FEA key."""
+
+
+@dataclass(frozen=True)
+class SignatureResult:
+    sello_digital: str
+    key_id: str
+
+
+class PrivateKeyCustodian:
+    """Versioned custody boundary, replaceable by a future KMS/HSM adapter."""
+
+    version = CIPHER_VERSION
+
+    def encrypt(self, private_pem: bytes, huella_token: str) -> str:
+        return Fernet(get_kdf_fernet_key(huella_token)).encrypt(private_pem).decode("ascii")
+
+    def decrypt(self, ciphertext: str, huella_token: str) -> bytes:
+        if not ciphertext:
+            raise PrivateKeyDecryptionError("La llave privada FEA cifrada no existe")
+        try:
+            return Fernet(get_kdf_fernet_key(huella_token)).decrypt(ciphertext.encode("ascii"))
+        except (InvalidToken, ValueError, TypeError) as exc:
+            raise PrivateKeyDecryptionError(
+                "No fue posible descifrar la llave privada FEA; se requiere intervención explícita y auditada"
+            ) from exc
+
+
+custodian = PrivateKeyCustodian()
+
+
+def utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def get_hes_secret() -> str:
+    secret = os.getenv("HES_HMAC_SECRET")
     if not secret:
-        raise RuntimeError('FATAL: HES_HMAC_SECRET no está configurado en el entorno (.env). El sistema debe fallar duro por seguridad.')
+        raise RuntimeError(
+            "FATAL: HES_HMAC_SECRET no está configurado en el entorno (.env). "
+            "El sistema debe fallar duro por seguridad."
+        )
     return secret
 
+
 def get_kdf_fernet_key(huella_token: str) -> bytes:
-    secret = get_hes_secret().encode('utf-8')
+    if not huella_token:
+        raise FEAKeyStateError("El médico no tiene huella_token para custodiar su llave FEA")
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b'hes-fea-salt-nom004',
-        info=b'FEA_KEK_DERIVATION',
+        salt=b"hes-fea-salt-nom004",
+        info=b"FEA_KEK_DERIVATION",
     )
-    derived = hkdf.derive(huella_token.encode('utf-8') + secret)
+    derived = hkdf.derive(huella_token.encode("utf-8") + get_hes_secret().encode("utf-8"))
     return base64.urlsafe_b64encode(derived)
 
-def generate_ecdsa_keypair():
+
+def generate_ecdsa_keypair() -> tuple[bytes, bytes]:
     private_key = ec.generate_private_key(ec.SECP256R1())
-    public_key = private_key.public_key()
-    
-    priv_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
+    return (
+        private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ),
+        private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ),
     )
-    
-    pub_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
+
+
+def _new_key_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _active_key_rows(db_session, medico_id: int):
+    import models
+
+    return db_session.query(models.HistorialLlaveFEA).filter(
+        models.HistorialLlaveFEA.medico_id == medico_id,
+        models.HistorialLlaveFEA.activo == True,
+    ).all()
+
+
+def _ensure_history_for_existing_key(db_session, medico):
+    """Associate a pre-migration active public key without changing its keypair."""
+    import models
+
+    rows = _active_key_rows(db_session, medico.id)
+    matching = [row for row in rows if row.public_key_pem == medico.public_key_pem]
+    if len(matching) == 1:
+        return matching[0]
+    if rows:
+        raise FEAKeyStateError("Existen llaves activas ambiguas para el médico")
+    entry = models.HistorialLlaveFEA(
+        key_id=_new_key_id(),
+        medico_id=medico.id,
+        public_key_pem=medico.public_key_pem,
+        fecha_creacion=utcnow(),
+        activo=True,
+        estado="ACTIVA",
     )
-    
-    return priv_pem, pub_pem
+    db_session.add(entry)
+    db_session.flush()
+    return entry
+
 
 def ensure_medico_keys(db_session, medico):
-    if getattr(medico, 'public_key_pem', None) is None:
-        # LOCK de fila + double-checked
-        try:
-            medico_locked = db_session.query(type(medico)).filter_by(id=medico.id).with_for_update().first()
-        except Exception:
-            medico_locked = None
-        if medico_locked is None:
-            medico_locked = medico
-        if getattr(medico_locked, 'public_key_pem', None) is None:
-            priv_pem, pub_pem = generate_ecdsa_keypair()
-            
-            token = getattr(medico_locked, 'huella_token', None)
-            if not token:
-                raise ValueError('El médico no cuenta con material biométrico registrado (huella_token). Debe enrolar su huella antes de generar llaves FEA.')
-                
-            f = Fernet(get_kdf_fernet_key(token))
-            priv_enc = f.encrypt(priv_pem)
-            
-            medico_locked.public_key_pem = pub_pem.decode('utf-8')
-            medico_locked.private_key_enc = priv_enc.decode('utf-8')
-            
-            # Registrar llave en el historial de llaves publicas
-            try:
-                import models
-                historial_entry = models.HistorialLlaveFEA(
-                    medico_id=medico_locked.id,
-                    public_key_pem=medico_locked.public_key_pem,
-                    fecha_creacion=datetime.datetime.utcnow(),
-                    activo=True
-                )
-                db_session.add(historial_entry)
-            except Exception:
-                pass # Si no hay modelo SQLAlchemy o estamos en test simple
-                
-            db_session.add(medico_locked)
-            db_session.commit()
-            
-            medico.public_key_pem = medico_locked.public_key_pem
-            medico.private_key_enc = medico_locked.private_key_enc
-        else:
-            medico.public_key_pem = medico_locked.public_key_pem
-            medico.private_key_enc = medico_locked.private_key_enc
+    """Create the first key once; never rotate as error recovery."""
+    import models
 
+    locked = db_session.query(type(medico)).filter_by(id=medico.id).with_for_update().first() or medico
+    has_public = bool(getattr(locked, "public_key_pem", None))
+    has_private = bool(getattr(locked, "private_key_enc", None))
+    if has_public != has_private:
+        raise FEAKeyStateError("El par de llaves FEA está incompleto")
+    if not has_public:
+        token = getattr(locked, "huella_token", None)
+        if not token or not getattr(locked, "fmd_template", None):
+            raise FEAKeyStateError("Debe existir biometría válida antes de generar llaves FEA")
+        private_pem, public_pem = generate_ecdsa_keypair()
+        locked.public_key_pem = public_pem.decode("ascii")
+        locked.private_key_enc = custodian.encrypt(private_pem, token)
+        locked.private_key_cipher_version = CIPHER_VERSION
+        entry = models.HistorialLlaveFEA(
+            key_id=_new_key_id(),
+            medico_id=locked.id,
+            public_key_pem=locked.public_key_pem,
+            fecha_creacion=utcnow(),
+            activo=True,
+            estado="ACTIVA",
+        )
+        db_session.add(entry)
+        db_session.flush()
+        db_session.commit()
+        medico.public_key_pem = locked.public_key_pem
+        medico.private_key_enc = locked.private_key_enc
+        medico.private_key_cipher_version = CIPHER_VERSION
+    else:
+        _ensure_history_for_existing_key(db_session, locked)
+        if getattr(locked, "private_key_cipher_version", None) is None:
+            locked.private_key_cipher_version = CIPHER_VERSION
+        db_session.commit()
+        medico.public_key_pem = locked.public_key_pem
+        medico.private_key_enc = locked.private_key_enc
+        medico.private_key_cipher_version = locked.private_key_cipher_version
     return medico.public_key_pem, medico.private_key_enc
 
-def firmar_documento(db_session, medico, cadena_original: str) -> str:
+
+def get_active_key(db_session, medico):
     ensure_medico_keys(db_session, medico)
-    
-    token = getattr(medico, 'huella_token', None)
+    rows = _active_key_rows(db_session, medico.id)
+    if len(rows) != 1 or rows[0].public_key_pem != medico.public_key_pem:
+        raise FEAKeyStateError("No existe una única llave FEA activa asociada al médico")
+    return rows[0]
+
+
+def firmar_documento_con_key_id(db_session, medico, canonical_payload: str | bytes) -> SignatureResult:
+    key_row = get_active_key(db_session, medico)
+    token = getattr(medico, "huella_token", None)
     if not token:
-        raise ValueError('El médico no cuenta con material biométrico registrado (huella_token) para firmar electrónicamente.')
-    f = Fernet(get_kdf_fernet_key(token))
-    
-    priv_enc = medico.private_key_enc.encode('utf-8')
-    try:
-        priv_pem = f.decrypt(priv_enc)
-    except InvalidToken:
-        # La KEK cambió (ej. re-registro de huella).
-        # Inactivamos la llave anterior en el historial (pero NO la borramos)
-        try:
-            import models
-            try:
-                db_session.query(models.HistorialLlaveFEA).filter(
-                    models.HistorialLlaveFEA.medico_id == medico.id,
-                    models.HistorialLlaveFEA.activo == True
-                ).update({
-                    "activo": False,
-                    "fecha_inactivacion": datetime.datetime.utcnow()
-                })
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-        # Generamos el nuevo par de llaves
-        priv_pem, pub_pem = generate_ecdsa_keypair()
-        old_pub_pem = medico.public_key_pem
-        medico.public_key_pem = pub_pem.decode('utf-8')
-        medico.private_key_enc = f.encrypt(priv_pem).decode('utf-8')
-
-        # Archivar la llave previa en la lista histórica en memoria
-        if not hasattr(medico, '_historical_keys'):
-            medico._historical_keys = []
-        if old_pub_pem and old_pub_pem not in medico._historical_keys:
-            medico._historical_keys.append(old_pub_pem)
-
-        # Registramos la nueva llave en el historial de la base de datos
-        try:
-            import models
-            new_historial = models.HistorialLlaveFEA(
-                medico_id=medico.id,
-                public_key_pem=medico.public_key_pem,
-                fecha_creacion=datetime.datetime.utcnow(),
-                activo=True
-            )
-            db_session.add(new_historial)
-        except Exception:
-            pass
-
-        db_session.add(medico)
-        db_session.commit()
-        logger.info(
-            'ROTACION_DE_LLAVES_FEA: medico_id=%s (%s). La KEK cambió y se generó una nueva llave asimétrica. '
-            'La llave pública anterior fue archivada en el historial para preservar la validez de firmas pasadas.',
-            getattr(medico, 'id', '?'), getattr(medico, 'nombre_completo', '?')
-        )
-    
-    private_key = serialization.load_pem_private_key(priv_pem, password=None)
-    
-    signature = private_key.sign(
-        cadena_original.encode('utf-8'),
-        ec.ECDSA(hashes.SHA256())
+        raise FEAKeyStateError("El médico no tiene token de custodia FEA")
+    if getattr(medico, "private_key_cipher_version", CIPHER_VERSION) != CIPHER_VERSION:
+        raise FEAKeyStateError("Versión de cifrado de llave privada no soportada")
+    private_pem = custodian.decrypt(getattr(medico, "private_key_enc", ""), token)
+    private_key = serialization.load_pem_private_key(private_pem, password=None)
+    data = canonical_payload.encode("utf-8") if isinstance(canonical_payload, str) else canonical_payload
+    signature = private_key.sign(data, ec.ECDSA(hashes.SHA256()))
+    return SignatureResult(
+        sello_digital="ECDSA:" + base64.b64encode(signature).decode("ascii"),
+        key_id=key_row.key_id,
     )
-    
-    return 'ECDSA:' + base64.b64encode(signature).decode('utf-8')
 
-def _verify_single_ecdsa(public_key_pem_str: str, signature_bytes: bytes, cadena_original: str) -> bool:
+
+def firmar_documento(db_session, medico, cadena_original: str | bytes) -> str:
+    """Compatibility wrapper. New code must persist ``key_id`` from the result API."""
+    return firmar_documento_con_key_id(db_session, medico, cadena_original).sello_digital
+
+
+def _verify_single_ecdsa(public_key_pem_str: str, signature_bytes: bytes, payload: str | bytes) -> bool:
     try:
-        public_key = serialization.load_pem_public_key(public_key_pem_str.encode('utf-8'))
-        public_key.verify(
-            signature_bytes,
-            cadena_original.encode('utf-8'),
-            ec.ECDSA(hashes.SHA256())
-        )
+        public_key = serialization.load_pem_public_key(public_key_pem_str.encode("utf-8"))
+        data = payload.encode("utf-8") if isinstance(payload, str) else payload
+        public_key.verify(signature_bytes, data, ec.ECDSA(hashes.SHA256()))
         return True
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+
+
+def verificar_firma(
+    medico,
+    cadena_original: str | bytes,
+    sello_digital: str,
+    fecha_firma: Optional[datetime.datetime] = None,
+    db_session=None,
+    *,
+    key_id: Optional[str] = None,
+) -> bool:
+    if not sello_digital:
+        return False
+    if sello_digital.startswith("ECDSA:"):
+        if medico is None or not key_id:
+            return False
+        key_row = None
+        if db_session is not None and getattr(medico, "id", None) is not None:
+            import models
+
+            key_row = db_session.query(models.HistorialLlaveFEA).filter(
+                models.HistorialLlaveFEA.medico_id == medico.id,
+                models.HistorialLlaveFEA.key_id == key_id,
+            ).one_or_none()
+        if key_row is None:
+            for candidate in getattr(medico, "historial_llaves", ()) or ():
+                if getattr(candidate, "key_id", None) == key_id:
+                    key_row = candidate
+                    break
+        if key_row is None:
+            return False
+        try:
+            signature = base64.b64decode(sello_digital.split("ECDSA:", 1)[1], validate=True)
+        except (ValueError, TypeError):
+            return False
+        return _verify_single_ecdsa(key_row.public_key_pem, signature, cadena_original)
+
+    if medico is None or not fecha_firma or fecha_firma >= datetime.datetime(2027, 1, 1):
+        return False
+    try:
+        token = medico.huella_token or medico.cedula
+        data = cadena_original.encode("utf-8") if isinstance(cadena_original, str) else cadena_original
+        expected = hmac.new(
+            f"{token}-{get_hes_secret()}".encode("utf-8"), data, hashlib.sha512
+        ).hexdigest()
+        return hmac.compare_digest(expected, sello_digital)
     except Exception:
         return False
 
-def verificar_firma(medico, cadena_original: str, sello_digital: str, fecha_firma: datetime.datetime = None, db_session = None) -> bool:
-    if not sello_digital:
-        return False
-    if sello_digital.startswith('ECDSA:'):
-        if medico is None or not getattr(medico, 'public_key_pem', None):
-            return False
-            
-        try:
-            b64_sig = sello_digital.split('ECDSA:', 1)[1]
-            signature = base64.b64decode(b64_sig)
-            
-            # 1. Intentar con la llave pública activa actual
-            if _verify_single_ecdsa(medico.public_key_pem, signature, cadena_original):
-                return True
 
-            # 2. Si falló (ej. el médico re-enroló su huella), buscar en el historial de llaves
-            # A) Desde la relación del modelo ORM
-            historial = getattr(medico, 'historial_llaves', None)
-            if historial:
-                for h_entry in historial:
-                    if h_entry.public_key_pem != medico.public_key_pem:
-                        if _verify_single_ecdsa(h_entry.public_key_pem, signature, cadena_original):
-                            return True
+def rotate_medico_key(db_session, medico, *, motivo: str, actor_id: Optional[int]) -> str:
+    """Explicit, audited, transactional FEA key rotation."""
+    if not (motivo or "").strip():
+        raise ValueError("El motivo de rotación FEA es obligatorio")
+    if not getattr(medico, "huella_token", None) or not getattr(medico, "fmd_template", None):
+        raise FEAKeyStateError("El médico no tiene biometría vigente para completar la rotación FEA")
 
-            # B) Desde base de datos directa si db_session está disponible
-            if db_session and hasattr(medico, 'id'):
-                try:
-                    import models
-                    keys = db_session.query(models.HistorialLlaveFEA).filter(
-                        models.HistorialLlaveFEA.medico_id == medico.id
-                    ).all()
-                    for k in keys:
-                        if k.public_key_pem != medico.public_key_pem:
-                            if _verify_single_ecdsa(k.public_key_pem, signature, cadena_original):
-                                return True
-                except Exception:
-                    pass
+    import json
+    import models
 
-            # C) Desde mocks de test (_historical_keys)
-            mock_historical = getattr(medico, '_historical_keys', [])
-            for old_pem in mock_historical:
-                if _verify_single_ecdsa(old_pem, signature, cadena_original):
-                    return True
+    locked = db_session.query(type(medico)).filter_by(id=medico.id).with_for_update().one()
+    now = utcnow()
+    old_rows = _active_key_rows(db_session, locked.id)
+    old_ids = [row.key_id for row in old_rows]
+    for row in old_rows:
+        row.activo = False
+        row.estado = "INACTIVA"
+        row.fecha_inactivacion = now
 
-            return False
-        except Exception:
-            return False
-    else:
-        if medico is None:
-            return False
-            
-        # Caducidad del legacy HMAC: si no se puede acreditar la fecha de firma
-        # (None) o la firma es posterior al corte, el sello legacy se rechaza (fail-closed).
-        if not fecha_firma or fecha_firma >= datetime.datetime(2027, 1, 1):
-            return False
-            
-        try:
-            secret = get_hes_secret()
-            token = medico.huella_token or medico.cedula
-            secret_key_bytes = f'{token}-{secret}'.encode('utf-8')
-            expected = hmac.new(secret_key_bytes, cadena_original.encode('utf-8'), hashlib.sha512).hexdigest()
-            return hmac.compare_digest(expected, sello_digital)
-        except Exception:
-            return False
+    private_pem, public_pem = generate_ecdsa_keypair()
+    new_key_id = _new_key_id()
+    locked.public_key_pem = public_pem.decode("ascii")
+    locked.private_key_enc = custodian.encrypt(private_pem, locked.huella_token)
+    locked.private_key_cipher_version = CIPHER_VERSION
+    locked.requiere_actualizacion_fea = False
+    db_session.add(
+        models.HistorialLlaveFEA(
+            key_id=new_key_id,
+            medico_id=locked.id,
+            public_key_pem=locked.public_key_pem,
+            fecha_creacion=now,
+            activo=True,
+            estado="ACTIVA",
+        )
+    )
+    db_session.add(
+        models.AuditoriaLog(
+            usuario_id=actor_id,
+            accion="ROTACION_EXPLICITA_LLAVE_FEA",
+            detalles_json=json.dumps(
+                {
+                    "medico_id": locked.id,
+                    "motivo": motivo.strip(),
+                    "key_ids_inactivadas": old_ids,
+                    "nueva_key_id": new_key_id,
+                    "mecanismo_cifrado": CIPHER_VERSION,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db_session.flush()
+    medico.public_key_pem = locked.public_key_pem
+    medico.private_key_enc = locked.private_key_enc
+    medico.private_key_cipher_version = CIPHER_VERSION
+    medico.requiere_actualizacion_fea = False
+    return new_key_id

@@ -1,4 +1,5 @@
 fastapi>=0.141.1
+httpx2
 uvicorn
 sqlalchemy
 pydantic
@@ -20,3 +21,6 @@ reportlab
 pypdf
 cryptography
 asn1crypto
+pyHanko>=0.37,<0.38
+tzdata
+alembic>=1.14,<2

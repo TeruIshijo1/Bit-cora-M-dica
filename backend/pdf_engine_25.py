@@ -5,9 +5,10 @@ Hospital Escandón — Ciudad de México
 """
 
 import os
+import re
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle
+    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether
 )
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib import colors
@@ -52,16 +53,19 @@ def generate_consentimiento_25(pt_data: dict, output_path: str = None, firma_dat
     )
 
     patient = pt_data.get('patient', {})
-    paciente_nombre = patient.get('name', '') or pt_data.get('paciente_nombre', 'COMODIN COMODIN COMODIN')
+    paciente_nombre = patient.get('name', '') or pt_data.get('paciente_nombre', '')
     fecha_nac = patient.get('dob', '') or pt_data.get('fecha_nacimiento', '')
     edad_raw = str(patient.get('age', '') or pt_data.get('edad', '')).strip()
     edad_display = f"{edad_raw} años" if edad_raw and "año" not in edad_raw.lower() else (edad_raw or '____')
     expediente = patient.get('mrn', '') or f"PT-{pt_data.get('pt_num', '')}"
-    medico = pt_data.get('medico_tratante', '') or pt_data.get('n_medico', 'DR. JOSE JOSE PRUEBA ENRIQUEZ')
-    cedula_prof = pt_data.get('cedula', '') or '7876310/5265849'
+    medico = pt_data.get('medico_tratante', '') or pt_data.get('n_medico', '')
+    cedula_prof = pt_data.get('cedula', '')
 
-    fecha_ingreso = patient.get('fecha_ingreso', '') or pt_data.get('fecha_ingreso', '') or pt_data.get('fecha_atencion', '19/08/2026')
-    hora_ingreso = patient.get('hora_ingreso', '') or pt_data.get('hora_ingreso', '') or pt_data.get('hora_atencion', '17:49')
+    fecha_ingreso = patient.get('fecha_ingreso', '') or pt_data.get('fecha_ingreso', '') or pt_data.get('fecha_atencion', '')
+    hora_ingreso = patient.get('hora_ingreso', '') or pt_data.get('hora_ingreso', '') or pt_data.get('hora_atencion', '')
+
+    expediente_val = expediente or pt_data.get('expediente') or pt_data.get('pt_num', '')
+    pt_num_val = str(pt_data.get('pt_num', '') or expediente_val or '')
 
     doc_info = {
         'title': 'CONSENTIMIENTO INFORMADO PARA REVISIÓN GINECOLÓGICA, OBSTÉTRICA, CONSULTA EXTERNA.',
@@ -72,7 +76,12 @@ def generate_consentimiento_25(pt_data: dict, output_path: str = None, firma_dat
         'code': 'HE-DIRMED-CONSUL-PLT-25',
         'norm': 'NOM-004-SSA3-2012',
         'fecha_ingreso': fecha_ingreso,
-        'hora_ingreso': hora_ingreso
+        'hora_ingreso': hora_ingreso,
+        'expediente': expediente_val,
+        'folio': expediente_val,
+        'pt_num': pt_num_val,
+        'slot': pt_data.get('slot') or pt_data.get('mrnum') or 1,
+        'draw_qr': True
     }
 
     def canvas_maker(*args, **kwargs):
@@ -80,15 +89,15 @@ def generate_consentimiento_25(pt_data: dict, output_path: str = None, firma_dat
 
     styles = {
         'SectionHeader': ParagraphStyle('SectionHeader', fontName='Helvetica-Bold', fontSize=8.5, leading=11.0, textColor=PRIMARY_BLUE),
-        'Body': ParagraphStyle('Body', fontName='Helvetica', fontSize=8.0, leading=12.0, alignment=TA_JUSTIFY, textColor=TEXT_DARK),
-        'LegalText': ParagraphStyle('LegalText', fontName='Helvetica', fontSize=7.8, leading=11.5, alignment=TA_JUSTIFY, textColor=TEXT_DARK),
-        'LegalFoot': ParagraphStyle('LegalFoot', fontName='Helvetica-Bold', fontSize=6.5, leading=8.5, alignment=TA_CENTER, textColor=TEXT_MUTED),
+        'Body': ParagraphStyle('Body', fontName='Helvetica', fontSize=8.0, leading=11.5, alignment=TA_JUSTIFY, textColor=TEXT_DARK),
+        'LegalText': ParagraphStyle('LegalText', fontName='Helvetica', fontSize=7.8, leading=11.2, alignment=TA_JUSTIFY, textColor=TEXT_DARK),
+        'LegalFoot': ParagraphStyle('LegalFoot', fontName='Helvetica-Bold', fontSize=6.8, leading=9.0, alignment=TA_CENTER, textColor=TEXT_MUTED),
         
         # Estilos estándar de firmas
-        'SigName': ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=8.0, leading=10.0, alignment=TA_CENTER, textColor=TEXT_DARK),
+        'SigName': ParagraphStyle('SigName', fontName='Helvetica-Bold', fontSize=7.8, leading=9.5, alignment=TA_CENTER, textColor=TEXT_DARK),
         'SigLabel': ParagraphStyle('SigLabel', fontName='Helvetica-Oblique', fontSize=6.8, leading=8.5, alignment=TA_CENTER, textColor=TEXT_MUTED),
-        'SigStamp': ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.5, leading=7.0, alignment=TA_CENTER),
-        'SigBlank': ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=18, leading=20),
+        'SigStamp': ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.8, alignment=TA_CENTER),
+        'SigBlank': ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=10, leading=12),
     }
 
     story = []
@@ -195,10 +204,27 @@ def generate_consentimiento_25(pt_data: dict, output_path: str = None, firma_dat
         ('RIGHTPADDING', (0, 0), (-1, -1), 6.0),
     ]))
     story.append(t_decl)
-    story.append(Spacer(1, 24))
+    story.append(Spacer(1, 14))
 
     # 5. SECCIÓN 4: BLOQUE DE FIRMAS ESTÁNDAR
-    paciente_resp = pt_data.get('paciente_o_representante', '') or paciente_nombre
+    pariente = (pt_data.get('pariente') or pt_data.get('representante_legal') or pt_data.get('declarante') or pt_data.get('paciente_o_representante') or '').strip()
+    raw_capaz = pt_data.get('paciente_capaz', True)
+    if isinstance(raw_capaz, str):
+        paciente_capaz = raw_capaz.lower() in ('true', '1', 'si', 'yes')
+    elif isinstance(raw_capaz, (int, float)):
+        paciente_capaz = bool(raw_capaz)
+    else:
+        paciente_capaz = bool(raw_capaz)
+
+    if not paciente_capaz:
+        parentesco_pac = (pt_data.get('parentesco') or pt_data.get('parentesco_declarante') or pt_data.get('parentesco_paciente') or 'Tutor / Representante Legal').strip()
+        if parentesco_pac.upper() in ('PACIENTE', 'TITULAR', 'DIRECTO'):
+            parentesco_pac = 'Tutor / Representante Legal'
+        paciente_resp = pariente if (pariente and pariente != paciente_nombre) else (pt_data.get('declarante') or 'Tutor / Representante Legal')
+    else:
+        parentesco_pac = 'Paciente'
+        paciente_resp = paciente_nombre
+
     testigo1_nom = pt_data.get('testigo1', '')
     testigo2_nom = pt_data.get('testigo2', '')
 
@@ -218,76 +244,163 @@ def generate_consentimiento_25(pt_data: dict, output_path: str = None, firma_dat
     else:
         top_med_p = Paragraph("&nbsp;", styles['SigBlank'])
 
+    # Sello biométrico paciente si existe
+    if pt_data.get('firma_paciente_biometrica') or pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')):
+        sello_pac_val = str(pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')) or 'BIO-HES:OK')[:24]
+        pac_stamp_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ AUTORIZADO CON HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_pac_val}</font></font>
+        """
+        pac_sig_p = Paragraph(pac_stamp_html, styles['SigStamp'])
+    else:
+        pac_sig_p = Paragraph("&nbsp;", styles['SigBlank'])
+
+    has_t1 = bool(
+        pt_data.get('firma_testigo1_biometrica') or 
+        pt_data.get('sello_testigo1') or 
+        (firma_data and (firma_data.get('sello_testigo1') or firma_data.get('firma_testigo1_biometrica')))
+    )
+    has_t2 = bool(
+        pt_data.get('firma_testigo2_biometrica') or 
+        pt_data.get('sello_testigo2') or 
+        (firma_data and (firma_data.get('sello_testigo2') or firma_data.get('firma_testigo2_biometrica')))
+    )
+
+    # Sello biométrico testigo 1 si existe
+    if has_t1:
+        sello_t1_val = str(pt_data.get('sello_testigo1') or (firma_data and firma_data.get('sello_testigo1')) or 'BIO-HES:OK')[:24]
+        t1_stamp_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ TESTIGO - HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_t1_val}</font></font>
+        """
+        t1_sig_p = Paragraph(t1_stamp_html, styles['SigStamp'])
+    else:
+        t1_sig_p = Paragraph("&nbsp;", styles['SigBlank'])
+
+    # Sello biométrico testigo 2 si existe
+    if has_t2:
+        sello_t2_val = str(pt_data.get('sello_testigo2') or (firma_data and firma_data.get('sello_testigo2')) or 'BIO-HES:OK')[:24]
+        t2_stamp_html = f"""
+        <font size='5.2' color='#006633'><b>[✔ TESTIGO - HUELLA BIOMÉTRICA]</b></font><br/>
+        <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_t2_val}</font></font>
+        """
+        t2_sig_p = Paragraph(t2_stamp_html, styles['SigStamp'])
+    else:
+        t2_sig_p = Paragraph("&nbsp;", styles['SigBlank'])
+
+    parentesco_test1 = pt_data.get('parentesco_testigo1') or 'Testigo Presencial'
+    parentesco_test2 = pt_data.get('parentesco_testigo2') or 'Testigo Presencial'
+    paciente_clean = re.sub(r'\s*\([^)]*\)', '', str(paciente_resp or '')).strip()
+    testigo1_clean = re.sub(r'\s*\([^)]*\)', '', str(testigo1_nom or '')).strip()
+    testigo2_clean = re.sub(r'\s*\([^)]*\)', '', str(testigo2_nom or '')).strip()
+
+    doctor_sig_text = f"<b>{medico}</b><br/><font size='6.2' color='#334155'><i><b>CÉD. PROF. {cedula_prof}</b></i></font>" if cedula_prof else f"<b>{medico}</b>"
+    patient_sig_text = f"<b>{paciente_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_pac}</b></i></font>" if paciente_clean else "<b>Nombre completo y firma del paciente o tutor</b>"
+    witness1_sig_text = f"<b>{testigo1_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_test1}</b></i></font>" if testigo1_clean else "<b>Nombre completo del testigo 1</b>"
+    witness2_sig_text = f"<b>{testigo2_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_test2}</b></i></font>" if testigo2_clean else "<b>Nombre completo del testigo 2</b>"
+
     # Fila 1: Paciente y Médico Tratante
     sig_row1 = [
         [
-            Paragraph("&nbsp;", styles['SigBlank']),
+            pac_sig_p,
             '',
             top_med_p
         ],
         [
-            Paragraph(f"<b>{paciente_resp}</b>", styles['SigName']),
+            Paragraph(patient_sig_text, styles['SigName']),
             '',
-            Paragraph(f"<b>{medico}</b><br/><font size='7' color='#444'>Céd. Prof. {cedula_prof}</font>", styles['SigName'])
-        ],
-        [
-            Paragraph("Nombre completo y firma del paciente, familiar, tutor o persona legalmente responsable", styles['SigLabel']),
-            '',
-            Paragraph("Nombre completo, cédula y firma del médico tratante", styles['SigLabel'])
+            Paragraph(doctor_sig_text, styles['SigName'])
         ]
     ]
 
-    t_r1 = Table(sig_row1, colWidths=[sig_col_w, 40, sig_col_w])
-    t_r1.setStyle(TableStyle([
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
-        ('VALIGN', (0,1), (-1,1), 'BOTTOM'),
-        ('VALIGN', (0,2), (-1,2), 'TOP'),
-        ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-        ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
-        ('BOTTOMPADDING', (0,0), (-1,0), 0),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 3),
-        ('TOPPADDING', (0,2), (-1,2), 3),
-        ('BOTTOMPADDING', (0,2), (-1,2), 0),
-    ]))
-    story.append(t_r1)
-    story.append(Spacer(1, 22))
-
-    # Fila 2: Testigos 1 y 2
-    sig_row2 = [
-        [
-            Paragraph("&nbsp;", styles['SigBlank']),
-            '',
-            Paragraph("&nbsp;", styles['SigBlank'])
-        ],
-        [
-            Paragraph(f"<b>{testigo1_nom}</b>" if testigo1_nom else "&nbsp;", styles['SigName']),
-            '',
-            Paragraph(f"<b>{testigo2_nom}</b>" if testigo2_nom else "&nbsp;", styles['SigName'])
-        ],
-        [
-            Paragraph("Nombre completo y firma del testigo 1", styles['SigLabel']),
-            '',
-            Paragraph("Nombre completo y firma del testigo 2", styles['SigLabel'])
+    if has_t1 and has_t2:
+        story.append(Spacer(1, 14))
+        t_r1 = Table(sig_row1, colWidths=[sig_col_w, 40, sig_col_w])
+        t_r1.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]))
+        story.append(t_r1)
+        story.append(Spacer(1, 14))
+        
+        sig_row2 = [
+            [t1_sig_p, '', t2_sig_p],
+            [Paragraph(witness1_sig_text, styles['SigName']), '', Paragraph(witness2_sig_text, styles['SigName'])]
         ]
-    ]
+        t_r2_styles = [
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]
+        t_r2 = Table(sig_row2, colWidths=[sig_col_w, 40, sig_col_w])
+        t_r2.setStyle(TableStyle(t_r2_styles))
+        story.append(t_r2)
+    elif has_t1 or has_t2:
+        # Caso 2 y 3: Solo 1 testigo firmado -> 3 firmas (Paciente + Testigo arriba, Médico centrado abajo)
+        active_test_p = t1_sig_p if has_t1 else t2_sig_p
+        active_test_txt = witness1_sig_text if has_t1 else witness2_sig_text
+        t_top = Table([
+            [pac_sig_p, '', active_test_p],
+            [Paragraph(patient_sig_text, styles['SigName']), '', Paragraph(active_test_txt, styles['SigName'])]
+        ], colWidths=[sig_col_w, 40, sig_col_w])
+        t_top.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]))
 
-    t_r2 = Table(sig_row2, colWidths=[sig_col_w, 40, sig_col_w])
-    t_r2.setStyle(TableStyle([
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
-        ('VALIGN', (0,1), (-1,1), 'BOTTOM'),
-        ('VALIGN', (0,2), (-1,2), 'TOP'),
-        ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-        ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
-        ('BOTTOMPADDING', (0,0), (-1,0), 0),
-        ('TOPPADDING', (0,1), (-1,1), 2),
-        ('BOTTOMPADDING', (0,1), (-1,1), 3),
-        ('TOPPADDING', (0,2), (-1,2), 3),
-        ('BOTTOMPADDING', (0,2), (-1,2), 0),
-    ]))
-    story.append(t_r2)
+        t_bot = Table([
+            [top_med_p],
+            [Paragraph(doctor_sig_text, styles['SigName'])]
+        ], colWidths=[sig_col_w], hAlign='CENTER')
+        t_bot.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (0,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (0,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]))
+
+        story.append(Spacer(1, 14))
+        story.append(KeepTogether([t_top, Spacer(1, 14), t_bot]))
+    else:
+        # Sin testigos firmados -> Paciente y Médico lado a lado abajo
+        t_r1 = Table(sig_row1, colWidths=[sig_col_w, 40, sig_col_w])
+        t_r1.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
+            ('VALIGN', (0,1), (-1,1), 'TOP'),
+            ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
+            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
+            ('TOPPADDING', (0,0), (-1,0), 0),
+            ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
+            ('TOPPADDING', (0,1), (-1,1), 2.5),
+            ('BOTTOMPADDING', (0,1), (-1,1), 0),
+        ]))
+        story.append(Spacer(1, 30))
+        story.append(t_r1)
 
     doc.build(story, canvasmaker=canvas_maker)
     return output_path

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propuesta de Flujo Operativo - Farmacia y Enfermería HES</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased p-4 md:p-8 font-sans">
+
+  <!-- Header Container -->
+  <div class="max-w-6xl mx-auto mb-8 bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div>
+        <div class="inline-flex items-center gap-2 px-3.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full mb-3 border border-emerald-200">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          Hospital Escandón • Propuesta de Proceso Operativo
+        </div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+          Circuito Seguro de Medicación y Farmacia
+        </h1>
+        <p class="text-sm text-slate-600 mt-2 max-w-2xl leading-relaxed">
+        Propuesta para el área de Farmacia ante las peticiones para el EME
+        </p>
+      </div>
+
+      <!-- Badge de Estado -->
+      <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center min-w-[200px]">
+        <span class="text-xs font-bold text-blue-600 uppercase tracking-wider block">Objetivo Principal</span>
+        <span class="text-sm font-extrabold text-blue-950 mt-1 block">Cumplir con las NOM e integrar el proceso de Farmacia en el EME</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor Principal de Pasos -->
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- PASO 1: MÉDICO PRESCRIBE -->
+    <div class="bg-white border-2 border-blue-200 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-slate-100 pb-4 mb-4">
+        <div class="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-md flex-shrink-0">
+          1
+        </div>
+        <div>
+          <span class="text-xs font-bold text-blue-600 uppercase tracking-wider">Paso 1 • Prescripción Médica</span>
+          <h2 class="text-lg font-bold text-slate-900">El Médico prescribe en la Plataforma Clínica</h2>
+        </div>
+        <div class="md:ml-auto">
+          <span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full">Responsable: Médico Tratante</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">📋 Receta Completa y Clara</strong>
+          El médico selecciona el medicamento del catálogo oficial. El sistema no permite avanzar si falta la dosis, vía de administración, dilución o frecuencia.
+        </div>
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">⚠️ Alertas de Seguridad</strong>
+          El sistema resalta automáticamente fármacos de <strong>Alto Riesgo</strong> (insulinas, electrolitos) y <strong>LASA</strong> (nombres parecidos) para prevenir confusiones.
+        </div>
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">🔒 Firma con Huella</strong>
+          El médico coloca su huella en el lector digital para firmar la orden médica con validez legal.
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha Conectora -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-white text-slate-500 px-4 py-1 rounded-full text-xs font-bold border border-slate-200 shadow-2xs flex items-center gap-1.5">
+        <span>⬇</span> La orden pasa a revisión clínica
+      </div>
+    </div>
+
+    <!-- PASO 2: QFB VALIDA -->
+    <div class="bg-white border-2 border-purple-200 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-slate-100 pb-4 mb-4">
+        <div class="w-12 h-12 bg-purple-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-md flex-shrink-0">
+          2
+        </div>
+        <div>
+          <span class="text-xs font-bold text-purple-600 uppercase tracking-wider">Paso 2 • Revisión Farmacoterapéutica</span>
+          <h2 class="text-lg font-bold text-slate-900">Farmacobiología (QFB) valida la seguridad</h2>
+        </div>
+        <div class="md:ml-auto">
+          <span class="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full">Responsable: QFB / Farmacia Clínica</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">🔬 Auditoría de Dosis</strong>
+          El QFB revisa en su pantalla que la dosis sea adecuada para el peso, edad y función renal del paciente.
+        </div>
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">🛡 Cruce de Alergias</strong>
+          Verifica que no existan interacciones peligrosas entre medicamentos ni alergias reportadas.
+        </div>
+        <div class="p-3.5 bg-purple-50 border border-purple-200 rounded-xl">
+          <strong class="text-purple-900 block font-bold mb-1 text-sm">✅ Liberación Inmediata</strong>
+          Con 1 clic en <strong>"Aprobar"</strong>, la orden queda autorizada para que piso pueda solicitar el medicamento a Farmacia.
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha Conectora -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-white text-slate-500 px-4 py-1 rounded-full text-xs font-bold border border-slate-200 shadow-2xs flex items-center gap-1.5">
+        <span>⬇</span> Enfermería pide los medicamentos de su guardia
+      </div>
+    </div>
+
+    <!-- PASO 3: ENFERMERÍA SOLICITA -->
+    <div class="bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-slate-100 pb-4 mb-4">
+        <div class="w-12 h-12 bg-emerald-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-md flex-shrink-0">
+          3
+        </div>
+        <div>
+          <span class="text-xs font-bold text-emerald-600 uppercase tracking-wider">Paso 3 • Solicitud Electrónica por Turno</span>
+          <h2 class="text-lg font-bold text-slate-900">Enfermería solicita las dosis del turno con 1 clic</h2>
+        </div>
+        <div class="md:ml-auto">
+          <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">Responsable: Personal de Enfermería</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">⏱ Cálculo por Turno</strong>
+          Al iniciar guardia (Matutino, Vespertino o Nocturno), Enfermería presiona <em>"Solicitar Medicamentos del Turno"</em>.
+        </div>
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">📦 Piezas Exactas</strong>
+          El sistema calcula solito cuántas ampolletas o tabletas se ocupan en esas 8 horas para no acumular medicamento en piso.
+        </div>
+        <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+          <strong class="text-emerald-900 block font-bold mb-1 text-sm">🚀 Envío Directo a Farmacia</strong>
+          La solicitud viaja electrónicamente a la pantalla de Farmacia. <strong>¡Ya no se usan vales en papel ni libretas!</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha Conectora -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-white text-slate-500 px-4 py-1 rounded-full text-xs font-bold border border-slate-200 shadow-2xs flex items-center gap-1.5">
+        <span>⬇</span> La solicitud aparece de inmediato en Farmacia
+      </div>
+    </div>
+
+    <!-- PASO 4: FARMACIA SURTE -->
+    <div class="bg-white border-2 border-amber-300 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-white via-amber-50/20 to-white">
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-slate-100 pb-4 mb-4">
+        <div class="w-12 h-12 bg-amber-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-md flex-shrink-0">
+          4
+        </div>
+        <div>
+          <span class="text-xs font-bold text-amber-700 uppercase tracking-wider">Paso 4 • Surtido y Entrega</span>
+          <h2 class="text-lg font-bold text-slate-900">Farmacia surte en su pantalla de Vertical</h2>
+        </div>
+        <div class="md:ml-auto">
+          <span class="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-full">Responsable: Farmacia Central</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="p-3.5 bg-white border border-amber-200 rounded-xl shadow-2xs">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">🖥 Bandeja en Vertical</strong>
+          El personal de Farmacia ve la solicitud directamente en su pantalla habitual de solicitudes de piso en Vertical.
+        </div>
+        <div class="p-3.5 bg-white border border-amber-200 rounded-xl shadow-2xs">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">💊 Preparación y Despacho</strong>
+          Toma las piezas físicas del anaquel, da clic en <strong>"Surtir"</strong> en Vertical y entrega los medicamentos a Enfermería.
+        </div>
+        <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl shadow-2xs">
+          <strong class="text-emerald-900 block font-bold mb-1 text-sm">💼 Control Automático SAP</strong>
+          Al dar clic en surtir en Vertical, en automático se descuenta el inventario del almacén y se carga a la cuenta del paciente.
+        </div>
+      </div>
+    </div>
+
+    <!-- Flecha Conectora -->
+    <div class="flex justify-center -my-2">
+      <div class="bg-white text-slate-500 px-4 py-1 rounded-full text-xs font-bold border border-slate-200 shadow-2xs flex items-center gap-1.5">
+        <span>⬇</span> Medicamentos listos para aplicarse al paciente
+      </div>
+    </div>
+
+    <!-- PASO 5: ENFERMERÍA ADMINISTRA -->
+    <div class="bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-slate-100 pb-4 mb-4">
+        <div class="w-12 h-12 bg-emerald-700 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-md flex-shrink-0">
+          5
+        </div>
+        <div>
+          <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">Paso 5 • Administración y Kardex</span>
+          <h2 class="text-lg font-bold text-slate-900">Enfermería aplica y registra en el KARDEX Digital</h2>
+        </div>
+        <div class="md:ml-auto">
+          <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">Responsable: Enfermería en Piso</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">💉 5 Correctos al Paciente</strong>
+          Verifica paciente, medicamento, dosis, vía y horario antes de administrar.
+        </div>
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <strong class="text-slate-900 block font-bold mb-1 text-sm">📱 Registro con 1 Clic</strong>
+          Abre la Bitácora y marca la dosis como <strong>"Administrada"</strong> con la hora exacta de aplicación.
+        </div>
+        <div class="p-3.5 bg-purple-50 border border-purple-200 rounded-xl">
+          <strong class="text-purple-900 block font-bold mb-1 text-sm">🚨 Farmacovigilancia (SRAM)</strong>
+          Si el paciente presenta alguna alergia o molestia, se reporta de inmediato en el formato digital de sospecha de reacción adversa.
+        </div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN: QUÉ PASA CON LAS DEVOLUCIONES -->
+    <div class="bg-amber-50 border border-amber-200 rounded-3xl p-6 md:p-8">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-2xl">🔄</span>
+        <h3 class="font-extrabold text-amber-950 text-base">
+          ¿Y qué pasa si el Médico suspende un medicamento y hay que regresarlo?
+        </h3>
+      </div>
+      <p class="text-xs text-amber-900 leading-relaxed max-w-3xl mb-4">
+        Para no complicar al personal, <strong>las devoluciones se siguen haciendo 100% en Vertical como siempre</strong>:
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div class="bg-white p-4 rounded-2xl border border-amber-200 shadow-2xs">
+          <strong class="text-blue-900 block font-bold mb-1">1. Médico Suspende</strong>
+          El médico suspende el fármaco en la plataforma y se cancelan las dosis en el KARDEX.
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-amber-200 shadow-2xs">
+          <strong class="text-amber-900 block font-bold mb-1">2. Farmacia Devuelve en Vertical</strong>
+          Enfermería regresa las piezas sobrantes a Farmacia y el personal de Farmacia hace la devolución en su pantalla de <strong>Vertical</strong>.
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-amber-200 shadow-2xs">
+          <strong class="text-emerald-900 block font-bold mb-1">3. Se Refleja en Automático</strong>
+          El inventario se reingresa en SAP y el KARDEX de la Bitácora muestra automáticamente que la pieza fue devuelta a Farmacia.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Tabla Comparativa: Antes vs Ahora -->
+  <div class="max-w-6xl mx-auto mt-10 bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-sm">
+    <h3 class="text-lg font-bold text-slate-900 mb-4">Comparativa Rápida: Proceso Actual vs Nuevo Flujo</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs text-left border-collapse">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold">
+            <th class="p-3">Actividad</th>
+            <th class="p-3 text-rose-700">❌ Como se hace hoy (Manual / Papel)</th>
+            <th class="p-3 text-emerald-700">✅ Con el Nuevo Flujo Propuesto</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="p-3 font-semibold text-slate-800">Indicaciones Médicas</td>
+            <td class="p-3 text-slate-600">Letra manuscrita en libretas o notas sin validación de unidades ni diluciones.</td>
+            <td class="p-3 font-medium text-emerald-900 bg-emerald-50/40">Prescripción digital guiada con dosis exactas, dilución obligatoria y firma con huella.</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-800">Revisión de Seguridad (QFB)</td>
+            <td class="p-3 text-slate-600">Dificultad para revisar recetas a tiempo antes de que se preparen.</td>
+            <td class="p-3 font-medium text-emerald-900 bg-emerald-50/40">Bandeja en tiempo real donde el QFB audita interacciones y autoriza con 1 clic.</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-800">Solicitud a Farmacia</td>
+            <td class="p-3 text-slate-600">Peticiones con posibles errores humanos.</td>
+            <td class="p-3 font-medium text-emerald-900 bg-emerald-50/40">Solicitud electrónica por turno directa a la pantalla de Vertical de Farmacia.</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-800">Control de Existencias (SAP)</td>
+            <td class="p-3 text-slate-600">Riesgo de fugas o medicamentos administrados no cobrados.</td>
+            <td class="p-3 font-medium text-emerald-900 bg-emerald-50/40">Al surtir en Vertical, SAP descuenta el stock y carga a la cuenta automáticamente.</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-800">Registro de Aplicación</td>
+            <td class="p-3 text-slate-600">Hojas de enfermería en papel en la carpeta de la cama.</td>
+            <td class="p-3 font-medium text-emerald-900 bg-emerald-50/40">KARDEX Digital en tiempo real con fecha, hora y enfermera responsable.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>

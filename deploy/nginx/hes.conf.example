@@ -1,0 +1,28 @@
+# Plantilla: sustituir nombres/rutas con valores administrados por el hospital.
+server {
+    listen 80;
+    server_name hes.example.invalid;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name hes.example.invalid;
+
+    ssl_certificate     /etc/hes/tls/fullchain.pem;
+    ssl_certificate_key /etc/hes/tls/private.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 12m;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 120s;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Request-ID $request_id;
+    }
+}

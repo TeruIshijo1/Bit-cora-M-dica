@@ -1,0 +1,21 @@
+{
+  "livePreview": true,
+  "legacyEditor": false,
+  "showLineNumber": false,
+  "spellcheck": false,
+  "searchCaseSensitive": false,
+  "showFrontmatter": true,
+  "defaultViewMode": "preview",
+  "promptDelete": true,
+  "newFileLocation": "current",
+  "newLinkFormat": "shortest",
+  "useMarkdownLinks": false,
+  "attachmentFolderPath": "adjuntos",
+  "alwaysUpdateLinks": true,
+  "showRibbon": true,
+  "strictLineBreaks": false,
+  "foldHeading": true,
+  "foldIndent": true,
+  "showInlineTitle": true,
+  "propertiesInDocument": "visible"
+}

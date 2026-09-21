@@ -36,23 +36,33 @@ class CatalogoFormatoResponse(BaseModel):
 # --- Auth ---
 class BiometricChallengeResponse(BaseModel):
     challenge_id: str
+    capture_authorization: str
     expires_in: int = 120
+    expires_at: datetime
+
+class BiometricChallengeRequest(BaseModel):
+    action: str
+    session_id: str
+    expected_medico_id: Optional[int] = None
+    expected_identity_ref: Optional[str] = None
+    patient_ref: Optional[str] = None
+    document_code: Optional[str] = None
+    document_ref: Optional[str] = None
 
 class LoginAdminRequest(BaseModel):
     username: str
     password: str
 
 class LoginBiometricRequest(BaseModel):
-    huella_token: Optional[str] = None
-    fmd_template: Optional[str] = None
+    fmd_template: str
     medico_id: Optional[int] = None
-    challenge_id: Optional[str] = None
+    challenge_id: str
+    session_id: str
 
 class ImpersonateRequest(BaseModel):
     rol: str
     target_id: int
-    fmd_template: Optional[str] = None
-    challenge_id: Optional[str] = None
+    motivo: str
 
 class Token(BaseModel):
     access_token: str
@@ -65,6 +75,7 @@ class Token(BaseModel):
     foto_url: Optional[str] = None
     permisos_modulos: Optional[str] = None
     formatos_permitidos: Optional[str] = None
+    must_change_password: bool = False
 
 # --- Usuarios ---
 class UsuarioCreate(BaseModel):
@@ -76,6 +87,11 @@ class UsuarioCreate(BaseModel):
     formatos_permitidos: Optional[str] = None
 
 class UsuarioPasswordUpdate(BaseModel):
+    new_password: str
+
+
+class UsuarioSelfPasswordChange(BaseModel):
+    current_password: str
     new_password: str
 
 class UsuarioUpdate(BaseModel):
@@ -90,6 +106,7 @@ class UsuarioResponse(BaseModel):
     nombre_completo: Optional[str] = None
     rol: str
     activo: bool
+    must_change_password: bool = False
     permisos_modulos: Optional[str] = None
     formatos_permitidos: Optional[str] = None
     class Config:
@@ -166,6 +183,9 @@ class MedicoResponse(BaseModel):
     es_ayudante: bool
     medico_asignado_id: Optional[int] = None
     formatos_permitidos: Optional[str] = None
+    biometric_status: str = "SIN_BIOMETRIA"
+    requiere_reenrolamiento: bool = False
+    requiere_actualizacion_fea: bool = False
     class Config:
         from_attributes = True
 
@@ -220,7 +240,8 @@ class FirmaExpressRequest(BaseModel):
     huella_token: Optional[str] = None
     fmd_template: Optional[str] = None
     medico_id: Optional[int] = None
-    challenge_id: Optional[str] = None
+    challenge_id: str
+    session_id: str
 
 class FirmaResponse(BaseModel):
     folio: str
@@ -233,7 +254,8 @@ class FirmaLoteRequest(BaseModel):
     fmd_template: Optional[str] = None
     folios: List[str]
     medico_id: Optional[int] = None
-    challenge_id: Optional[str] = None
+    challenge_id: str
+    session_id: str
 
 # --- Archivos RH ---
 class EscaneoRHCreate(BaseModel):
@@ -271,6 +293,12 @@ class AuditoriaLogResponse(BaseModel):
     detalles_json: Optional[str] = None
     fecha_hora: datetime
     ip_origen: Optional[str] = None
+    request_id: str
+    operation_id: Optional[str] = None
+    actor_real: str
+    actor_effective: str
+    motivo_impersonacion: Optional[str] = None
+    resultado: str
     usuario: Optional[UsuarioResponse] = None
     class Config:
         from_attributes = True
@@ -304,3 +332,78 @@ class CleanRecordsRequest(BaseModel):
 
 class AutorizarRequest(BaseModel):
     aceptado: bool
+
+# --- Biometría Dactilar de Firmantes por Episodio (Pacientes, Familiares y Testigos) ---
+class FirmanteBiometricoBase(BaseModel):
+    tipo_firmante: str = "PACIENTE" # PACIENTE, REPRESENTANTE_LEGAL, TESTIGO_1, TESTIGO_2
+    nombre_completo: str
+    parentesco: Optional[str] = "Titular"
+    identificacion_oficial: Optional[str] = None
+    domicilio: Optional[str] = None
+    telefono: Optional[str] = None
+    email: Optional[str] = None
+
+class FirmanteBiometricoCreate(FirmanteBiometricoBase):
+    pass
+
+class FirmanteBiometricoUpdate(BaseModel):
+    nombre_completo: Optional[str] = None
+    parentesco: Optional[str] = None
+    tipo_firmante: Optional[str] = None
+    identificacion_oficial: Optional[str] = None
+    domicilio: Optional[str] = None
+    telefono: Optional[str] = None
+    email: Optional[str] = None
+
+class FirmanteBiometricoResponse(FirmanteBiometricoBase):
+    id: int
+    paciente_id: int
+    pt_num: Optional[str] = None
+    huella_token: Optional[str] = None
+    tiene_huella: bool
+    estado: str # ACTIVO, INACTIVO_POR_ALTA, REVOCADO
+    fecha_registro: datetime
+    fecha_inactivacion: Optional[datetime] = None
+    sincronizado_vertical: Optional[bool] = True
+    biometric_status: str = "SIN_BIOMETRIA"
+    requiere_reenrolamiento: bool = False
+
+    class Config:
+        from_attributes = True
+
+class VerificarHuellaFirmanteRequest(BaseModel):
+    fmd_template: str
+    firmante_id: int
+    tipo_firmante: Optional[str] = None # Filtro opcional (ej. "PACIENTE", "TESTIGO_1")
+    challenge_id: str
+    session_id: str
+
+class VerificarHuellaFirmanteResponse(BaseModel):
+    is_match: bool
+    firmante: Optional[FirmanteBiometricoResponse] = None
+    sello_biometrico: Optional[str] = None
+    fecha_hora_verificacion: str
+
+class FirmaBiometricaFirmanteInputSchema(BaseModel):
+    fmd_template: str
+    firmante_id: int
+    rol_firmante: Optional[str] = None # Sólo se valida; el rol persistido es autoritativo
+    codigo_formato: str
+    tipo_documento: str
+    evolution_slot: Optional[int] = 0
+    challenge_id: str
+    session_id: str
+    motivo_representacion: Optional[str] = None
+
+class BiometricEnrollmentRequest(BaseModel):
+    fmd_template: str
+    challenge_id: str
+    session_id: str
+    motivo: Optional[str] = None
+
+
+class FEAKeyRotationRequest(BaseModel):
+    fmd_template: str
+    challenge_id: str
+    session_id: str
+    motivo: str

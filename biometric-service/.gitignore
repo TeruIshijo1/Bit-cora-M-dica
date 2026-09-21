@@ -1,0 +1,5 @@
+node_modules/
+native/bin/
+client-config.json
+agent-status.txt
+stop.request

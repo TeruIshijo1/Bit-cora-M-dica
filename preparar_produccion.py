@@ -1,104 +1,119 @@
+"""Validate and assemble a production release without operational secrets."""
+
+from __future__ import annotations
+
+import hashlib
+import json
 import os
 import shutil
+import stat
 import subprocess
+import sys
+from pathlib import Path
 
-DEPLOY_DIR = "pase_a_produccion"
 
-def main():
-    print("=========================================================")
-    print("   Preparando Empaquetado para Pase a Produccion")
-    print("=========================================================")
-    print()
+ROOT = Path(__file__).resolve().parent
+DEPLOY_DIR = ROOT / "pase_a_produccion"
+PYTHON = ROOT / "backend" / "venv" / "Scripts" / "python.exe"
+if not PYTHON.exists():
+    PYTHON = Path(sys.executable)
+NPM = shutil.which("npm") or "npm"
+NPX = shutil.which("npx") or "npx"
+NODE = shutil.which("node") or "node"
 
-    # 1. Limpiar carpeta anterior
-    print("[1/4] Limpiando carpeta anterior...")
-    if os.path.exists(DEPLOY_DIR):
-        shutil.rmtree(DEPLOY_DIR)
-    os.makedirs(DEPLOY_DIR)
 
-    # 2. Compilar el Frontend
-    print("\n[2/4] Compilando el Frontend (React)...")
-    try:
-        subprocess.run("npm run build", shell=True, cwd="frontend", check=True)
-    except Exception as e:
-        print(f"Error compilando el frontend: {e}")
-        return
+def run_gate(label: str, command: list[str], cwd: Path = ROOT) -> None:
+    print(f"[GATE] {label}")
+    subprocess.run(command, cwd=cwd, check=True)
 
-    # 3. Copiar archivos
-    print("\n[3/4] Copiando archivos de forma segura...")
 
-    # Frontend
-    print("  - Copiando Frontend (dist)...")
-    shutil.copytree(os.path.join("frontend", "dist"), os.path.join(DEPLOY_DIR, "frontend", "dist"))
+def ignored(_directory: str, names: list[str]) -> list[str]:
+    excluded_names = {
+        ".env", ".git", ".pytest_cache", "__pycache__", "node_modules", "venv",
+        "generados", "private_storage", "static", "artifacts", ".expo",
+        "android", "ios",
+    }
+    return [
+        name for name in names
+        if name in excluded_names or name.endswith((".db", ".sqlite", ".pyc"))
+    ]
 
-    # Backend
-    print("  - Copiando Backend de Python (Excluyendo DB local y contraseñas)...")
-    def ignore_backend(dir, files):
-        ignored = []
-        if 'venv' in dir or '__pycache__' in dir or '.pytest_cache' in dir:
-            return files
-        for f in files:
-            if f == "venv" or f == "__pycache__" or f == ".pytest_cache":
-                ignored.append(f)
-            if f == ".env" or f.endswith(".db") or f.endswith(".sqlite") or f in ["migrate_to_postgres.py", "fix_sequences.py"]:
-                ignored.append(f)
-        return ignored
-    
-    shutil.copytree("backend", os.path.join(DEPLOY_DIR, "backend"), ignore=ignore_backend)
 
-    # Backend Node
-    print("  - Copiando Microservicio Biometrico (Node)...")
-    def ignore_node(dir, files):
-        return [f for f in files if f == "node_modules"]
-    
-    shutil.copytree("../Teru/Bio-security", os.path.join(DEPLOY_DIR, "backend_node"), ignore=ignore_node)
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
-    # Scripts raiz y extras
-    print("  - Copiando Scripts de arranque...")
-    if os.path.exists("iniciar.bat"):
-        shutil.copy("iniciar.bat", DEPLOY_DIR)
-    if os.path.exists("instalar server.bat"):
-        shutil.copy("instalar server.bat", DEPLOY_DIR)
-    if os.path.exists("ngrok.exe"):
-        shutil.copy("ngrok.exe", DEPLOY_DIR)
 
-    # Mobile App Source
-    print("  - Copiando Codigo de App Movil (Excluyendo carpetas pesadas)...")
-    def ignore_mobile(dir, files):
-        return [f for f in files if f in ["node_modules", "android", "ios", ".expo", ".DS_Store"]]
-    if os.path.exists("mobile_app"):
-        shutil.copytree("mobile_app", os.path.join(DEPLOY_DIR, "mobile_app"), ignore=ignore_mobile)
+def remove_readonly(function, path: str, _exc_info) -> None:
+    """Remove only read-only entries inside the already validated output path."""
+    os.chmod(path, stat.S_IWRITE)
+    function(path)
 
-    # APK Instalador
-    print("  - Copiando archivo instalador APK para las tablets...")
-    apk_release_dir = os.path.join("mobile_app", "android", "app", "build", "outputs", "apk", "release")
-    apk_found = False
-    if os.path.exists(apk_release_dir):
-        for f in os.listdir(apk_release_dir):
-            if f.endswith(".apk"):
-                apk_source = os.path.join(apk_release_dir, f)
-                apk_dest_dir = os.path.join(DEPLOY_DIR, "APK_Tablets")
-                os.makedirs(apk_dest_dir, exist_ok=True)
-                shutil.copy(apk_source, os.path.join(apk_dest_dir, "Bitacora_HES.apk"))
-                print(f"    (APK copiado exitosamente en {apk_dest_dir})")
-                apk_found = True
-                break
-                
-    if not apk_found:
-        print("    (No se encontro el APK. Si necesitas el instalador, recuerda compilarlo primero).")
 
-    print("\n[4/4] ¡Listo!")
-    print("=========================================================")
-    print("Tu proyecto ha sido empaquetado de forma segura.")
-    print(f"Todos tus cambios estan en la carpeta: {DEPLOY_DIR}")
-    print()
-    print("Toma esa carpeta, llevala a tu servidor,")
-    print("y pega su contenido reemplazando lo viejo.")
-    print()
-    print("(NOTA IMPORTANTE: Al no incluir el archivo .env, cuando lo")
-    print("pegues en tu servidor NO SOBRESCRIBIRA la configuracion")
-    print("ni las contrasenas reales del servidor, cuidando la DB).")
-    print("=========================================================")
+def write_manifest() -> None:
+    entries = []
+    for path in sorted(DEPLOY_DIR.rglob("*")):
+        if path.is_file() and path.name != "MANIFEST.sha256.json":
+            entries.append({"path": path.relative_to(DEPLOY_DIR).as_posix(), "sha256": sha256(path)})
+    (DEPLOY_DIR / "MANIFEST.sha256.json").write_text(
+        json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
+def main() -> int:
+    print("Bitácora HES — validación y paquete productivo")
+    run_gate("pytest PostgreSQL TEST", [str(PYTHON), "backend/scripts/run_local_postgres_tests.py"])
+    run_gate("Alembic clean/check", [str(PYTHON), "backend/scripts/run_local_alembic_check.py"])
+    run_gate("Python compileall", [str(PYTHON), "-m", "compileall", "-q", "backend"])
+    run_gate("scanner de secretos", [str(PYTHON), "backend/scripts/scan_secrets.py"])
+    run_gate("inventario de autorización", [str(PYTHON), "backend/scripts/audit_route_authorization.py"])
+    run_gate("frontend runtime lint", [NPM, "run", "lint:runtime"], ROOT / "frontend")
+    run_gate("frontend build", [NPM, "run", "build"], ROOT / "frontend")
+    run_gate(
+        "frontend runtime audit HIGH+",
+        [NPM, "audit", "--omit=dev", "--audit-level=high"],
+        ROOT / "frontend",
+    )
+    run_gate("mobile typecheck", [NPX, "tsc", "--noEmit"], ROOT / "mobile_app")
+    run_gate(
+        "mobile runtime audit HIGH+",
+        [NPM, "audit", "--omit=dev", "--audit-level=high"],
+        ROOT / "mobile_app",
+    )
+    run_gate("biometric-service syntax", [NODE, "--check", "server.js"], ROOT / "biometric-service")
+    run_gate(
+        "biometric-service runtime audit HIGH+",
+        [NPM, "audit", "--omit=dev", "--audit-level=high"],
+        ROOT / "biometric-service",
+    )
+
+    if DEPLOY_DIR.resolve().parent != ROOT.resolve():
+        raise RuntimeError("Directorio de paquete fuera del workspace")
+    if DEPLOY_DIR.exists():
+        shutil.rmtree(DEPLOY_DIR, onexc=remove_readonly)
+    DEPLOY_DIR.mkdir()
+
+    shutil.copytree(ROOT / "frontend" / "dist", DEPLOY_DIR / "frontend" / "dist")
+    shutil.copytree(ROOT / "backend", DEPLOY_DIR / "backend", ignore=ignored)
+    logo = ROOT / "backend" / "static" / "logo.png"
+    if logo.exists():
+        (DEPLOY_DIR / "backend" / "static").mkdir(parents=True, exist_ok=True)
+        shutil.copy(logo, DEPLOY_DIR / "backend" / "static" / "logo.png")
+    shutil.copytree(ROOT / "biometric-service", DEPLOY_DIR / "biometric-service", ignore=ignored)
+    shutil.copytree(ROOT / "deploy", DEPLOY_DIR / "deploy", ignore=ignored)
+    shutil.copytree(ROOT / "scripts", DEPLOY_DIR / "scripts", ignore=ignored)
+    shutil.copytree(ROOT / "Formatos VERTICAL", DEPLOY_DIR / "Formatos VERTICAL", ignore=ignored)
+    if (ROOT / "plantillas").exists():
+        shutil.copytree(ROOT / "plantillas", DEPLOY_DIR / "plantillas", ignore=ignored)
+    shutil.copy(ROOT / "PREPRODUCCION_TECNICA_FINAL.md", DEPLOY_DIR)
+    write_manifest()
+    print(f"Paquete validado: {DEPLOY_DIR}")
+    print("El paquete no contiene .env, datos clínicos, seeds automáticos ni servidor --reload.")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
