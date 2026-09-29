@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   dynamicImportFailureId,
   shouldReloadForDynamicImportFailure,
+  shouldReloadForMissingAsset,
 } from '../src/utils/dynamicImportRecovery.js';
 
 function memoryStorage() {
@@ -46,3 +47,11 @@ test('does not reload for an unrelated render error', () => {
   );
 });
 
+test('allows one reload for a missing PDF worker asset', () => {
+  const storage = memoryStorage();
+  const workerUrl = '/assets/pdf.worker.min-old.mjs';
+
+  assert.equal(shouldReloadForMissingAsset(workerUrl, storage), true);
+  assert.equal(shouldReloadForMissingAsset(workerUrl, storage), false);
+  assert.equal(shouldReloadForMissingAsset('/assets/pdf.worker.min-new.mjs', storage), true);
+});

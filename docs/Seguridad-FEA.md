@@ -9,7 +9,7 @@ codigo_fuente:
   - backend/tsa_client.py
   - backend/security.py
   - backend/models.py
-actualizado: 2026-09-19
+actualizado: 2026-09-28
 relacionados:
   - "[[Backend]]"
   - "[[Database]]"
@@ -22,6 +22,13 @@ relacionados:
 # Seguridad-FEA
 
 Motor de Firma Electrónica Avanzada (NOM-024): ECDSA P-256 + HKDF-SHA256 + Fernet + TSA RFC 3161.
+
+## Permisos por área y usuario
+
+Ver [[Permisos-Acceso]]: catálogo compartido, selección explícita por usuario,
+RH limitado a cinco áreas, formatos activos integrados al selector y validación
+en API/SPA. El mínimo de contraseña es 8 caracteres con mayúscula, minúscula,
+número y símbolo. Las cuentas existentes conservan sus datos.
 
 ## Diseño
 - El navegador sólo selecciona `codigo_formato` y `evolution_slot`. El backend obtiene el acto clínico completo desde Vertical/PostgreSQL; `contenido_resumen`, texto o hash del cliente no forman parte del contrato.
@@ -37,9 +44,14 @@ Motor de Firma Electrónica Avanzada (NOM-024): ECDSA P-256 + HKDF-SHA256 + Fern
 ## Estados y compatibilidad
 
 - `CANONICAL_V2`: elegible para `VERIFICACIÓN_CRIPTOGRÁFICA_COMPLETA`.
+- El estado QR `COPIA_INTEGRA_VERIFICADA` del expediente compilado comprueba
+  los bytes del PDF frente al SHA-256 resguardado. No equivale a
+  `VERIFICACIÓN_CRIPTOGRÁFICA_COMPLETA` ni constituye FEA de la compilación.
 - `LEGACY_V1`: evidencia histórica visible, siempre rotulada `FIRMA_LEGACY_NO_CUBRE_DOCUMENTO_COMPLETO`; no se reescribe ni asciende a V2.
 - `BIOMETRIC_EVIDENCE_V1`: paciente/tutor/testigo = autenticación biométrica + evidencia del acto; no es FEA personal ni firma asimétrica del firmante.
-- TSA: `SIN_TSA`, `TSA_PENDIENTE`, `TSA_VERIFICADO`, `TSA_FALLIDO` y `TSA_LEGACY_NO_VERIFICADO`. Sólo `TSA_VERIFICADO` implica validación criptográfica completa.
+- TSA: `SIN_TSA`, `TSA_PENDIENTE`, `TSA_VERIFICADO`, `TSA_FALLIDO` y `TSA_LEGACY_NO_VERIFICADO`. Sólo `TSA_VERIFICADO` implica validación criptográfica completa. Si aún no existe `TSA_TRUST_STORE`, el token queda `TSA_PENDIENTE` (nunca se declara verificado ni se confunde con una huella inválida).
+- Antes de crear la firma local, el médico debe corresponder a un perfil autorizado del catálogo `KH_HE.dbo.V_MRPR`. Se intenta primero por cédula; el nombre exacto sólo puede usarse como respaldo cuando produce una única coincidencia con código de autorización. La consulta es de sólo lectura y no modifica `KH_HE`; el código se usa únicamente en memoria para completar `SignRecord` y nunca se persiste ni se registra en HES.
+- La firma nativa de Vertical se confirma por estado firmado, fecha, cadena propia y el médico del registro (`N_MEDICO`/equivalente o `PRNum`). `SignedBy` conserva correctamente la cuenta técnica que ejecutó `SignRecord`; no sustituye la identidad biométrica/FEA del médico almacenada y verificada por HES.
 - La respuesta RFC 3161 acepta los estados PKI nativos `granted` y
   `granted_with_mods` (además de sus valores enteros) y mantiene obligatoria la
   validación CMS completa. Un resumen con TSA pendiente nunca se rotula como
@@ -62,22 +74,68 @@ Los indicadores y sellos PDF se seleccionan por paciente/código/ranura exactos
 (incluido 0), comparando snapshot, versión y origen actuales. La evidencia
 histórica se conserva; no se estampa en una versión nueva como vigente.
 Los consentimientos reconocidos y el egreso voluntario requieren autorizador
-y dos testigos con IDs distintos antes del cierre médico; una nota clínica
-no hereda esos requisitos. Un CONTACTO no se convierte en representante/testigo.
+y aplican una regla explícita de testigos para el cierre médico. En los
+formatos actuales hay documentos con cero, uno o dos lugares de testigo.
+Los lugares del formato siguen disponibles aunque el mínimo operativo para
+cerrar sea menor: si autoriza el paciente, basta un testigo en formatos que
+tienen uno o dos lugares; si autoriza tutor, familiar o representante, basta
+su propia firma. Las firmas adicionales de testigos quedan registradas con
+su identidad y cada persona sólo puede ocupar un lugar. Este mínimo operativo
+no acredita el número de testigos previsto por NOM-004 y requiere revisión
+institucional. Una nota clínica no hereda estos requisitos.
+La primera autorización ocupa el lugar de autorizante de esa versión; otro
+paciente/representante no puede reemplazarla mediante una nueva captura. Lo
+mismo aplica a cada lugar de testigo ya firmado: el endpoint responde 409 sin
+generar otra firma. Al cierre médico se inserta en la misma transacción el
+evento `CIERRE_MEDICO_CONSENTIMIENTO`, con digest y ranura exactos, IDs/rol de
+quienes habían firmado y conteos de lugares esperados, firmados y mínimo
+operativo. `cierre_excepcional_por_testigos` deja constancia expresa de los
+lugares sin firma en ese instante; las firmas posteriores no reescriben esa
+instantánea ni convierten retroactivamente el cierre en cumplimiento NOM.
+`clinical_signing.consent_signature_policy` declara la regla de cada fuente
+clínica conocida; una fuente nueva sin política bloquea la firma hasta que se
+configure expresamente. El perfil enrolado y el papel documental son datos
+separados: un tutor/responsable puede firmar como testigo cuando el paciente es
+el autorizador, pero no puede ocupar simultáneamente ambos lugares en el mismo
+documento. La asignación queda dentro de `expected_identity_ref` firmado por el
+challenge. Un CONTACTO no se convierte en representante/testigo.
+
+La capacidad del paciente sólo puede imponerse desde `paciente_capaz` explícito
+en el snapshot clínico autoritativo. Muchos registros Vertical históricos no
+contienen ese campo: `INTTYP`, edad, nombre del acompañante y valores por defecto
+del PDF no se convierten automáticamente en una decisión de capacidad. Para
+esos registros el estado es desconocido y debe resolverse en el acto clínico;
+una incorporación nueva debe persistir la decisión con la versión y ranura
+exactas del documento antes de aplicar reglas automáticas por capacidad.
 
 La captura compromete el hash de la versión que se cargó al emitir el challenge.
 Las filas Vertical generales se versionan por hash de su proyección clínica,
 excluyendo `ESignature`, `SignedBy`, `SignedOn`, `MR_ST`, `ModifiedOn` y
-`ModifiedBy`: el cambio administrativo de SignRecord no altera el acto clínico.
-No se reescriben snapshots antiguos; una evidencia incompatible queda histórica.
+`ModifiedBy`. La nota 87/01 también excluye los campos administrativos
+`signed_by`, `signed_on`, `es_signature`, `mr_st` y `firmado` que le agrega el
+dashboard de `MR_NE_URG`; al cotejar snapshots antiguos se proyectan esos
+campos en ambas versiones, pero primero se verifica el hash y la ECDSA de los
+bytes originales. Una edición en cualquier campo clínico sigue invalidando
+la vigencia. No se reescriben snapshots antiguos ni se modifica la evidencia.
 
-SignRecord conserva el protocolo nativo y la caché de sesión de Vertical.
+SignRecord conserva el protocolo nativo y una caché de sesión por hilo de Vertical,
+para que firmas concurrentes no compartan el mismo objeto HTTP mutable.
 Se exige médico PR inequívoco y autorización real, fila/paciente exactos,
 respuesta positiva y cadena nativa persistida. No hay PR/PIN por defecto,
 UPDATE manual de firma ni cadena sintética. Su presencia confirma persistencia
 en Vertical, **no** verifica criptográficamente la cadena opaca del proveedor.
 Reintentar una operación nueva comprueba el digest; una operación histórica
 sin fila exacta requiere reconciliación, nunca selecciona el último documento.
+Una cadena nativa previa en la fila no confirma una captura médica nueva: se exige
+una respuesta positiva de SignRecord y un cambio observable de fecha o cadena.
+La fila `MR_NE_URG` puede conservar `MR_ST=RG` después de un reconocimiento
+positivo de `SignRecord`. Sólo en ese controlador se acepta la cadena nativa
+y fecha nuevas como confirmación si corresponden al médico y al intervalo de
+esa operación reconocida. Sin reconocimiento explícito, `RG` no confirma nada.
+Tras una respuesta positiva cuya fila aún no confirma, o una respuesta HTTP incierta,
+el intento queda pendiente
+con motivo `NATIVE_*`; la conciliación de esa operación sólo consulta la fila
+exacta, sin reenviar SignRecord ni recapturar la huella.
 
 El registro del paciente/responsable sigue siendo `BIOMETRIC_EVIDENCE_V1`,
 no ECDSA personal. No equipararlo a la llave médica ni declarar por ello FEA
@@ -97,6 +155,16 @@ o cumplimiento NOM. Ver [[Normativa-NOM]].
 `backend/tests/test_fea_crypto_stabilization.py` y `test_af_remediation_regressions.py` contienen los vectores negativos y TSA de TEST. La selección de verificación es exacta por paciente, código, slot, tipo, versión y `firma_id`; no existe fallback a otra firma activa. Alterar snapshot, paciente, formato, versión, slot, firmante, `key_id` o PDF primario invalida la verificación correspondiente.
 
 Los PDFs actuales son representaciones secundarias del snapshot clínico primario. No se declara su integridad criptográfica salvo que una integración entregue sus bytes antes de firmar y persista `pdf_hash` + `pdf_identifier` dentro de `CANONICAL_V2`.
+
+## Protección durante la regeneración de PDFs
+
+La compilación del expediente no modifica ni sustituye registros de firma. Los
+formatos se regeneran con la evidencia HES vigente; si el origen Vertical ya
+marca un formato como firmado, sus nombres y roles no se limpian por ausencia de
+una firma HES local. Si una firma HES activa no puede comprobarse contra la
+versión clínica actual, el expediente no se entrega y se requiere revisión de
+Sistemas. La interfaz recibe un reporte de pendientes por formato para evitar
+que una salida aparentemente completa oculte firmas requeridas.
 
 ---
 > 🤖 *Contexto IA: no inventar esquemas RSA ni guardar privadas en claro. Leer `crypto_fea.py` antes de tocar firma.*

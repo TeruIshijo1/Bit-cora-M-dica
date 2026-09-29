@@ -1,3 +1,4 @@
+from format_catalog import clinical_format_groups
 import pyodbc
 import os
 import functools
@@ -7,6 +8,7 @@ import uuid
 import socket
 import time
 import json
+import unicodedata
 from dotenv import load_dotenv
 from fastapi import HTTPException
 
@@ -23,6 +25,34 @@ class KHRetryableMutationError(KHMutationError):
 
 class KHPermanentMutationError(KHMutationError):
     retryable = False
+
+
+_GENERIC_STUDY_FILENAME_RE = re.compile(
+    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{24,})$",
+    re.IGNORECASE,
+)
+
+
+def _friendly_study_filename(filename, *, study_label=None, study_type=None, ptmt_num=None):
+    """Evita exponer UUID de Vertical como nombre visible del documento."""
+    raw_name = str(filename or "").strip().replace("\\", "/")
+    base_name = os.path.basename(raw_name)
+    stem, _extension = os.path.splitext(base_name)
+    if base_name and not _GENERIC_STUDY_FILENAME_RE.fullmatch(stem):
+        safe_stem = re.sub(r"[\x00-\x1f\x7f\"']", "", stem)
+        safe_stem = re.sub(r"[^0-9A-Za-zÀ-ÿ._() -]+", "_", safe_stem)
+        safe_stem = re.sub(r"\s+", " ", safe_stem).strip(" ._")
+        if safe_stem:
+            return f"{safe_stem}.pdf"
+
+    kind = "Imagenologia" if str(study_type or "").lower() in {"imagenología", "imagenologia"} else "Laboratorio"
+    label = re.sub(
+        r"[^0-9A-Za-z]+",
+        "_",
+        unicodedata.normalize("NFKD", str(study_label or "Resultado")).encode("ascii", "ignore").decode("ascii"),
+    ).strip("_")[:80] or "Resultado"
+    identifier = str(ptmt_num or "estudio").strip()
+    return f"{kind}_{label}_PTMT-{identifier}.pdf"
 
 
 _IDEMPOTENT_GUID_TARGETS = {
@@ -45,6 +75,8 @@ _IDEMPOTENT_GUID_TARGETS = {
     "save_or_update_egreso_voluntario_15": ("MR_EV_HOSP", "MR_EV_HOSPID", "MRNum_EV_HOSP"),
     "save_or_update_consentimiento_06": ("MR_CI_APA", "MR_CI_APAID", "MRNum_CI_APA"),
     "save_or_update_consentimiento_07": ("MR_CI_PQ", "MR_CI_PQID", "MRNum_CI_PQ"),
+    "save_or_update_consentimiento_09": ("MR_CI_AUT_TRANS_HEMO", "MR_CI_AUT_TRANS_HEMOID", "MRNum_CI_AUT_TRANS_HEMO"),
+    "save_or_update_egreso_resumen_16": ("MR_ERC_HOS", "MR_ERC_HOSID", "MRNum_ERC_HOS"),
 }
 
 
@@ -350,6 +382,41 @@ def fetch_patient_info_and_timeline(pt_num: str):
     finally:
         conn.close()
 
+
+def fetch_patient_identity_for_qr(pt_num: str) -> dict:
+    """Resolve demographics for an already-authorized opaque QR, never by public search."""
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT TOP 1 FullName, BirthDate, Age FROM V_MRPT WHERE PTNum = ?",
+            (pt_num,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {}
+
+        age = None
+        birth_date = row[1]
+        if isinstance(birth_date, datetime.datetime):
+            birth_date = birth_date.date()
+        if isinstance(birth_date, datetime.date):
+            today = datetime.date.today()
+            years = today.year - birth_date.year - (
+                (today.month, today.day) < (birth_date.month, birth_date.day)
+            )
+            if 0 <= years <= 130:
+                age = f"{years} años"
+        if age is None and row[2] is not None:
+            raw_age = str(row[2]).strip()
+            if raw_age:
+                age = f"{raw_age} años" if raw_age.isdigit() else raw_age
+        return {"nombre": str(row[0]).strip() if row[0] else None, "edad": age}
+    finally:
+        conn.close()
+
 _STUDY_ABBREV_MAP = {
     'BH': ['BIOMETRIA', 'HEMATICA', 'PLAQUETAS'],
     'QSA': ['QUIMICA', 'SANGUINEA', 'GLUCOSA', 'UREA', 'CREATININA', 'BIOQUIMICO'],
@@ -411,6 +478,53 @@ def _match_study_request_with_report(pcit_name, ptmt_desc, ptmt_file=''):
             
     return False
 
+def _resolve_evolution_context(pc_dict=None, room_name=None, urgency_room=None, has_hospitalization_history=False):
+    """Mapea la atención activa de KH_HE al formato de evolución correcto.
+
+    PC.PCType es la fuente primaria: ER = urgencias e IP = hospitalización.
+    Las habitaciones se usan únicamente como respaldo para camas virtuales o
+    instalaciones donde el episodio PC aún no trae el tipo de atención.
+    """
+    pc_type = str((pc_dict or {}).get("PCType") or "").strip().upper()
+    rooms = [str(value or "").strip().upper() for value in (room_name, urgency_room) if value]
+    room_text = " ".join(rooms)
+
+    if pc_type in {"ER", "EMERGENCY", "URGENCIAS"}:
+        source = "PC.PCType"
+        kind = "URGENCIAS"
+    elif pc_type in {"IP", "INPATIENT", "HOSP", "HOSPITALIZACION"}:
+        source = "PC.PCType"
+        kind = "HOSPITALIZACION"
+    elif any(token in room_text for token in ("URGENCIA", "URG ", "URG_", "EMERGENCIA")):
+        source = "UDR_AD_CENSO.Habitacion / MR_NE_URG.CAMA"
+        kind = "URGENCIAS"
+    elif any(token in room_text for token in ("HOSP", "PISO", "CUNA", "CAMA ")) or has_hospitalization_history:
+        source = "UDR_AD_CENSO.Habitacion / historial MR_24_HOJA_EVOL"
+        kind = "HOSPITALIZACION"
+    else:
+        # Conserva el comportamiento histórico de la pantalla mientras KH_HE
+        # no entregue un tipo de atención identificable.
+        source = "fallback"
+        kind = "URGENCIAS"
+
+    if kind == "HOSPITALIZACION":
+        return {
+            "tipo_atencion": kind,
+            "label": "Hospitalización",
+            "formato_codigo": "HE-DIRMED-CONSUL-PLT-24",
+            "formato_label": "Nota de Evolución de Hospitalización",
+            "origen": source,
+        }
+
+    return {
+        "tipo_atencion": kind,
+        "label": "Urgencias",
+        "formato_codigo": "HE-DIRMED-SINPRO-PLT-87/01",
+        "formato_label": "Nota de Evolución de Urgencias",
+        "origen": source,
+    }
+
+
 def fetch_full_ehr_dashboard(pt_num: str):
     """
     Obtiene toda la información necesaria para llenar el Expediente Electrónico (Dashboard).
@@ -437,14 +551,17 @@ def fetch_full_ehr_dashboard(pt_num: str):
         try:
             cursor.execute("""
                 SELECT TOP 1
-                    pc.PCNum, pc.PC_ST, pc.MedicalDischarge, pc.MedicalDischargeDate,
+                    pc.PCNum, pc.PC_ST, pc.PCType, pc.MedicalDischarge, pc.MedicalDischargeDate,
                     pc.EntryDate, pc.ExitDate, pc.ClosedOn, pc.UDF_FYH_DE_INGRESO, pc.UDF_FYH_DE_EGRESO,
                     pc.UDF_Diagnostico_presuntivo, pc.MedicalDischargeDX,
                     c.Habitacion as CamaCenso
                 FROM PC pc
                 LEFT JOIN UDR_AD_CENSO c ON pc.PCNum = c.PCNum
                 WHERE pc.PTNum = ?
-                ORDER BY pc.EntryDate DESC, pc.PCNum DESC
+                ORDER BY
+                    CASE WHEN pc.PC_ST = 'OP' THEN 0 ELSE 1 END,
+                    COALESCE(pc.UDF_FYH_DE_INGRESO, pc.EntryDate, pc.CreatedOn) DESC,
+                    pc.PCNum DESC
             """, (pt_num,))
             pc_row = cursor.fetchone()
             if pc_row:
@@ -458,6 +575,7 @@ def fetch_full_ehr_dashboard(pt_num: str):
             SELECT
                 -- General
                 ALERGIAS, DIAGNOSTICO, EXPEDIENTE, CAMA, DESTINO, FHINGRESO, FYH_EGRESO, CreatedOn, MRNum_NE_URG,
+                MR_ST, SignedBy, SignedOn, ESignature,
                 -- Evolución 1
                 FECHANOTA1, TURNO1, TA1, FC1, FR1, SAT_O2_1, PESO1, TALLA, NOTAS,
                 S_SUBJETIVO1, O_OBJETIVO, A_ANALISIS1, P_PLAN1, N_MEDICO, CEDPROF, NMIP,
@@ -509,7 +627,12 @@ def fetch_full_ehr_dashboard(pt_num: str):
                         "plan": str(r_dict.get(p_col) or "").strip(),
                         "medico": str(r_dict.get(med_col) or "Desconocido"),
                         "cedula": str(r_dict.get(ced_col) or "N/D"),
-                        "mip": str(r_dict.get(mip_col) or "")
+                        "mip": str(r_dict.get(mip_col) or ""),
+                        "signed_by": r_dict.get("SignedBy"),
+                        "signed_on": r_dict.get("SignedOn").strftime('%d/%m/%Y %H:%M') if r_dict.get("SignedOn") else None,
+                        "es_signature": r_dict.get("ESignature"),
+                        "mr_st": r_dict.get("MR_ST"),
+                        "firmado": bool(r_dict.get("SignedBy") or r_dict.get("SignedOn") or str(r_dict.get("MR_ST") or "").strip().upper() == "SG"),
                     }
                 
                 e1 = parse_evol_row(row_dict, 1, 'FECHANOTA1', 'TURNO1', 'TA1', 'FC1', 'FR1', 'SAT_O2_1', 'PESO1', 'TALLA', 'NOTAS', 'S_SUBJETIVO1', 'O_OBJETIVO', 'A_ANALISIS1', 'P_PLAN1', 'N_MEDICO', 'CEDPROF', 'NMIP')
@@ -683,7 +806,10 @@ def fetch_full_ehr_dashboard(pt_num: str):
                     "cedula": h_cedula,
                     "mip": h_mip,
                     "signed_by": hr_dict.get("SignedBy"),
-                    "signed_on": hr_dict.get("SignedOn").strftime('%d/%m/%Y %H:%M') if hr_dict.get("SignedOn") else None
+                    "signed_on": hr_dict.get("SignedOn").strftime('%d/%m/%Y %H:%M') if hr_dict.get("SignedOn") else None,
+                    "es_signature": hr_dict.get("ESignature"),
+                    "mr_st": hr_dict.get("MR_ST"),
+                    "firmado": bool(hr_dict.get("SignedBy") or hr_dict.get("SignedOn") or str(hr_dict.get("MR_ST") or "").strip().upper() == "SG"),
                 })
         except Exception as e_hosp_fetch:
             print(f"Nota: No se pudo consultar MR_24_HOJA_EVOL en dashboard: {e_hosp_fetch}")
@@ -723,6 +849,12 @@ def fetch_full_ehr_dashboard(pt_num: str):
 
         cama_str = (pc_dict.get('CamaCenso') if pc_dict else None) or (str(nota_dict.get('CAMA') or "Sin cama asignada") if is_active else "Alta / Egresado")
         diag_str = str((pc_dict.get('MedicalDischargeDX') or pc_dict.get('UDF_Diagnostico_presuntivo') if pc_dict else None) or nota_dict.get('DIAGNOSTICO') or "Sin diagnóstico especificado")
+        evolution_context = _resolve_evolution_context(
+            pc_dict,
+            pc_dict.get('CamaCenso') if pc_dict else None,
+            nota_dict.get('CAMA'),
+            has_hospitalization_history=bool(evoluciones_hosp_list),
+        )
 
         # Construir objeto de respuesta
         dashboard_data = {
@@ -741,6 +873,10 @@ def fetch_full_ehr_dashboard(pt_num: str):
                 "status": "Activo" if is_active else "Alta",
                 "is_active": is_active,
                 "is_alta": not is_active,
+                "evolution_context": evolution_context,
+                "tipo_atencion": evolution_context["tipo_atencion"],
+                "area_clinica": evolution_context["label"],
+                "formato_evolucion": evolution_context["formato_codigo"],
                 "fecha_ingreso": entry_dt.strftime('%d/%m/%Y') if entry_dt else "",
                 "hora_ingreso": entry_dt.strftime('%H:%M') if entry_dt else "",
                 "fecha_egreso": exit_dt.strftime('%d/%m/%Y') if exit_dt else "___/___/___",
@@ -854,15 +990,22 @@ def fetch_full_ehr_dashboard(pt_num: str):
         dashboard_data["total_evoluciones"] = len(evoluciones_list)
                 
         # Obtener Consentimiento 32/01 si existe
-        cursor.execute("SELECT TOP 1 INTETYPE, N_MEDICO, CEDULA, ALERGIAS, DIAGNOSTICO FROM MR_CI_ETE_CARD WHERE PTNum = ? ORDER BY CreatedOn DESC", (pt_num,))
+        cursor.execute("""SELECT TOP 1 MRNum_CI_ETE_CARD, INTETYPE, N_MEDICO, CEDULA,
+                          ALERGIAS, DIAGNOSTICO, SignedBy, SignedOn, MR_ST
+                          FROM MR_CI_ETE_CARD WHERE PTNum = ?
+                          ORDER BY MRNum_CI_ETE_CARD DESC""", (pt_num,))
         c32_row = cursor.fetchone()
         if c32_row:
             dashboard_data["consentimiento_32_01"] = {
-                "tipo_interrogatorio": c32_row[0] or "Directo",
-                "medico_tratante": c32_row[1] or "",
-                "cedula": c32_row[2] or "",
-                "alergias": c32_row[3] or "",
-                "diagnostico": c32_row[4] or "",
+                "mrnum": c32_row[0],
+                "tipo_interrogatorio": c32_row[1] or "Directo",
+                "medico_tratante": c32_row[2] or "",
+                "cedula": c32_row[3] or "",
+                "alergias": c32_row[4] or "",
+                "diagnostico": c32_row[5] or "",
+                "signed_by": str(c32_row[6] or "").strip(),
+                "signed_on": c32_row[7].strftime('%d/%m/%Y %H:%M') if c32_row[7] else None,
+                "mr_st": c32_row[8],
             }
         else:
             dashboard_data["consentimiento_32_01"] = None
@@ -1481,6 +1624,131 @@ def fetch_full_ehr_dashboard(pt_num: str):
             print(f"Nota: Error consultando historial 07: {e_h07}")
         dashboard_data["historial_07"] = historial_07
         dashboard_data["consentimiento_07"] = historial_07[0] if historial_07 else None
+
+        # Historial de Registros de Formato 09 (MR_CI_AUT_TRANS_HEMO - Transfusión de Hemocomponentes)
+        historial_09 = []
+        try:
+            cursor.execute("""
+                SELECT MRNum_CI_AUT_TRANS_HEMO, N_MEDICO, ACEPTO_Y_AUTORIZO_TRANSFUSION_DE,
+                       TESTIGO_1, TESTIGO_2, CreatedBy, CreatedOn, SignedBy, SignedOn, MR_ST
+                FROM MR_CI_AUT_TRANS_HEMO
+                WHERE PTNum = ?
+                ORDER BY MRNum_CI_AUT_TRANS_HEMO DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[6]
+                sg_dt = r[8]
+                historial_09.append({
+                    "mrnum": r[0],
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "n_medico": str(r[1] or "").strip(),
+                    "acepto_y_autorizo_transfusion_de": str(r[2] or "").strip(),
+                    "testigo1": str(r[3] or "").strip(),
+                    "testigo2": str(r[4] or "").strip(),
+                    "created_by": str(r[5] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "signed_by": str(r[7] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[7] or sg_dt or r[9] == 'SG'),
+                    "mr_st": r[9]
+                })
+        except Exception as e_h09:
+            print(f"Nota: Error consultando historial 09: {e_h09}")
+        dashboard_data["historial_09"] = historial_09
+        dashboard_data["consentimiento_09"] = historial_09[0] if historial_09 else None
+
+        # Historial de Formato 16: Egreso y Resumen Clínico (MR_ERC_HOS)
+        historial_16 = []
+        try:
+            cursor.execute("""
+                SELECT 
+                    MRNum_ERC_HOS, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, MR_ST,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                FROM MR_ERC_HOS
+                WHERE PTNum = ?
+                ORDER BY MRNum_ERC_HOS DESC
+            """, (pt_num,))
+            for r in cursor.fetchall():
+                cr_dt = r[5]
+                sg_dt = r[9]
+                historial_16.append({
+                    "mrnum": r[0],
+                    "medico": str(r[1] or "").strip(),
+                    "n_medico": str(r[1] or "").strip(),
+                    "medico_tratante": str(r[1] or "").strip(),
+                    "dr_tratante": str(r[1] or "").strip(),
+                    "diagnostico": str(r[2] or "").strip(),
+                    "diagnostico_ingreso": str(r[2] or "").strip(),
+                    "expediente": str(r[3] or "").strip(),
+                    "created_by": str(r[4] or "").strip(),
+                    "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+                    "modified_by": str(r[6] or "").strip(),
+                    "modified_on": r[7].strftime("%d/%m/%Y %H:%M") if r[7] else "",
+                    "signed_by": str(r[8] or "").strip(),
+                    "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                    "firmado": bool(r[8] or sg_dt or r[10] == 'SG'),
+                    "mr_st": r[10],
+                    "ta": str(r[11] or "").strip(),
+                    "ta_sis": str(r[11] or "").strip(),
+                    "pulso": str(r[12] or "").strip(),
+                    "fr_respi": str(r[13] or "").strip(),
+                    "temperatura": str(r[14] or "").strip(),
+                    "sat_oxi": str(r[15] or "").strip(),
+                    "ta_dis": str(r[16] or "").strip(),
+                    "reingreso": str(r[17] or "NO").strip(),
+                    "reea": str(r[18] or "").strip(),
+                    "mdeh": str(r[19] or "").strip(),
+                    "pmq": str(r[20] or "").strip(),
+                    "elg": str(r[21] or "").strip(),
+                    "pmt": str(r[22] or "").strip(),
+                    "complicaciones": str(r[23] or "NINGUNA").strip(),
+                    "meg": str(r[24] or "MEJORADO").strip(),
+                    "df": str(r[25] or "").strip(),
+                    "diagnostico_egreso": str(r[25] or "").strip(),
+                    "pcpcpe": str(r[26] or "").strip(),
+                    "afr": str(r[27] or "").strip(),
+                    "edu_pact": str(r[28] or "CUIDADOS GENERALES DE LA SALUD, HIGIENE Y NUTRICIÓN").strip(),
+                    "c_muerte": str(r[29] or "").strip(),
+                    "enecropsia": str(r[30] or "NO").strip(),
+                    "cmep": str(r[31] or "").strip(),
+                    "rvais": str(r[32] or "SE DA DE ALTA CON CITA ABIERTA A URGENCIAS Y CONSULTA EXTERNA").strip(),
+                })
+            # Enriquecer historial_16 con metadatos de PostgreSQL (HistoricoNotaClinica)
+            try:
+                try:
+                    from database import SessionLocal
+                    import models
+                except (ImportError, ValueError):
+                    from .database import SessionLocal
+                    from . import models
+                db_pg = SessionLocal()
+                try:
+                    pg_entries = db_pg.query(models.HistoricoNotaClinica).filter(
+                        (models.HistoricoNotaClinica.pt_num == str(pt_num)) | (models.HistoricoNotaClinica.pt_num == f"PT-{pt_num}"),
+                        models.HistoricoNotaClinica.codigo_formato == "HE-DIRMED-SINPRO-PLT-16"
+                    ).all()
+                    for h_item in historial_16:
+                        matching_pg = next((e for e in pg_entries if e.evolution_slot == h_item["mrnum"]), None)
+                        if matching_pg and matching_pg.contenido_soap_json:
+                            try:
+                                extra = json.loads(matching_pg.contenido_soap_json)
+                                for k, v in extra.items():
+                                    if k not in h_item or not h_item[k]:
+                                        h_item[k] = v
+                            except Exception:
+                                pass
+                finally:
+                    db_pg.close()
+            except Exception as e_pg_h16:
+                pass
+        except Exception as e_h16:
+            print(f"Nota: Error consultando historial 16: {e_h16}")
+        dashboard_data["historial_16"] = historial_16
+        dashboard_data["egreso_resumen_16"] = historial_16[0] if historial_16 else None
                 
         # 1. Medicamentos Prescritos (Consultar tabla maestra PTDG en SQL Server)
         ptdg_meds = []
@@ -1667,6 +1935,12 @@ def fetch_full_ehr_dashboard(pt_num: str):
                     doc_name = matched_ptmt.get("ProcedureDocumentFileName")
                     doc_len = matched_ptmt.get("ProcedureDocumentLength")
                     has_doc = bool(doc_name or (doc_len and doc_len > 0))
+                    display_doc_name = _friendly_study_filename(
+                        doc_name,
+                        study_label=estudio_nom,
+                        study_type="Laboratorio" if is_lab else "Imagenología",
+                        ptmt_num=matched_ptmt.get("PTMTNum"),
+                    ) if has_doc else None
                     study_item = {
                         "id": f"PCIT-{p.get('PCITNum')}",
                         "pcit_num": p.get("PCITNum"),
@@ -1676,9 +1950,9 @@ def fetch_full_ehr_dashboard(pt_num: str):
                         "created_on": cr_on.isoformat() if cr_on else None,
                         "estatus": "Completado" if has_doc else "En Proceso",
                         "solicitado_por": str(p.get("SolicitadoPor") or "MÉDICO TRATANTE").strip(),
-                        "resultado_resumen": matched_ptmt.get("Results") or (f"Documento adjunto: {doc_name}" if doc_name else "Estudio procesado en laboratorio"),
-                        "valores_criticos": f"Documento oficial digitalizado ({doc_name})" if doc_name else None,
-                        "nombre_archivo": doc_name,
+                        "resultado_resumen": matched_ptmt.get("Results") or (f"Documento adjunto: {display_doc_name}" if display_doc_name else "Estudio procesado en laboratorio"),
+                        "valores_criticos": f"Documento oficial digitalizado ({display_doc_name})" if display_doc_name else None,
+                        "nombre_archivo": display_doc_name,
                         "content_type": matched_ptmt.get("ProcedureDocumentContentType") or "application/pdf",
                         "tamanio_bytes": doc_len,
                         "tiene_documento": has_doc,
@@ -1721,9 +1995,15 @@ def fetch_full_ehr_dashboard(pt_num: str):
                 has_doc = bool(doc_name or (doc_len and doc_len > 0))
                 cr_on = mt.get("CreatedOn") or mt.get("MedicalTestDate")
                 fecha_str = cr_on.strftime("%d/%m/%Y %H:%M") if cr_on else "--"
-                nombre_estudio = mt.get("Description") or doc_name or f"Estudio de {test_type.capitalize()} #{mt.get('PTMTNum')}"
-                if doc_name and doc_name.lower().endswith(".pdf") and not mt.get("Description"):
-                    nombre_estudio = doc_name[:-4].replace("_", " ").title()
+                nombre_estudio = mt.get("Description") or f"Estudio de {test_type.capitalize()} #{mt.get('PTMTNum')}"
+                display_doc_name = _friendly_study_filename(
+                    doc_name,
+                    study_label=nombre_estudio,
+                    study_type="Imagenología" if is_img_doc else "Laboratorio",
+                    ptmt_num=mt.get("PTMTNum"),
+                ) if has_doc else None
+                if display_doc_name and not mt.get("Description"):
+                    nombre_estudio = display_doc_name[:-4].replace("_", " ").title()
 
                 study_item = {
                     "id": f"PTMT-{mt.get('PTMTNum')}",
@@ -1734,9 +2014,9 @@ def fetch_full_ehr_dashboard(pt_num: str):
                     "created_on": cr_on.isoformat() if cr_on else None,
                     "estatus": "Completado" if has_doc else "En Proceso",
                     "solicitado_por": str(mt.get("CreatedBy") or "MÉDICO TRATANTE").strip(),
-                    "resultado_resumen": mt.get("Results") or (f"Documento adjunto: {doc_name}" if doc_name else "Estudio procesado"),
-                    "valores_criticos": f"Documento oficial digitalizado ({doc_name})" if doc_name else None,
-                    "nombre_archivo": doc_name,
+                    "resultado_resumen": mt.get("Results") or (f"Documento adjunto: {display_doc_name}" if display_doc_name else "Estudio procesado"),
+                    "valores_criticos": f"Documento oficial digitalizado ({display_doc_name})" if display_doc_name else None,
+                    "nombre_archivo": display_doc_name,
                     "content_type": mt.get("ProcedureDocumentContentType") or "application/pdf",
                     "tamanio_bytes": doc_len,
                     "tiene_documento": has_doc,
@@ -1763,340 +2043,7 @@ def fetch_full_ehr_dashboard(pt_num: str):
         dashboard_data["proximas_citas"] = []
 
         # 6. Catálogo Maestro de Formatos Clínicos (+100 Formatos Categorizados)
-        dashboard_data["formatos_disponibles"] = [
-            {
-                "area": "Expediente Integral",
-                "icono": "FiLayers",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-EXPEDIENTE-COMPLETO",
-                        "nombre": "Expediente Clínico Completo (Compilado NOM-004)",
-                        "subtitulo": "Documento maestro integral con carátula foliada, notas de evolución, consentimientos, recetas y paraclínicos",
-                        "tipo": "Compilado",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-expediente-completo",
-                        "paginas": "Integral",
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            },
-            {
-                "area": "Urgencias",
-                "icono": "FiAlertCircle",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-87/01",
-                        "nombre": "Nota de Evolución de Urgencias",
-                        "subtitulo": "Documento general con hasta 3 notas consecutivas y firmas normadas",
-                        "tipo": "Evolución",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-nota-urgencias",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-01/01",
-                        "nombre": "Historia Clínica de Admisión Urgencias",
-                        "subtitulo": "Interrogatorio, antecedentes, examen físico inicial y motivo de urgencia",
-                        "tipo": "Admisión",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-12/01",
-                        "nombre": "Hoja de Clasificación Triage",
-                        "subtitulo": "Evaluación rápida de gravedad, signos vitales y asignación de prioridad (Código)",
-                        "tipo": "Triage",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-43",
-                        "nombre": "Orden de Intubación Endotraqueal / Soporte Ventilatorio",
-                        "subtitulo": "Consentimiento informado y orden médica para intubación orotraqueal y ventilación mecánica",
-                        "tipo": "Procedimiento",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-43",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            },
-            {
-                "area": "Hospitalización",
-                "icono": "FiHome",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-24",
-                        "nombre": "Nota de Evolución de Hospitalización",
-                        "subtitulo": "Seguimiento médico integral continuo en piso / hospitalización",
-                        "tipo": "Evolución",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-nota-hospitalizacion",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-88/01",
-                        "nombre": "Nota de Ingreso Hospitalario",
-                        "subtitulo": "Registro de pase a piso, indicaciones iniciales y plan de hospitalización",
-                        "tipo": "Ingreso",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-89/01",
-                        "nombre": "Nota de Evolución en Piso",
-                        "subtitulo": "Pase de visita matutino y vespertino por médico adscrito",
-                        "tipo": "Evolución",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-95/01",
-                        "nombre": "Resumen Clínico de Egreso / Alta",
-                        "subtitulo": "Epicrisis, diagnóstico de egreso, tratamiento ambulatorio y citas",
-                        "tipo": "Alta",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            },
-            {
-                "area": "Cirugía y Quirófano",
-                "icono": "FiScissors",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-07",
-                        "nombre": "Consentimiento Informado para Procedimientos Quirúrgicos",
-                        "subtitulo": "Consentimiento informado oficial para procedimientos quirúrgicos, riesgos y alternativas",
-                        "tipo": "Legal y Quirúrgico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-07",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-02",
-                        "nombre": "Consentimiento Informado para Tratamiento Quirúrgico / Disentimiento",
-                        "subtitulo": "Autorización médica y quirúrgica con registro de tratamientos, anestesia y disentimiento",
-                        "tipo": "Legal",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-02",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-40/01",
-                        "nombre": "Consentimiento Informado Quirúrgico",
-                        "subtitulo": "Autorización de procedimiento con firma de paciente, testigo y cirujano",
-                        "tipo": "Legal",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-42/01",
-                        "nombre": "Nota Preoperatoria",
-                        "subtitulo": "Diagnóstico prequirúrgico, plan operatorio y riesgo anestésico",
-                        "tipo": "Quirúrgico",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-45/01",
-                        "nombre": "Reporte Quirúrgico y Postoperatorio",
-                        "subtitulo": "Descripción de la técnica, hallazgos, sangrado y cuenta de gasas",
-                        "tipo": "Quirúrgico",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            },
-            {
-                "area": "Consulta Externa e Interconsultas",
-                "icono": "FiUsers",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-02/01",
-                        "nombre": "Historia Clínica de Consulta Externa",
-                        "subtitulo": "Expediente ambulatorio por especialidad médica",
-                        "tipo": "Consulta",
-                        "activo": False,
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-55/01",
-                        "nombre": "Nota de Interconsulta Especializada",
-                        "subtitulo": "Solicitud y respuesta de valoración por médico especialista",
-                        "tipo": "Interconsulta",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            },
-            {
-                "area": "Servicios Auxiliares y Diagnóstico",
-                "icono": "FiActivity",
-                "formatos": [
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-70/01",
-                        "nombre": "Solicitud de Exámenes de Laboratorio",
-                        "subtitulo": "Orden electrónica de análisis clínicos y pruebas especiales",
-                        "tipo": "Laboratorio",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-72/01",
-                        "nombre": "Solicitud de Gabinete e Imagenología",
-                        "subtitulo": "Orden de estudios radiológicos, ultrasonidos y tomografías",
-                        "tipo": "Imagen",
-                        "activo": False,
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-32/01",
-                        "nombre": "Consentimiento Informado para Ecocardiograma Transesofágico",
-                        "subtitulo": "Autorización para realización de estudio bajo sedación con apoyo de anestesiólogo cardiovascular",
-                        "tipo": "Legal",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-32-01",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-EED",
-                        "nombre": "Ecocardiograma de Estrés con Dobutamina",
-                        "subtitulo": "Consentimiento informado y hoja de monitoreo hemodinámico",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-eed",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-25",
-                        "nombre": "Consentimiento Informado para Revisión Ginecológica, Obstétrica y Consulta Externa",
-                        "subtitulo": "Autorización para revisión ginecológica u obstétrica, estudios y procedimientos en consulta externa",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-25",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-34",
-                        "nombre": "Consentimiento Informado para Estudio de Mesa Inclinada (Tilt Test)",
-                        "subtitulo": "Consentimiento informado y hoja de monitoreo hemodinámico protocolo INICICH",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-34-01",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-12",
-                        "nombre": "Consentimiento Revisión Gineco y Obstetricia (Hosp. / Urg.)",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-12 • Consentimiento Informado Hospitalización y Urgencias",
-                        "area": "Ginecología y Obstetricia / Urgencias",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-12",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-04",
-                        "nombre": "Consentimiento Colocación de Catéter Venoso Central",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-04 • Consentimiento Informado Procedimientos y Cirugía",
-                        "area": "Procedimientos / Cirugía",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-04",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-15",
-                        "nombre": "Consentimiento Informado para Cesárea / Disentimiento",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-15 • Consentimiento o Negativa Informada",
-                        "area": "Ginecología y Obstetricia",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-15",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-08",
-                        "nombre": "Consentimiento Diagnóstico en Admisión Continua",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-08 • Tratamiento y procedimientos diagnósticos en admisión continua",
-                        "area": "Admisión Continua / Urgencias",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-08",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-11",
-                        "nombre": "Consentimiento de No Reanimación (Voluntad Anticipada)",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-11 • Voluntad anticipada y limitación del esfuerzo terapéutico",
-                        "area": "Medicina Interna / Urgencias / UCI",
-                        "tipo": "Legal y Bioético",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-11",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-19",
-                        "nombre": "Consentimiento Informado para Histerectomía",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-19 • Autorización o negativa para intervención quirúrgica de histerectomía",
-                        "area": "Ginecología y Obstetricia",
-                        "tipo": "Quirúrgico y Legal",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-19",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-SINPRO-PLT-15",
-                        "nombre": "Egreso Voluntario",
-                        "subtitulo": "HE-DIRMED-SINPRO-PLT-15 • Documento formal de alta voluntaria contra opinión médica",
-                        "area": "Hospitalización y Urgencias",
-                        "tipo": "Legal y Clínico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-egreso-voluntario-15",
-                        "paginas": 2,
-                        "norma": "NOM-004-SSA3-2012"
-                    },
-                    {
-                        "codigo": "HE-DIRMED-CONSUL-PLT-06",
-                        "nombre": "Consentimiento para Autorizar Procedimiento Anestésico",
-                        "subtitulo": "HE-DIRMED-CONSUL-PLT-06 • Evaluación anestesiológica, riesgos y autorización del acto anestésico",
-                        "area": "Anestesiología y Quirófano",
-                        "tipo": "Legal y Anestésico",
-                        "activo": True,
-                        "url_pdf": f"/ehr/paciente/{pt_num}/pdf-consentimiento-06",
-                        "paginas": 1,
-                        "norma": "NOM-004-SSA3-2012"
-                    }
-                ]
-            }
-        ]
+        dashboard_data["formatos_disponibles"] = clinical_format_groups(pt_num)
 
         # Filtrar solo los formatos activos para que solo salgan los que ya tenemos hechos
         for categoria in dashboard_data["formatos_disponibles"]:
@@ -5933,52 +5880,65 @@ def fetch_generic_format_history(codigo_o_tabla: str, pt_num: str) -> list[dict]
                 motivo_col = cols_upper[candidate.upper()]
                 break
 
-        query = f"SELECT {pk_col}, PTNum, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn, SignedBy, SignedOn, MR_ST"
-        if doc_col: query += f", {doc_col}"
-        if diag_col: query += f", {diag_col}"
-        if motivo_col: query += f", {motivo_col}"
-        query += f" FROM {c_name} WHERE PTNum = ? ORDER BY {pk_col} DESC"
+        # El expediente universal necesita conservar también los campos que
+        # todavía no tienen un generador visual especializado.  Las columnas
+        # provienen de INFORMATION_SCHEMA y el controlador fue validado por
+        # vertical_signer, por lo que no se interpolan identificadores del
+        # navegador directamente.
+        query = f"SELECT * FROM [{c_name}] WHERE [PTNum] = ? ORDER BY [{pk_col}] DESC"
 
         cur.execute(query, (pt_num,))
+        selected_columns = [str(column[0]) for column in cur.description]
+        column_index = {column.upper(): column for column in selected_columns}
+
+        def value(row_dict, name, default=None):
+            actual = column_index.get(str(name).upper())
+            return row_dict.get(actual, default) if actual else default
+
+        def serializable(value):
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+                return value.isoformat()
+            if isinstance(value, bytes):
+                return f"[binario omitido: {len(value)} bytes]"
+            return str(value)
+
         for row in cur.fetchall():
-            cr_dt = row[3]
-            mo_dt = row[5]
-            sg_dt = row[7]
-            signed_by = str(row[6] or "").strip()
-            mr_st = str(row[8] or "").strip()
-            
-            idx = 9
-            medico = ""
-            if doc_col:
-                medico = str(row[idx] or "").strip()
-                idx += 1
-            diag = ""
-            if diag_col:
-                diag = str(row[idx] or "").strip()
-                idx += 1
-            motivo = ""
-            if motivo_col:
-                motivo = str(row[idx] or "").strip()
-                idx += 1
+            row_dict = dict(zip(selected_columns, row))
+            cr_dt = value(row_dict, "CreatedOn")
+            mo_dt = value(row_dict, "ModifiedOn")
+            sg_dt = value(row_dict, "SignedOn")
+            signed_by = str(value(row_dict, "SignedBy", "") or "").strip()
+            mr_st = str(value(row_dict, "MR_ST", "") or "").strip()
+            medico = str(value(row_dict, doc_col, "") or "").strip() if doc_col else ""
+            diag = str(value(row_dict, diag_col, "") or "").strip() if diag_col else ""
+            motivo = str(value(row_dict, motivo_col, "") or "").strip() if motivo_col else ""
 
             is_signed = bool(signed_by or sg_dt or mr_st == 'SG')
 
             results.append({
-                "mrnum": row[0],
+                "mrnum": value(row_dict, pk_col),
                 "controller_name": c_name,
                 "pk_col": pk_col,
                 "medico_tratante": medico or signed_by or "",
                 "diagnostico": diag,
                 "motivo_de_no_autorizacion": motivo,
                 "no_autorizo": bool(motivo),
-                "created_by": str(row[2] or "").strip(),
+                "created_by": str(value(row_dict, "CreatedBy", "") or "").strip(),
                 "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
-                "modified_by": str(row[4] or "").strip(),
+                "modified_by": str(value(row_dict, "ModifiedBy", "") or "").strip(),
                 "modified_on": mo_dt.strftime("%d/%m/%Y %H:%M") if mo_dt else "",
                 "signed_by": signed_by,
                 "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+                "es_signature": value(row_dict, "ESignature"),
                 "firmado": is_signed,
-                "mr_st": mr_st or ("SG" if is_signed else "RG")
+                "mr_st": mr_st or ("SG" if is_signed else "RG"),
+                "datos_completos": {
+                    str(column): serializable(row_dict.get(column))
+                    for column in selected_columns
+                    if row_dict.get(column) not in (None, "")
+                },
             })
     except Exception as e:
         print(f"Error en fetch_generic_format_history para {c_name}: {e}")
@@ -7329,6 +7289,69 @@ def save_or_update_consentimiento_07(pt_num: str, consent_data: dict) -> dict:
         except Exception as e_pg_save:
             print(f"Nota: Error guardando HistoricoNotaClinica PG para 07: {e_pg_save}")
 
+            sql = """
+            INSERT INTO MR_CI_PQ (
+                PTNum, PTID, ControllerName, ControllerKey, ControllerID, MR_ST, MR_CI_PQID,
+                CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                N_MEDICO
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'RG', ?,
+                ?, GETDATE(), ?, GETDATE(),
+                ?
+            )
+            """
+            cursor.execute(sql, (
+                pt_num, pt_id, c_name, c_key, c_id, guid_doc,
+                v_user, v_user,
+                medico
+            ))
+            cursor.execute("SELECT @@IDENTITY")
+            id_row = cursor.fetchone()
+            target_mr = id_row[0] if id_row else None
+
+        conn.commit()
+
+        # Respaldar metadatos clínicos enriquecidos en PostgreSQL
+        try:
+            try:
+                from database import SessionLocal
+                import models
+            except (ImportError, ValueError):
+                from .database import SessionLocal
+                from . import models
+            db_pg = SessionLocal()
+            try:
+                soap_payload = {
+                    "procedimiento_quirurgico": consent_data.get("procedimiento_quirurgico") or "INTERVENCIÓN QUIRÚRGICA PROGRAMADA",
+                    "descripcion_procedimiento": consent_data.get("descripcion_procedimiento") or "procedimiento quirúrgico bajo técnica aséptica protocolizada y monitoreo continuo",
+                    "riesgos_inherentes": consent_data.get("riesgos_inherentes") or "sangrado transoperatorio, infección de herida quirúrgica, dehiscencia, reacciones medicamentosas",
+                    "beneficios": consent_data.get("beneficios") or "resolución del cuadro clínico de base, preservación funcional y mejora de salud",
+                    "alternativas": consent_data.get("alternativas") or "tratamiento médico conservador o diferimiento según valoración",
+                    "paciente_capaz": consent_data.get("paciente_capaz", True),
+                    "representante_legal": consent_data.get("representante_legal") or "",
+                    "parentesco": consent_data.get("parentesco") or "",
+                    "testigo1": consent_data.get("testigo1") or "",
+                    "testigo2": consent_data.get("testigo2") or ""
+                }
+                hist_entry = models.HistoricoNotaClinica(
+                    codigo_formato='HE-DIRMED-CONSUL-PLT-07',
+                    tipo_documento='Consentimiento Informado para Procedimientos Quirúrgicos',
+                    pt_num=str(pt_num),
+                    expediente=f"PT-{pt_num}",
+                    evolution_slot=target_mr or 1,
+                    nombre_medico=medico,
+                    cedula_profesional=consent_data.get("cedula") or "",
+                    contenido_soap_json=json.dumps(soap_payload, ensure_ascii=False),
+                    accion="EDICION" if explicit_mrnum else "CREACION",
+                    version=1
+                )
+                db_pg.add(hist_entry)
+                db_pg.commit()
+            finally:
+                db_pg.close()
+        except Exception as e_pg_save:
+            print(f"Nota: Error guardando HistoricoNotaClinica PG para 07: {e_pg_save}")
+
         return {
             "status": "success",
             "message": "Formato 07 (Procedimientos Quirúrgicos) guardado correctamente en SQL Server y Bitácora HES",
@@ -7371,10 +7394,697 @@ def get_study_document_binary(ptmt_num: int):
         conn.close()
 
 
+def fetch_consentimiento_09(pt_num: str, mrnum: int = None) -> dict:
+    """
+    Obtiene los datos del Formato 09: Consentimiento Informado para Transfusión de Hemocomponentes
+    desde la tabla MR_CI_AUT_TRANS_HEMO de SQL Server y PostgreSQL (HistoricoNotaClinica).
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_AUT_TRANS_HEMO, PTNum, PTID, ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_CI_AUT_TRANS_HEMOID, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, N_MEDICO, EXPEDIENTE, ACEPTO_Y_AUTORIZO_TRANSFUSION_DE,
+                    TESTIGO_1, TESTIGO_2
+                FROM MR_CI_AUT_TRANS_HEMO 
+                WHERE PTNum = ? AND MRNum_CI_AUT_TRANS_HEMO = ?
+            """, (pt_num, mrnum))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_CI_AUT_TRANS_HEMO, PTNum, PTID, ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_CI_AUT_TRANS_HEMOID, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, N_MEDICO, EXPEDIENTE, ACEPTO_Y_AUTORIZO_TRANSFUSION_DE,
+                    TESTIGO_1, TESTIGO_2
+                FROM MR_CI_AUT_TRANS_HEMO 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_CI_AUT_TRANS_HEMO DESC
+            """, (pt_num,))
+            
+        columns = [column[0] for column in cursor.description]
+        row = cursor.fetchone()
+        if not row:
+            return None
+            
+        d = dict(zip(columns, row))
+        active_mrnum = d.get("MRNum_CI_AUT_TRANS_HEMO")
+
+        res = {
+            "mrnum": active_mrnum,
+            "pt_num": str(d.get("PTNum") or pt_num),
+            "medico_tratante": str(d.get("N_MEDICO") or "").strip(),
+            "n_medico": str(d.get("N_MEDICO") or "").strip(),
+            "expediente": str(d.get("EXPEDIENTE") or f"PT-{pt_num}").strip(),
+            "acepto_y_autorizo_transfusion_de": str(d.get("ACEPTO_Y_AUTORIZO_TRANSFUSION_DE") or "PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO / PLASMA FRESCO CONGELADO / PLAQUETAS").strip(),
+            "testigo1": str(d.get("TESTIGO_1") or "").strip(),
+            "testigo2": str(d.get("TESTIGO_2") or "").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": d.get("CreatedOn").strftime("%d/%m/%Y %H:%M") if d.get("CreatedOn") else "",
+            "modified_by": str(d.get("ModifiedBy") or "").strip(),
+            "modified_on": d.get("ModifiedOn").strftime("%d/%m/%Y %H:%M") if d.get("ModifiedOn") else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": d.get("SignedOn").strftime("%d/%m/%Y %H:%M") if d.get("SignedOn") else "",
+            "firmado": bool(d.get("SignedBy") or d.get("SignedOn") or d.get("MR_ST") == 'SG'),
+            "mr_st": d.get("MR_ST"),
+            "paciente_capaz": True,
+            "representante_legal": "",
+            "parentesco": "",
+            "verifico_nombre": "PERSONAL DE SALUD / BANCO DE SANGRE"
+        }
+
+        # Enriquecer desde HistoricoNotaClinica en PostgreSQL si existe
+        try:
+            try:
+                from database import SessionLocal
+                import models
+            except (ImportError, ValueError):
+                from .database import SessionLocal
+                from . import models
+            db_pg = SessionLocal()
+            try:
+                hist_pg = db_pg.query(models.HistoricoNotaClinica).filter(
+                    models.HistoricoNotaClinica.pt_num == str(pt_num),
+                    models.HistoricoNotaClinica.codigo_formato == 'HE-DIRMED-CONSUL-PLT-09',
+                    models.HistoricoNotaClinica.evolution_slot == active_mrnum
+                ).order_by(models.HistoricoNotaClinica.version.desc()).first()
+                if hist_pg and hist_pg.contenido_soap_json:
+                    soap = json.loads(hist_pg.contenido_soap_json)
+                    for k, v in soap.items():
+                        if v is not None and v != "":
+                            res[k] = v
+            finally:
+                db_pg.close()
+        except Exception as e_pg:
+            print(f"Nota: No se pudo consultar HistoricoNotaClinica PG para 09: {e_pg}")
+
+        return res
+    except Exception as e:
+        print(f"Error fetching consentimiento 09: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 
+@explicit_kh_mutation
+def save_or_update_consentimiento_09(pt_num: str, consent_data: dict) -> dict:
+    """
+    Crea o actualiza el Consentimiento Informado para Transfusión de Hemocomponentes (Formato 09) en MR_CI_AUT_TRANS_HEMO
+    y respalda los metadatos clínicos enriquecidos en PostgreSQL (HistoricoNotaClinica).
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        explicit_mrnum = int(consent_data.get("mrnum") or consent_data.get("slot") or 0)
+        
+        medico = str(consent_data.get("medico_tratante") or consent_data.get("n_medico") or "").strip()
+        expediente = str(consent_data.get("expediente") or f"PT-{pt_num}").strip()
+        transfusion_de = str(
+            consent_data.get("acepto_y_autorizo_transfusion_de") or 
+            consent_data.get("ACEPTO_Y_AUTORIZO_TRANSFUSION_DE") or 
+            consent_data.get("hemocomponentes") or 
+            "PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO / PLASMA FRESCO CONGELADO / PLAQUETAS"
+        ).strip()
+        t1 = str(consent_data.get("testigo1") or consent_data.get("testigo_1") or consent_data.get("TESTIGO_1") or "").strip()
+        t2 = str(consent_data.get("testigo2") or consent_data.get("testigo_2") or consent_data.get("TESTIGO_2") or "").strip()
+        usuario_actual = str(consent_data.get("usuario") or consent_data.get("created_by") or consent_data.get("username") or "sistemas").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        c_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        if explicit_mrnum > 0:
+            # Actualización de folio existente
+            target_mr = explicit_mrnum
+            cursor.execute("""
+                UPDATE MR_CI_AUT_TRANS_HEMO
+                SET N_MEDICO = ?,
+                    EXPEDIENTE = ?,
+                    ACEPTO_Y_AUTORIZO_TRANSFUSION_DE = ?,
+                    TESTIGO_1 = ?,
+                    TESTIGO_2 = ?,
+                    ModifiedBy = ?,
+                    ModifiedOn = GETDATE()
+                WHERE PTNum = ? AND MRNum_CI_AUT_TRANS_HEMO = ?
+            """, (medico, expediente, transfusion_de, t1, t2, usuario_actual, pt_num, target_mr))
+        else:
+            # Inserción de nuevo registro sin columnas IDENTITY
+            guid_record = consent_data.get("_operation_guid") or str(uuid.uuid4()).upper()
+
+            cursor.execute("""
+                INSERT INTO MR_CI_AUT_TRANS_HEMO (
+                    PTNum, PTID,
+                    ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_CI_AUT_TRANS_HEMOID,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    N_MEDICO, EXPEDIENTE, ACEPTO_Y_AUTORIZO_TRANSFUSION_DE,
+                    TESTIGO_1, TESTIGO_2
+                ) VALUES (
+                    ?, ?,
+                    ?, ?, ?,
+                    'RG', ?,
+                    ?, GETDATE(), ?, GETDATE(),
+                    ?, ?, ?,
+                    ?, ?
+                )
+            """, (
+                pt_num, pt_id,
+                c_name, c_key, c_id,
+                guid_record,
+                usuario_actual, usuario_actual,
+                medico, expediente, transfusion_de,
+                t1, t2
+            ))
+
+            cursor.execute("SELECT TOP 1 MRNum_CI_AUT_TRANS_HEMO FROM MR_CI_AUT_TRANS_HEMO WHERE MR_CI_AUT_TRANS_HEMOID = ?", (guid_record,))
+            id_row = cursor.fetchone()
+            if id_row and id_row[0]:
+                target_mr = int(id_row[0])
+            else:
+                cursor.execute("SELECT @@IDENTITY")
+                id_row2 = cursor.fetchone()
+                target_mr = int(id_row2[0]) if id_row2 and id_row2[0] else 1
+
+        conn.commit()
+
+        # Respaldo de Snapshot en PostgreSQL
+        try:
+            try:
+                from database import SessionLocal
+                import models
+            except (ImportError, ValueError):
+                from .database import SessionLocal
+                from . import models
+            db_pg = SessionLocal()
+            try:
+                soap_payload = {
+                    "mrnum": target_mr,
+                    "pt_num": str(pt_num),
+                    "expediente": expediente,
+                    "medico_tratante": medico,
+                    "n_medico": medico,
+                    "cedula": consent_data.get("cedula") or "",
+                    "acepto_y_autorizo_transfusion_de": transfusion_de,
+                    "paciente_capaz": consent_data.get("paciente_capaz", True),
+                    "representante_legal": consent_data.get("representante_legal") or "",
+                    "parentesco": consent_data.get("parentesco") or "",
+                    "testigo1": t1,
+                    "testigo2": t2,
+                    "verifico_nombre": consent_data.get("verifico_nombre") or "PERSONAL DE SALUD / BANCO DE SANGRE",
+                    "fecha_atencion": consent_data.get("fecha_atencion") or datetime.datetime.now().strftime("%d/%m/%Y"),
+                    "hora_atencion": consent_data.get("hora_atencion") or datetime.datetime.now().strftime("%H:%M")
+                }
+                hist_entry = models.HistoricoNotaClinica(
+                    codigo_formato="HE-DIRMED-CONSUL-PLT-09",
+                    tipo_documento="Consentimiento Informado para Transfusión de Hemocomponentes",
+                    pt_num=str(pt_num),
+                    expediente=expediente,
+                    evolution_slot=target_mr,
+                    nombre_medico=medico,
+                    cedula_profesional=consent_data.get("cedula") or "",
+                    contenido_soap_json=json.dumps(soap_payload, ensure_ascii=False),
+                    accion="EDICION" if explicit_mrnum else "CREACION",
+                    version=1
+                )
+                db_pg.add(hist_entry)
+                db_pg.commit()
+            finally:
+                db_pg.close()
+        except Exception as e_pg_save:
+            print(f"Nota: Error guardando HistoricoNotaClinica PG para 09: {e_pg_save}")
+
+        return {
+            "status": "success",
+            "message": "Formato 09 (Transfusión de Hemocomponentes) guardado correctamente en SQL Server y Bitácora HES",
+            "mrnum": target_mr
+        }
+    except Exception as e:
+        print(f"Error en save_or_update_consentimiento_09: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 
+def fetch_egreso_resumen_16(pt_num: str, mrnum: int = None) -> dict:
+    """
+    Obtiene los datos del Formato 16: Egreso y Resumen Clínico desde la tabla MR_ERC_HOS
+    de SQL Server y enriquece con snapshot de PostgreSQL (HistoricoNotaClinica).
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_ERC_HOS, PTNum, PTID, ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_ERC_HOSID, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                FROM MR_ERC_HOS 
+                WHERE PTNum = ? AND MRNum_ERC_HOS = ?
+            """, (pt_num, mrnum))
+        else:
+            cursor.execute("""
+                SELECT TOP 1 
+                    MRNum_ERC_HOS, PTNum, PTID, ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_ERC_HOSID, CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                FROM MR_ERC_HOS 
+                WHERE PTNum = ? 
+                ORDER BY MRNum_ERC_HOS DESC
+            """, (pt_num,))
+            
+        columns = [column[0] for column in cursor.description]
+        row = cursor.fetchone()
+        if not row:
+            return None
+            
+        d = dict(zip(columns, row))
+        active_mrnum = d.get("MRNum_ERC_HOS")
+
+        res = {
+            "mrnum": active_mrnum,
+            "pt_num": str(d.get("PTNum") or pt_num),
+            "medico_tratante": str(d.get("N_MEDICO") or "").strip(),
+            "n_medico": str(d.get("N_MEDICO") or "").strip(),
+            "medico_elaboro": str(d.get("N_MEDICO") or "").strip(),
+            "diagnostico": str(d.get("DIAGNOSTICO") or "").strip(),
+            "expediente": str(d.get("EXPEDIENTE") or f"PT-{pt_num}").strip(),
+            "ta": str(d.get("TA") or "").strip(),
+            "ta_sis": str(d.get("TA") or "").strip(),
+            "pulso": str(d.get("PULSO") or "").strip(),
+            "fc": str(d.get("PULSO") or "").strip(),
+            "fr_respi": str(d.get("FR_RESPI") or "").strip(),
+            "fr": str(d.get("FR_RESPI") or "").strip(),
+            "temperatura": str(d.get("TEMPERATURA") or "").strip(),
+            "temp": str(d.get("TEMPERATURA") or "").strip(),
+            "sat_oxi": str(d.get("SAT_OXI") or "").strip(),
+            "spo2": str(d.get("SAT_OXI") or "").strip(),
+            "ta_dis": str(d.get("TA_DIS") or "").strip(),
+            "reingreso": str(d.get("REINGRESO") or "NO").strip(),
+            "reea": str(d.get("REEA") or "").strip(),
+            "mdeh": str(d.get("MDEH") or "").strip(),
+            "pmq": str(d.get("PMQ") or "").strip(),
+            "elg": str(d.get("ELG") or "").strip(),
+            "pmt": str(d.get("PMT") or "").strip(),
+            "complicaciones": str(d.get("COMPLICACIONES") or "").strip(),
+            "meg": str(d.get("MEG") or "").strip(),
+            "df": str(d.get("DF") or "").strip(),
+            "pcpcpe": str(d.get("PCPCPE") or "").strip(),
+            "afr": str(d.get("AFR") or "").strip(),
+            "edu_pact": str(d.get("EDU_PACT") or "").strip(),
+            "c_muerte": str(d.get("C_MUERTE") or "").strip(),
+            "enecropsia": str(d.get("ENECROPSIA") or "NO").strip(),
+            "cmep": str(d.get("CMEP") or "").strip(),
+            "rvais": str(d.get("RVAIS") or "").strip(),
+            "created_by": str(d.get("CreatedBy") or "").strip(),
+            "created_on": d.get("CreatedOn").strftime("%d/%m/%Y %H:%M") if d.get("CreatedOn") else "",
+            "modified_by": str(d.get("ModifiedBy") or "").strip(),
+            "modified_on": d.get("ModifiedOn").strftime("%d/%m/%Y %H:%M") if d.get("ModifiedOn") else "",
+            "signed_by": str(d.get("SignedBy") or "").strip(),
+            "signed_on": d.get("SignedOn").strftime("%d/%m/%Y %H:%M") if d.get("SignedOn") else "",
+            "firmado": bool(d.get("SignedBy") or d.get("SignedOn") or d.get("MR_ST") == 'SG'),
+            "mr_st": d.get("MR_ST")
+        }
+
+        # Enriquecer desde HistoricoNotaClinica en PostgreSQL si existe
+        try:
+            try:
+                from database import SessionLocal
+                import models
+            except (ImportError, ValueError):
+                from .database import SessionLocal
+                from . import models
+            db_pg = SessionLocal()
+            try:
+                hist_pg = db_pg.query(models.HistoricoNotaClinica).filter(
+                    models.HistoricoNotaClinica.pt_num == str(pt_num),
+                    models.HistoricoNotaClinica.codigo_formato == 'HE-DIRMED-SINPRO-PLT-16',
+                    models.HistoricoNotaClinica.evolution_slot == active_mrnum
+                ).order_by(models.HistoricoNotaClinica.version.desc()).first()
+                if hist_pg and hist_pg.contenido_soap_json:
+                    soap = json.loads(hist_pg.contenido_soap_json)
+                    for k, v in soap.items():
+                        if v is not None and v != "":
+                            res[k] = v
+            finally:
+                db_pg.close()
+        except Exception as e_pg:
+            print(f"Nota: No se pudo consultar HistoricoNotaClinica PG para 16: {e_pg}")
+
+        return res
+    except Exception as e:
+        print(f"Error fetching egreso resumen 16: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 
+@explicit_kh_mutation
+def save_or_update_egreso_resumen_16(pt_num: str, data: dict) -> dict:
+    """
+    Crea o actualiza el Egreso y Resumen Clínico (Formato 16) en MR_ERC_HOS
+    y respalda los metadatos clínicos enriquecidos en PostgreSQL (HistoricoNotaClinica).
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+
+    try:
+        cursor = conn.cursor()
+        explicit_mrnum = int(data.get("mrnum") or data.get("slot") or 0)
+        
+        medico = str(data.get("medico_tratante") or data.get("dr_tratante") or data.get("n_medico") or "").strip()
+        medico_elab = str(data.get("medico_elaboro") or data.get("dr_elaboro") or data.get("n_medico_elaboro") or medico).strip()
+        diagnostico = str(data.get("diagnostico") or data.get("diagnostico_ingreso") or data.get("diag_ingreso") or "").strip()
+        expediente = str(data.get("expediente") or f"PT-{pt_num}").strip()
+        
+        ta_sis = str(data.get("ta") or data.get("ta_sis") or "").strip()
+        pulso = str(data.get("pulso") or data.get("fc") or "").strip()
+        
+        def _parse_int(v):
+            if v is None:
+                return None
+            s = re.sub(r'[^0-9]', '', str(v).strip())
+            return int(s) if s else None
+
+        def _parse_dec(v):
+            if v is None:
+                return None
+            s = str(v).strip()
+            try:
+                return float(s) if s else None
+            except Exception:
+                return None
+
+        ta_dis = _parse_int(data.get("ta_dis"))
+        fr_respi = _parse_int(data.get("fr_respi") or data.get("fr"))
+        sat_oxi = _parse_int(data.get("sat_oxi") or data.get("spo2"))
+        temperatura = _parse_dec(data.get("temperatura") or data.get("temp"))
+        
+        reingreso = str(data.get("reingreso") or "NO").strip().upper()
+        reea = str(data.get("reea") or data.get("resumen_evolucion") or "").strip()
+        mdeh = str(data.get("mdeh") or data.get("manejo_estancia") or "").strip()
+        pmq = str(data.get("pmq") or data.get("procedimientos") or "").strip()
+        elg = str(data.get("elg") or data.get("laboratorio_gabinete") or "").strip()
+        pmt = str(data.get("pmt") or data.get("plan_manejo") or "").strip()
+        complicaciones = str(data.get("complicaciones") or "NINGUNA").strip()
+        meg = str(data.get("meg") or data.get("motivo_egreso") or "MEJORADO").strip()
+        
+        df = str(data.get("df") or data.get("diagnostico_egreso") or data.get("diagnostico_final") or "").strip()
+        pcpcpe = str(data.get("pcpcpe") or data.get("problemas_pendientes") or "").strip()
+        afr = str(data.get("afr") or data.get("factores_riesgo") or "").strip()
+        edu_pact = str(data.get("edu_pact") or data.get("educacion_paciente") or "").strip()
+        c_muerte = str(data.get("c_muerte") or data.get("causa_muerte") or "").strip()
+        enecropsia = str(data.get("enecropsia") or data.get("necropsia") or "NO").strip().upper()
+        cmep = str(data.get("cmep") or data.get("medicacion_domicilio") or "").strip()
+        rvais = str(data.get("rvais") or data.get("recomendaciones") or "").strip()
+
+        usuario_actual = str(data.get("usuario") or data.get("created_by") or data.get("username") or "sistemas").strip()
+
+        cursor.execute("SELECT ControllerName, ControllerKey, ControllerID, PTID FROM V_MRPT WHERE PTNum = ?", (pt_num,))
+        meta_row = cursor.fetchone()
+        cursor.execute("SELECT TOP 1 PCNum FROM PC WHERE PTNum = ? ORDER BY PCNum DESC", (pt_num,))
+        pc_row = cursor.fetchone()
+        
+        c_name = 'PC'
+        raw_key = pc_row[0] if pc_row and pc_row[0] else (meta_row[1] if meta_row and meta_row[1] else pt_num)
+        c_key = _parse_int(raw_key) or _parse_int(pt_num) or 1
+        c_id = meta_row[2] if meta_row and meta_row[2] else str(uuid.uuid4()).upper()
+        pt_id = meta_row[3] if meta_row and meta_row[3] else str(uuid.uuid4()).upper()
+
+        if explicit_mrnum > 0:
+            target_mr = explicit_mrnum
+            cursor.execute("""
+                UPDATE MR_ERC_HOS
+                SET N_MEDICO = ?, DIAGNOSTICO = ?, EXPEDIENTE = ?,
+                    TA = ?, PULSO = ?, FR_RESPI = ?, TEMPERATURA = ?, SAT_OXI = ?, TA_DIS = ?,
+                    REINGRESO = ?, REEA = ?, MDEH = ?, PMQ = ?, ELG = ?, PMT = ?, COMPLICACIONES = ?, MEG = ?,
+                    DF = ?, PCPCPE = ?, AFR = ?, EDU_PACT = ?, C_MUERTE = ?, ENECROPSIA = ?, CMEP = ?, RVAIS = ?,
+                    ModifiedBy = ?, ModifiedOn = GETDATE()
+                WHERE PTNum = ? AND MRNum_ERC_HOS = ?
+            """, (
+                medico, diagnostico, expediente,
+                ta_sis, pulso, fr_respi, temperatura, sat_oxi, ta_dis,
+                reingreso, reea, mdeh, pmq, elg, pmt, complicaciones, meg,
+                df, pcpcpe, afr, edu_pact, c_muerte, enecropsia, cmep, rvais,
+                usuario_actual, pt_num, target_mr
+            ))
+
+            # No confirmar como exitoso un UPDATE que no encontró la fila
+            # exacta.  Antes se asignaba `target_mr` y se hacía COMMIT aun
+            # cuando el mrnum pertenecía a otra versión o ya no existía en
+            # Vertical; la bitácora mostraba "guardado" pero MR_ERC_HOS no
+            # cambiaba.  La lectura posterior también evita depender de
+            # `cursor.rowcount`, que puede ser -1 con algunos drivers ODBC.
+            cursor.execute(
+                "SELECT TOP 1 MRNum_ERC_HOS FROM MR_ERC_HOS "
+                "WHERE PTNum = ? AND MRNum_ERC_HOS = ?",
+                (pt_num, target_mr),
+            )
+            if not cursor.fetchone():
+                raise KHPermanentMutationError(
+                    f"No existe el registro MR_ERC_HOS para PTNum={pt_num} "
+                    f"y MRNum_ERC_HOS={target_mr}"
+                )
+        else:
+            guid_record = data.get("_operation_guid") or str(uuid.uuid4()).upper()
+
+            cursor.execute("""
+                INSERT INTO MR_ERC_HOS (
+                    PTNum, PTID,
+                    ControllerName, ControllerKey, ControllerID,
+                    MR_ST, MR_ERC_HOSID,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                ) VALUES (
+                    ?, ?,
+                    ?, ?, ?,
+                    'RG', ?,
+                    ?, GETDATE(), ?, GETDATE(),
+                    ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?
+                )
+            """, (
+                pt_num, pt_id,
+                c_name, c_key, c_id,
+                guid_record,
+                usuario_actual, usuario_actual,
+                medico, diagnostico, expediente,
+                ta_sis, pulso, fr_respi, temperatura, sat_oxi, ta_dis,
+                reingreso, reea, mdeh, pmq, elg, pmt, complicaciones, meg,
+                df, pcpcpe, afr, edu_pact, c_muerte, enecropsia, cmep, rvais
+            ))
+
+            cursor.execute("SELECT TOP 1 MRNum_ERC_HOS FROM MR_ERC_HOS WHERE MR_ERC_HOSID = ?", (guid_record,))
+            id_row = cursor.fetchone()
+            if id_row and id_row[0]:
+                target_mr = int(id_row[0])
+            else:
+                cursor.execute("SELECT @@IDENTITY")
+                id_row2 = cursor.fetchone()
+                target_mr = int(id_row2[0]) if id_row2 and id_row2[0] else 1
+
+        conn.commit()
+
+        # Respaldo en PostgreSQL (HistoricoNotaClinica)
+        try:
+            try:
+                from database import SessionLocal
+                import models
+            except (ImportError, ValueError):
+                from .database import SessionLocal
+                from . import models
+            db_pg = SessionLocal()
+            try:
+                soap_payload = {
+                    "mrnum": target_mr,
+                    "pt_num": str(pt_num),
+                    "expediente": expediente,
+                    "medico_tratante": medico,
+                    "n_medico": medico,
+                    "medico_elaboro": medico_elab,
+                    "cedula": data.get("cedula") or "",
+                    "cedula_elaboro": data.get("cedula_elaboro") or "",
+                    "diagnostico": diagnostico,
+                    "ta": ta_sis,
+                    "ta_sis": ta_sis,
+                    "ta_dis": ta_dis,
+                    "pulso": pulso,
+                    "fr_respi": fr_respi,
+                    "temperatura": temperatura,
+                    "sat_oxi": sat_oxi,
+                    "reingreso": reingreso,
+                    "reea": reea,
+                    "mdeh": mdeh,
+                    "pmq": pmq,
+                    "elg": elg,
+                    "pmt": pmt,
+                    "complicaciones": complicaciones,
+                    "meg": meg,
+                    "df": df,
+                    "pcpcpe": pcpcpe,
+                    "afr": afr,
+                    "edu_pact": edu_pact,
+                    "c_muerte": c_muerte,
+                    "enecropsia": enecropsia,
+                    "cmep": cmep,
+                    "rvais": rvais,
+                    "fecha_egreso": data.get("fecha_egreso") or datetime.datetime.now().strftime("%d/%m/%Y"),
+                    "hora_egreso": data.get("hora_egreso") or datetime.datetime.now().strftime("%H:%M")
+                }
+                hist_entry = models.HistoricoNotaClinica(
+                    codigo_formato="HE-DIRMED-SINPRO-PLT-16",
+                    tipo_documento="Egreso y Resumen Clínico",
+                    pt_num=str(pt_num),
+                    expediente=expediente,
+                    evolution_slot=target_mr,
+                    nombre_medico=medico,
+                    cedula_profesional=data.get("cedula") or "",
+                    contenido_soap_json=json.dumps(soap_payload, ensure_ascii=False),
+                    accion="EDICION" if explicit_mrnum else "CREACION",
+                    version=1
+                )
+                db_pg.add(hist_entry)
+                db_pg.commit()
+            finally:
+                db_pg.close()
+        except Exception as e_pg_save:
+            print(f"Nota: Error guardando HistoricoNotaClinica PG para 16: {e_pg_save}")
+
+        return {
+            "status": "success",
+            "message": "Formato 16 (Egreso y Resumen Clínico) guardado correctamente en SQL Server y Bitácora HES",
+            "mrnum": target_mr
+        }
+    except Exception as e:
+        print(f"Error en save_or_update_egreso_resumen_16: {e}")
+        if conn:
+            conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_egreso_resumen_16(pt_num: str, mrnum: Optional[int] = None) -> Optional[dict]:
+    """
+    Obtiene el registro del Formato 16 (MR_ERC_HOS) para un paciente y opcionalmente un mrnum específico.
+    """
+    conn = get_kh_connection()
+    if not conn:
+        raise_kh_unavailable()
+    try:
+        cursor = conn.cursor()
+        if mrnum:
+            cursor.execute("""
+                SELECT TOP 1
+                    MRNum_ERC_HOS, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, MR_ST,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                FROM MR_ERC_HOS
+                WHERE PTNum = ? AND MRNum_ERC_HOS = ?
+            """, (pt_num, mrnum))
+        else:
+            cursor.execute("""
+                SELECT TOP 1
+                    MRNum_ERC_HOS, N_MEDICO, DIAGNOSTICO, EXPEDIENTE,
+                    CreatedBy, CreatedOn, ModifiedBy, ModifiedOn,
+                    SignedBy, SignedOn, MR_ST,
+                    TA, PULSO, FR_RESPI, TEMPERATURA, SAT_OXI, TA_DIS,
+                    REINGRESO, REEA, MDEH, PMQ, ELG, PMT, COMPLICACIONES, MEG,
+                    DF, PCPCPE, AFR, EDU_PACT, C_MUERTE, ENECROPSIA, CMEP, RVAIS
+                FROM MR_ERC_HOS
+                WHERE PTNum = ?
+                ORDER BY MRNum_ERC_HOS DESC
+            """, (pt_num,))
+        
+        r = cursor.fetchone()
+        if not r:
+            return None
+        
+        cr_dt = r[5]
+        sg_dt = r[9]
+        return {
+            "mrnum": r[0],
+            "n_medico": str(r[1] or "").strip(),
+            "medico_tratante": str(r[1] or "").strip(),
+            "dr_tratante": str(r[1] or "").strip(),
+            "diagnostico": str(r[2] or "").strip(),
+            "diagnostico_ingreso": str(r[2] or "").strip(),
+            "expediente": str(r[3] or "").strip(),
+            "created_by": str(r[4] or "").strip(),
+            "created_on": cr_dt.strftime("%d/%m/%Y %H:%M") if cr_dt else "",
+            "modified_by": str(r[6] or "").strip(),
+            "modified_on": r[7].strftime("%d/%m/%Y %H:%M") if r[7] else "",
+            "signed_by": str(r[8] or "").strip(),
+            "signed_on": sg_dt.strftime("%d/%m/%Y %H:%M") if sg_dt else "",
+            "mr_st": r[10],
+            "firmado": bool(r[8] or sg_dt or r[10] == 'SG'),
+            "ta": str(r[11] or "").strip(),
+            "ta_sis": str(r[11] or "").strip(),
+            "pulso": str(r[12] or "").strip(),
+            "fr_respi": str(r[13] or "").strip(),
+            "temperatura": str(r[14] or "").strip(),
+            "sat_oxi": str(r[15] or "").strip(),
+            "ta_dis": str(r[16] or "").strip(),
+            "reingreso": str(r[17] or "NO").strip(),
+            "reea": str(r[18] or "").strip(),
+            "mdeh": str(r[19] or "").strip(),
+            "pmq": str(r[20] or "").strip(),
+            "elg": str(r[21] or "").strip(),
+            "pmt": str(r[22] or "").strip(),
+            "complicaciones": str(r[23] or "NINGUNA").strip(),
+            "meg": str(r[24] or "MEJORADO").strip(),
+            "df": str(r[25] or "").strip(),
+            "diagnostico_egreso": str(r[25] or "").strip(),
+            "pcpcpe": str(r[26] or "").strip(),
+            "afr": str(r[27] or "").strip(),
+            "edu_pact": str(r[28] or "CUIDADOS GENERALES DE LA SALUD, HIGIENE Y NUTRICIÓN").strip(),
+            "c_muerte": str(r[29] or "").strip(),
+            "enecropsia": str(r[30] or "NO").strip(),
+            "cmep": str(r[31] or "").strip(),
+            "rvais": str(r[32] or "SE DA DE ALTA CON CITA ABIERTA A URGENCIAS Y CONSULTA EXTERNA").strip(),
+        }
+    except Exception as e:
+        print(f"Error en fetch_egreso_resumen_16: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn:
+            conn.close()
 

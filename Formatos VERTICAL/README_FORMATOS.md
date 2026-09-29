@@ -280,6 +280,12 @@ Queda estrictamente establecido como **estándar corporativo obligatorio** para 
 | `HE-DIRMED-CONSUL-PLT-15` | Consentimiento Informado para Cesárea / Disentimiento | Ginecología y Obstetricia | `MR_CI_CES` | `MRNum_CI_CES` | `pdf_engine_15.py` |
 | `HE-DIRMED-CONSUL-PLT-08` | Consentimiento Tratamiento y Diagnóstico en Admisión Continua | Admisión Continua / Urgencias | `MR_08_CI_DIAGNOSTICO_ADMISION_CONTI` | `MRNum_08_CI_DIAGNOSTICO_ADMISION_CONTI` | `pdf_engine_08.py` |
 | `HE-DIRMED-CONSUL-PLT-02` | Consentimiento Informado Tratamiento Quirúrgico / Disentimiento | Cirugía y Quirófano | `MR_02_CI_TRATAMIENTO_QUIRURGICO` | `MRNum_02_CI_TRATAMIENTO_QUIRURGICO` | `pdf_engine_02.py` |
+| `HE-DIRMED-SINPRO-PLT-43` | Consentimiento Informado para Intubación Endotraqueal | Urgencias / Terapia Intensiva | `MR_ORD_INTUB_END` | `MRNum_ORD_INTUB_END` | `pdf_engine_43.py` |
+| `HE-DIRMED-CONSUL-PLT-06` | Consentimiento Informado para Procedimientos Anestésicos | Anestesiología / Quirófano | `MR_CI_PA` | `MRNum_CI_PA` | `pdf_engine_06.py` |
+| `HE-DIRMED-CONSUL-PLT-07` | Consentimiento Informado para Procedimientos Quirúrgicos | Cirugía y Quirófano | `MR_CI_PQ` | `MRNum_CI_PQ` | `pdf_engine_07.py` |
+| `HE-DIRMED-CONSUL-PLT-09` | Consentimiento Informado para Transfusión de Hemocomponentes | Medicina Transfusional / Hospital | `MR_CI_AUT_TRANS_HEMO` | `MRNum_CI_AUT_TRANS_HEMO` | `pdf_engine_09.py` |
+| `HE-DIRMED-CONSUL-PLT-11` | Consentimiento de No Reanimación Cardiopulmonar | Urgencias / Terapia / Bioética | `MR_CI_NRC` | `MRNum_CI_NRC` | `pdf_engine_11.py` |
+| `HE-DIRMED-CONSUL-PLT-19` | Consentimiento Informado para Histerectomía | Ginecología y Obstetricia | `MR_CI_HA` | `MRNum_CI_HA` | `pdf_engine_19.py` |
 
 ---
 
@@ -303,9 +309,11 @@ Para **todos los formatos y consentimientos informados habidos y por haber**:
 
 3. **Estructura de la URL de Cotejo**:
    ```text
-   https://sistemaspc.tail0c0f17.ts.net/verificar?doc={codigo_formato}&pt={pt_num}&folio={folio}
+   https://TU-DOMINIO-PUBLICO/verificar?id=v1_{identificador_opaco}
    ```
-   - La variable de entorno `VERIFICATION_BASE_URL` en `backend/.env` define el dominio o túnel seguro (Tailscale Funnel / Dominio institucional).
+   - `PUBLIC_VERIFICATION_BASE_URL` define el dominio HTTPS público (por ejemplo,
+     el Funnel institucional); `VERIFICATION_BASE_URL` se conserva como alias
+     histórico. El identificador no contiene paciente, formato ni folio.
 
 4. **Portal Institucional de Verificación (`/verificar`)**:
    - Al escanear el QR desde cualquier smartphone, el servidor responde con la pantalla institucional oficial:

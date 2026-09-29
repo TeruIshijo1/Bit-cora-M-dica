@@ -30,6 +30,10 @@ TSA_VERIFICADO = "TSA_VERIFICADO"
 TSA_FALLIDO = "TSA_FALLIDO"
 
 
+class TsaTrustConfigurationError(RuntimeError):
+    """A token may exist, but local trust is not configured to verify it yet."""
+
+
 def get_tsa_url() -> str:
     return os.getenv("TSA_URL", "https://freetsa.org/tsr")
 
@@ -37,7 +41,9 @@ def get_tsa_url() -> str:
 def _load_trust_roots(path: Optional[str] = None) -> list[asn1_x509.Certificate]:
     trust_path = path or os.getenv("TSA_TRUST_STORE")
     if not trust_path:
-        raise RuntimeError("TSA_TRUST_STORE no está configurado; no se puede afirmar confianza TSA")
+        raise TsaTrustConfigurationError(
+            "TSA_TRUST_STORE no está configurado; la verificación queda pendiente"
+        )
     pem_bytes = Path(trust_path).read_bytes()
     certs = crypto_x509.load_pem_x509_certificates(pem_bytes)
     if not certs:
@@ -153,6 +159,10 @@ def verify_timestamp(
                 "error": None,
             }
         )
+    except TsaTrustConfigurationError as exc:
+        logger.warning("Verificación TSA pendiente: %s", exc)
+        result["status"] = TSA_PENDIENTE
+        result["error"] = str(exc)
     except Exception as exc:
         logger.warning("Verificación TSA rechazada: %s", exc)
         result["error"] = str(exc)

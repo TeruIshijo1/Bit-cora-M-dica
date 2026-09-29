@@ -10,7 +10,7 @@ codigo_fuente:
   - backend/seed.py
   - scripts/backup_postgres.ps1
   - backend/scripts/backup_restore_drill.py
-actualizado: 2026-09-21
+actualizado: 2026-09-28
 relacionados:
   - "[[00_Inicio]]"
   - "[[Backend]]"
@@ -22,6 +22,13 @@ relacionados:
 # Database
 
 Este componente gestiona la persistencia de datos de toda la aplicación, estructurando la información clínica y garantizando el no repudio y la custodia legal.
+
+## Permisos por área y usuario
+
+Ver [[Permisos-Acceso]]: catálogo compartido, selección explícita por usuario,
+RH limitado a cinco áreas, formatos activos integrados al selector y validación
+en API/SPA. El mínimo de contraseña es 8 caracteres con mayúscula, minúscula,
+número y símbolo. Las cuentas existentes conservan sus datos.
 
 ## Tecnologías y Modelos Clave
 - **Motor Principal:** PostgreSQL (`hospital_escandon_db`).
@@ -60,6 +67,7 @@ Este componente gestiona la persistencia de datos de toda la aplicación, estruc
 - La revisión `c31f4a7d9e20` agrega `key_id`, snapshot/payload canónico, hashes de payload/PDF, versión de documento/esquema y estados TSA. También impone una sola llave FEA activa y protege el historial con trigger append-only.
 - `biometric_challenges` es el almacén multi-worker: guarda hash del nonce, acción, sesión, sujeto, identidad esperada, paciente/documento, expiración y consumo. El `UPDATE ... WHERE consumed_at IS NULL` hace atómico el uso único.
 - Valores biométricos históricos no vacíos quedan marcados `LEGACY_RAW` y `requiere_reenrolamiento=true`; la migración no toca el contenido de `fmd_template`.
+- `a8c1d3e5f709` agrega plantilla FMD/estado y datos de enrolamiento a cuentas `usuarios`, además de `firmas_documentos_clinicos.usuario_firmante_id`. `b9d2e4f6a801` agrega `usuarios.formatos_firma_permitidos`, independiente de los formatos que puede consultar. Cualquier rol institucional puede tener huella; el catálogo del formato limita qué rol puede firmarlo. El trigger de inmutabilidad protege el vínculo de usuario de la evidencia ya completada.
 - Cada prueba se aísla con truncado controlado; cada sesión resetea el esquema
   antes y después.
 - La revisión `8f3c2d1a7b90` agrega `clinical_sync_operations` y
@@ -76,6 +84,13 @@ Este componente gestiona la persistencia de datos de toda la aplicación, estruc
   en reintentos desatendidos; sólo puede revisarse de forma controlada.
 - SQL Server productivo `KH_HE` se rechaza en modo test. La futura integración
   STAGING/TEST vive separada en `backend/tests/sqlserver_staging/`.
+- `KH_HE.dbo.PR` sigue siendo la fuente autoritativa de médicos ya dados de alta;
+  `V_MRPR` es una vista de ese catálogo para el expediente médico. El enrolamiento
+  biométrico inicial nunca inserta ni elimina profesionales: exige una coincidencia
+  única por cédula o nombre exacto y únicamente establece, si está vacío, el
+  `MedicalRecordAuthorizationCode` aleatorio de seis dígitos. Cada médico recibe
+  uno distinto; si ya existe se conserva y nunca se sobrescribe. El secreto no se
+  persiste en PostgreSQL ni en auditoría.
 - La revisión `d4f5a6b7c8d9` agrega revocación JWT, cambio obligatorio de
   contraseña inicial y evidencia completa de auditoría. PostgreSQL bloquea
   `UPDATE` y `DELETE` de `auditoria_logs`; los eventos son append-only.

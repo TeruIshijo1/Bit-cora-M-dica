@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { usePublicDocumentVerificationQuery } from '../hooks/useQueries';
 import { 
   FiShield, FiFileText, FiUser, FiCheckCircle, FiExternalLink, 
   FiAlertTriangle, FiXCircle, FiClock, FiUsers, FiGlobe 
@@ -9,56 +10,20 @@ import { FaXTwitter } from 'react-icons/fa6';
 
 export default function VerificarDocumento() {
   const [searchParams] = useSearchParams();
-  const ptNum = searchParams.get('pt') || searchParams.get('folio') || '';
-  const cleanPt = ptNum.replace(/\D/g, '') || ptNum;
-  const folioParam = searchParams.get('folio') || (cleanPt ? `PT-${cleanPt}` : '');
-  const docCode = searchParams.get('doc') || searchParams.get('codigo') || '';
   const docId = searchParams.get('id') || searchParams.get('doc_uuid') || '';
-  const slotParam = searchParams.get('slot') || searchParams.get('mrnum') || searchParams.get('evolucion') || '1';
-
-  const [loading, setLoading] = useState(true);
-  const [verifData, setVerifData] = useState(null);
-
-  useEffect(() => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      doc: docCode,
-      pt: cleanPt,
-      folio: folioParam,
-      slot: slotParam
-    });
-    if (docId) params.append('id', docId);
-
-    fetch(`/api/verificar/documento-estado?${params.toString()}`)
-      .then(res => res.json())
-      .then(data => {
-        setVerifData(data);
-      })
-      .catch(err => {
-        console.error('Error fetching verification status:', err);
-        setVerifData({
-          valido: false,
-          estado: 'ERROR_CONEXION',
-          mensaje: 'Error de comunicación con el servidor de verificación.',
-          color: 'rose',
-          paciente: 'Consultar en ECE',
-          folio: folioParam,
-          codigo: docCode
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [cleanPt, docCode, slotParam, docId, folioParam]);
+  const verification = usePublicDocumentVerificationQuery(docId);
+  const verifData = verification.data;
+  const loading = Boolean(docId && verification.isPending);
+  const isError = !docId || verification.isError;
 
   const effectiveDocId = verifData?.doc_uuid || verifData?.id || docId;
-  const effectiveSlot = verifData?.slot || slotParam;
-  const effectiveCode = verifData?.codigo || docCode;
-
-  const pdfUrl = effectiveDocId 
-    ? `/api/verificar/pdf/documento?id=${encodeURIComponent(effectiveDocId)}&doc=${encodeURIComponent(effectiveCode)}&pt=${cleanPt}&slot=${effectiveSlot}&t=${Date.now()}`
-    : `/api/verificar/pdf/documento?doc=${encodeURIComponent(effectiveCode)}&pt=${cleanPt}&slot=${effectiveSlot}&t=${Date.now()}`;
+  const pdfUrl = effectiveDocId
+    ? `/api/verificar/pdf/documento?id=${encodeURIComponent(effectiveDocId)}`
+    : null;
 
   const estado = verifData?.estado || 'SIN_FIRMA';
-  const isValido = verifData?.valido === true && estado === 'ACTIVA';
+  const isValido = verifData?.valido === true;
+  const isVerifiedCopy = estado === 'COPIA_INTEGRA_VERIFICADA';
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-6">
@@ -86,16 +51,22 @@ export default function VerificarDocumento() {
           <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 text-center animate-pulse">
             <div className="text-sm font-bold text-slate-400">Verificando firma criptográfica en ECE...</div>
           </div>
+        ) : isError ? (
+          <div className="bg-rose-950/60 border-2 border-rose-500/70 rounded-2xl p-5 text-center">
+            <FiAlertTriangle className="w-8 h-8 text-rose-400 mx-auto mb-2" />
+            <h2 className="font-bold text-rose-300">QR no disponible</h2>
+            <p className="text-xs text-rose-200/90 mt-1">No se encontró un documento verificable para este código.</p>
+          </div>
         ) : isValido ? (
           <div className="bg-emerald-950/50 border-2 border-emerald-500/50 rounded-2xl p-5 text-center shadow-lg shadow-emerald-950/30 animate-fadeIn">
             <div className="inline-flex items-center justify-center w-12 h-12 bg-emerald-500 text-slate-950 rounded-full mb-3 shadow-md">
               <FiCheckCircle className="w-7 h-7 stroke-[2.5]" />
             </div>
             <h2 className="text-base font-extrabold text-emerald-400 uppercase tracking-wide">
-              Expediente Electrónico Válido e Íntegro
+              {isVerifiedCopy ? 'Copia del expediente íntegra' : 'Documento firmado y verificado'}
             </h2>
             <p className="text-xs text-emerald-200/90 mt-1.5 leading-relaxed">
-              La firma digital y los datos del documento coinciden fehacientemente con el registro original resguardado en el Expediente Clínico Electrónico (ECE).
+              {verifData?.mensaje}
             </p>
           </div>
         ) : estado === 'REVOCADA' ? (
@@ -119,8 +90,14 @@ export default function VerificarDocumento() {
               ¡Alerta de Seguridad! Integridad Comprometida
             </h2>
             <p className="text-xs text-rose-200 mt-1.5 leading-relaxed">
-              El contenido actual o la firma digital no coinciden con el registro criptográfico sellado. Posible alteración no autorizada detectada.
+              {verifData?.mensaje || 'El contenido no coincide con el registro resguardado.'}
             </p>
+          </div>
+        ) : estado === 'RECURSO_NO_DISPONIBLE' ? (
+          <div className="bg-slate-800/80 border-2 border-slate-600 rounded-2xl p-5 text-center shadow-lg">
+            <FiAlertTriangle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+            <h2 className="font-bold text-slate-200">Copia no disponible</h2>
+            <p className="text-xs text-slate-400 mt-1">{verifData?.mensaje}</p>
           </div>
         ) : (
           <div className="bg-slate-800/80 border-2 border-slate-600 rounded-2xl p-5 text-center shadow-lg animate-fadeIn">
@@ -136,6 +113,7 @@ export default function VerificarDocumento() {
           </div>
         )}
 
+        {verifData && <>
         {/* 1. Datos del Paciente */}
         <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-wider pb-2 border-b border-slate-700/50">
@@ -143,12 +121,12 @@ export default function VerificarDocumento() {
           </div>
           <div>
             <div className="text-[11px] font-semibold text-slate-400 uppercase">Nombre Completo</div>
-            <div className="text-sm font-bold text-white mt-0.5">{verifData?.paciente || 'PACIENTE REGISTRADO EN ECE'}</div>
+            <div className="text-sm font-bold text-white mt-0.5">{verifData?.paciente || 'Nombre no disponible'}</div>
           </div>
           <div className="grid grid-cols-2 gap-3 pt-1">
             <div>
               <div className="text-[11px] font-semibold text-slate-400 uppercase">Expediente / Folio</div>
-              <div className="text-sm font-bold text-blue-400 mt-0.5">{verifData?.folio || folioParam}</div>
+              <div className="text-sm font-bold text-blue-400 mt-0.5">{verifData?.folio || 'No disponible'}</div>
             </div>
             <div>
               <div className="text-[11px] font-semibold text-slate-400 uppercase">Edad Registrada</div>
@@ -170,7 +148,7 @@ export default function VerificarDocumento() {
             <div>
               <div className="text-[11px] font-semibold text-slate-400 uppercase">Código Normado</div>
               <div className="inline-block text-xs font-mono font-bold bg-blue-950/80 text-blue-300 border border-blue-800/50 px-2 py-0.5 rounded mt-0.5">
-                {verifData?.codigo || docCode}
+                {verifData?.codigo || '—'}
               </div>
             </div>
             <div>
@@ -180,16 +158,37 @@ export default function VerificarDocumento() {
                 estado === 'REVOCADA' ? 'text-amber-400' :
                 estado === 'INTEGRIDAD_COMPROMETIDA' ? 'text-rose-400' : 'text-slate-400'
               }`}>
-                {isValido ? '✓ AUTORIZADO Y FIRMADO' :
+                {isVerifiedCopy ? '✓ COPIA ÍNTEGRA VERIFICADA' :
+                 isValido ? '✓ AUTORIZADO Y FIRMADO' :
                  estado === 'REVOCADA' ? '⚠ FIRMA REVOCADA' :
-                 estado === 'INTEGRIDAD_COMPROMETIDA' ? '✕ ALTERACIÓN DETECTADA' : 'PENDIENTE DE FIRMA'}
+                 estado === 'INTEGRIDAD_COMPROMETIDA' ? '✕ ALTERACIÓN DETECTADA' :
+                 estado === 'RECURSO_NO_DISPONIBLE' ? 'COPIA NO DISPONIBLE' : 'PENDIENTE DE FIRMA'}
               </div>
             </div>
           </div>
         </div>
 
-        {/* 3. Firma Médica FEA */}
-        {verifData?.medico?.nombre && (
+        {verifData?.codigo === 'HE-DIRMED-EXPEDIENTE-COMPLETO' && (
+          <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-wider pb-2 border-b border-slate-700/50">
+              <FiFileText className="w-4 h-4" /> Integridad de la copia institucional
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-slate-400 uppercase">Fecha de generación</div>
+              <div className="text-sm font-bold text-white mt-0.5">{verifData.fecha_generacion || '—'}</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-slate-400 uppercase">Huella SHA-256 del PDF resguardado</div>
+              <div className="font-mono text-[10px] text-cyan-300 bg-slate-950 p-2 rounded-lg border border-slate-800 break-all mt-1">
+                {verifData.hash_sha256 || '—'}
+              </div>
+            </div>
+            <p className="text-xs text-slate-300">Este cotejo no constituye una firma FEA del expediente compilado. Las firmas de cada formato se conservan en el PDF.</p>
+          </div>
+        )}
+
+        {/* 3. Firma Médica FEA de un formato individual */}
+        {isValido && !isVerifiedCopy && verifData?.medico?.nombre && (
           <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-wider pb-2 border-b border-slate-700/50">
               <FiShield className="w-4 h-4" /> Atribución Criptográfica y Firma Médica FEA
@@ -295,14 +294,15 @@ export default function VerificarDocumento() {
         )}
 
         {/* Botón Ver PDF */}
-        <a
+        {pdfUrl && estado !== 'RECURSO_NO_DISPONIBLE' && estado !== 'INTEGRIDAD_COMPROMETIDA' && <a
           href={pdfUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-blue-600/20 transition-all text-sm"
         >
           <FiFileText className="w-4 h-4" /> Abrir Documento PDF Oficial <FiExternalLink className="w-4 h-4" />
-        </a>
+        </a>}
+        </>}
 
         {/* Redes Sociales y Canales Oficiales */}
         <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 text-center shadow-sm">

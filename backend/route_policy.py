@@ -33,28 +33,38 @@ PUBLIC_ROUTE_TEMPLATES = frozenset({
     ("GET", "/api/verificar/pdf/{pt_num}"),
     ("GET", "/verificar/pdf/{pt_num}"),
     ("GET", "/static/logo.png"),
+    ("GET", "/static/hospital-logo.png"),
     ("GET", "/assets"),
 })
 
 PUBLIC_SPA_PATHS = frozenset({
     "/",
     "/login",
+    "/sin-acceso",
     "/admin",
     "/rh",
     "/camas",
     "/captura",
     "/firma-express",
+    "/firmas-area",
     "/ehr",
     "/agenda",
     "/logo.png",
     "/websdk.client.min.js",
 })
 
+# Rutas de React Router que necesitan entregar index.html en producción. La
+# pantalla es pública; la consulta clínica que hace React sigue protegida por
+# JWT en /api/ehr/paciente/{pt_num}.
+PUBLIC_SPA_DYNAMIC_PREFIXES = frozenset({"/ehr/"})
+
 ADMIN_SYSTEMS = frozenset({"admin", "sistemas"})
 ADMIN_RH_SYSTEMS = frozenset({"admin", "rh", "sistemas"})
 ADMIN_RH = frozenset({"admin", "rh"})
 PATIENT_OPERATIONS = frozenset({"admin", "sistemas", "enfermeria"})
 CLINICAL_STAFF = frozenset({"admin", "sistemas", "medico", "ayudante", "enfermeria"})
+from access_control import LOCAL_ROLES
+SPECIAL_SIGNATURE_STAFF = CLINICAL_STAFF | LOCAL_ROLES  # Endpoint checks exact area/format/self identity.
 MEDICAL_STAFF = frozenset({"admin", "medico", "ayudante"})
 CLINICAL_READ_STAFF = frozenset({"medico", "ayudante", "enfermeria"})
 
@@ -98,6 +108,10 @@ CLINICAL_PDF_ROUTE_TEMPLATES = frozenset({
     "/ehr/paciente/{pt_num}/pdf-egreso-voluntario-15",
     "/api/ehr/paciente/{pt_num}/pdf-consentimiento-06",
     "/ehr/paciente/{pt_num}/pdf-consentimiento-06",
+    "/api/ehr/paciente/{pt_num}/pdf-consentimiento-09",
+    "/ehr/paciente/{pt_num}/pdf-consentimiento-09",
+    "/api/ehr/paciente/{pt_num}/pdf-egreso-resumen-16",
+    "/ehr/paciente/{pt_num}/pdf-egreso-resumen-16",
 })
 
 CLINICAL_READ_ROUTE_TEMPLATES = CLINICAL_PDF_ROUTE_TEMPLATES | frozenset({
@@ -129,6 +143,8 @@ CLINICAL_READ_ROUTE_TEMPLATES = CLINICAL_PDF_ROUTE_TEMPLATES | frozenset({
     "/api/pacientes/{pt_num}/firmas",
     "/api/ehr/paciente/{pt_num}/firmas-documento",
     "/ehr/paciente/{pt_num}/firmas-documento",
+    "/api/ehr/banco-sangre/firmantes",
+    "/api/ehr/firmantes-especiales",
     "/api/ehr/paciente/{pt_num}/historial-auditoria",
     "/api/ehr/paciente/{pt_num}/verificar-documento-estado",
     "/api/ehr/paciente/{pt_num}/consentimiento-25",
@@ -152,6 +168,10 @@ CLINICAL_READ_ROUTE_TEMPLATES = CLINICAL_PDF_ROUTE_TEMPLATES | frozenset({
     "/ehr/paciente/{pt_num}/consentimiento-15-ev",
     "/api/ehr/paciente/{pt_num}/consentimiento-06",
     "/ehr/paciente/{pt_num}/consentimiento-06",
+    "/api/ehr/paciente/{pt_num}/consentimiento-09",
+    "/ehr/paciente/{pt_num}/consentimiento-09",
+    "/api/ehr/paciente/{pt_num}/egreso-resumen-16",
+    "/ehr/paciente/{pt_num}/egreso-resumen-16",
     "/api/ehr/paciente/{pt_num}/formato-historial",
 })
 
@@ -170,6 +190,8 @@ WRITE_ROLE_POLICIES = {
     ("PUT", "/api/usuarios/{usuario_id}"): ADMIN_SYSTEMS,
     ("PUT", "/api/usuarios/{usuario_id}/password"): ADMIN_SYSTEMS,
     ("DELETE", "/api/usuarios/{usuario_id}"): frozenset({"sistemas"}),
+    ("POST", "/api/usuarios/{usuario_id}/biometria/enrolar"): ADMIN_SYSTEMS,
+    ("POST", "/api/usuarios/{usuario_id}/biometria/reenrolar"): ADMIN_SYSTEMS,
     ("PUT", "/api/medicos/{medico_id}"): ADMIN_RH_SYSTEMS,
     ("PUT", "/api/medicos/{medico_id}/permisos"): ADMIN_SYSTEMS,
     ("PUT", "/api/medicos/{medico_id}/datos"): ADMIN_RH_SYSTEMS,
@@ -232,6 +254,8 @@ WRITE_ROLE_POLICIES = {
     ("POST", "/api/ehr/paciente/{pt_num}/alergias/actualizar-texto"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/firmar-biometrico"): MEDICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/firmar-biometrico-firmante"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/firmar-biometrico-banco-sangre"): SPECIAL_SIGNATURE_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/firmar-biometrico-especial"): SPECIAL_SIGNATURE_STAFF,
     ("POST", "/ehr/paciente/{pt_num}/firmar-biometrico-firmante"): CLINICAL_STAFF,
     ("POST", "/api/pacientes/{pt_num}/firmar-biometrico-firmante"): CLINICAL_STAFF,
     ("POST", "/pacientes/{pt_num}/firmar-biometrico-firmante"): CLINICAL_STAFF,
@@ -244,6 +268,7 @@ WRITE_ROLE_POLICIES = {
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-04"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-15"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-02"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/pdf-preparar"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-07"): CLINICAL_STAFF,
     ("POST", "/ehr/paciente/{pt_num}/consentimiento-07"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-08"): CLINICAL_STAFF,
@@ -258,6 +283,14 @@ WRITE_ROLE_POLICIES = {
     ("POST", "/ehr/paciente/{pt_num}/consentimiento-15-ev"): CLINICAL_STAFF,
     ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-06"): CLINICAL_STAFF,
     ("POST", "/ehr/paciente/{pt_num}/consentimiento-06"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/consentimiento-09"): CLINICAL_STAFF,
+    ("POST", "/ehr/paciente/{pt_num}/consentimiento-09"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/egreso-resumen-16"): CLINICAL_STAFF,
+    ("POST", "/ehr/paciente/{pt_num}/egreso-resumen-16"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/formato-crear-registro"): CLINICAL_STAFF,
+    ("POST", "/ehr/paciente/{pt_num}/formato-crear-registro"): CLINICAL_STAFF,
+    ("POST", "/api/ehr/paciente/{pt_num}/formato-guardar-registro"): CLINICAL_STAFF,
+    ("POST", "/ehr/paciente/{pt_num}/formato-guardar-registro"): CLINICAL_STAFF,
 }
 
 
@@ -265,7 +298,4 @@ WRITE_ROLE_POLICIES = {
 # present in WRITE_ROLE_POLICIES, so the middleware rejects them for every role.
 REQUIRES_FUNCTIONAL_DECISION = frozenset({
     ("PUT", "/api/atenciones/{folio}"),
-    ("POST", "/api/ehr/paciente/{pt_num}/formato-crear-registro"),
-    ("POST", "/api/ehr/paciente/{pt_num}/formato-guardar-registro"),
-    ("POST", "/ehr/paciente/{pt_num}/formato-guardar-registro"),
 })

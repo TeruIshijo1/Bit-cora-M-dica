@@ -1,10 +1,11 @@
 ﻿import os
 import datetime
+import time
 import uuid
 from typing import Optional, List
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ SETTINGS = load_settings()
 SECRET_KEY = SETTINGS.secret_key
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = SETTINGS.access_token_minutes
+SESSION_IDLE_TIMEOUT_MINUTES = 20
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login/admin")
@@ -75,6 +77,13 @@ def authenticate_token(token: str, db: Session):
             },
         }
         payload = jwt.decode(token, SECRET_KEY, **decode_kwargs)
+        last_activity = payload.get("last_activity", payload.get("iat", int(time.time())))
+        try:
+            last_activity = int(last_activity)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="Sesión expirada por inactividad")
+        if time.time() - last_activity >= SESSION_IDLE_TIMEOUT_MINUTES * 60:
+            raise HTTPException(status_code=401, detail="Sesión expirada por inactividad")
         username: str = payload.get("sub")
         token_role = normalize_role(payload.get("rol"))
         if not username or not token_role:
@@ -113,7 +122,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def require_role(allowed_roles: List[str]):
     normalized_allowed = frozenset(normalize_role(role) for role in allowed_roles if normalize_role(role))
 
-    def role_checker(current_user = Depends(get_current_user)):
+    def role_checker(current_user = Depends(get_current_user), request: Request = None):
+        if request is not None and getattr(request.state, "permission_authorized", False):
+            return current_user
         rol = normalize_role(getattr(current_user, "rol", None))
         if not normalized_allowed or (rol != "admin" and rol not in normalized_allowed):
             raise HTTPException(status_code=403, detail="No tienes permisos para esta acción")

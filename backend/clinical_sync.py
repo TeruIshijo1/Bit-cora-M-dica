@@ -315,6 +315,7 @@ def classify_external_error(error: BaseException | str) -> type[ClinicalSyncErro
         "network",
         "temporar",
         "unavailable",
+        "no disponible",
         "08s01",
         "40001",
         "1205",
@@ -354,6 +355,7 @@ def mark_failed(
     if getattr(error, "requires_reconciliation", False):
         operation.state = REQUIRES_RECONCILIATION
         operation.next_attempt_at = None
+        operation.last_error = sanitize_error(error)
         operation.updated_at = utcnow()
         _append_attempt(
             db,

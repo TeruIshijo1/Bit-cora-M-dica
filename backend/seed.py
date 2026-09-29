@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from password_policy import valid_password
+
 import argparse
 import os
 
@@ -26,8 +28,8 @@ def seed_development_catalogs(*, create_admin: bool = False) -> None:
         if create_admin:
             username = os.getenv("DEV_SEED_USERNAME", "").strip()
             password = os.getenv("DEV_SEED_PASSWORD", "")
-            if not username or len(password) < 14:
-                raise RuntimeError("DEV_SEED_USERNAME y DEV_SEED_PASSWORD (mínimo 14 caracteres) son obligatorios.")
+            if not username or not valid_password(password):
+                raise RuntimeError("DEV_SEED_USERNAME y DEV_SEED_PASSWORD (mínimo 8 caracteres, mayúscula, minúscula, número y símbolo) son obligatorios.")
             if not db.query(models.Usuario).filter(models.Usuario.username == username).first():
                 db.add(models.Usuario(
                     username=username,

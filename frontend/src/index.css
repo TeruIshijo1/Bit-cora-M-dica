@@ -52,6 +52,67 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     outline-offset: 2px;
 }
 
+.hes-notification-stack {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 100;
+    display: flex;
+    width: min(430px, calc(100vw - 2rem));
+    flex-direction: column;
+    gap: .75rem;
+    pointer-events: none;
+}
+
+.hes-notification {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    border: 1px solid;
+    border-left-width: 4px;
+    border-radius: 1rem;
+    padding: .9rem 1rem;
+    background: rgba(255, 255, 255, .98);
+    box-shadow: 0 18px 42px -20px rgba(15, 42, 78, .55), 0 4px 12px rgba(15, 23, 42, .12);
+    animation: hes-notification-in .22s ease-out both;
+}
+
+.hes-notification-success { border-color: #a7f3d0; border-left-color: #059669; }
+.hes-notification-error { border-color: #fecaca; border-left-color: #dc2626; }
+.hes-notification-warning { border-color: #fde68a; border-left-color: #d97706; }
+.hes-notification-info { border-color: #bfdbfe; border-left-color: #2563eb; }
+
+.hes-notification-icon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: .75rem;
+    font-size: 1.2rem;
+}
+.hes-notification-success .hes-notification-icon { color: #047857; background: #ecfdf5; }
+.hes-notification-error .hes-notification-icon { color: #b91c1c; background: #fef2f2; }
+.hes-notification-warning .hes-notification-icon { color: #b45309; background: #fffbeb; }
+.hes-notification-info .hes-notification-icon { color: #1d4ed8; background: #eff6ff; }
+
+.hes-notification-content { min-width: 0; flex: 1; }
+.hes-notification-title { margin: 0; color: #0f2a4e; font-size: .86rem; font-weight: 800; line-height: 1.25; }
+.hes-notification-message { margin: .25rem 0 0; color: #475569; font-size: .82rem; line-height: 1.45; }
+.hes-notification-close { flex: 0 0 auto; margin: -.25rem -.35rem 0 0; padding: .3rem; color: #94a3b8; border-radius: .5rem; }
+.hes-notification-close:hover { color: #334155; background: #f1f5f9; }
+
+@keyframes hes-notification-in {
+    from { opacity: 0; transform: translate3d(1rem, -.35rem, 0) scale(.98); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@media (max-width: 640px) {
+    .hes-notification-stack { top: .75rem; right: .75rem; left: .75rem; width: auto; }
+}
+
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         scroll-behavior: auto !important;

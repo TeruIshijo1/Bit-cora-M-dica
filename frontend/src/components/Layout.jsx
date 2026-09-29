@@ -3,30 +3,30 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { FiLogOut, FiUsers, FiClipboard, FiActivity, FiSettings, FiUser, FiEdit3, FiMenu, FiX, FiFileText, FiCalendar, FiSearch } from 'react-icons/fi';
 import { MdLocalHospital } from 'react-icons/md';
 import PatientSearchModal from './PatientSearchModal';
-import { purgeBiometrics } from '../hooks/useDigitalPersona';
-import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../context/AuthContext';
+import { canAccessPath, modules } from '../utils/permissions';
 
-const serverIP = window.location.hostname;
 
 export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
-  const rol = localStorage.getItem('rol');
+  const { user, hasModule, logout } = useAuth();
+  const rol = user?.rol;
+  const canSearch = hasModule('ehr');
   
   // Atajo global Ctrl+K o Cmd+K para abrir buscador
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if (canSearch && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSearchOpen(prev => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [canSearch]);
   
   let medico = null;
   if (rol === 'medico') {
@@ -35,59 +35,15 @@ export default function Layout() {
     } catch(e){}
   }
 
-  const handleLogout = () => {
-    // 1. Purga total e inmediata de la memoria y hardware biométrico
-    purgeBiometrics();
+  const handleLogout = async () => { await logout(); navigate('/login'); };
 
-    // 2. Limpieza exhaustiva de claves de sesión de usuario
-    localStorage.removeItem('token');
-    localStorage.removeItem('rol');
-    localStorage.removeItem('medico');
-    localStorage.removeItem('usuario');
-    localStorage.removeItem('medico_id');
-    localStorage.removeItem('nombre_completo');
-    localStorage.removeItem('permisos_modulos');
-    localStorage.removeItem('formatos_permitidos');
-    sessionStorage.clear();
-
-    // 3. Purga de datos en memoria caché de React Query
-    try {
-      queryClient.clear();
-    } catch (_) {}
-
-    // 4. Redirigir a login
-    navigate('/login');
-  };
-
+  const navIcons = { agenda: <FiCalendar />, camas: <MdLocalHospital />, ehr: <FiFileText />, captura_enfermeria: <FiClipboard />, captura_medica: <FiEdit3 /> };
+  const navLabels = { agenda: 'Agenda', camas: 'Camas y pacientes', ehr: 'Expedientes', captura_enfermeria: 'Registro de enfermería', captura_medica: 'Firmas pendientes' };
   const menuItems = [
-    { path: '/admin', label: 'Inicio', icon: <FiActivity />, roles: ['admin', 'sistemas'] },
-    { path: '/rh', label: 'Personal', icon: <FiUsers />, roles: ['admin', 'rh', 'sistemas'] },
-    { path: '/agenda', label: 'Agenda', icon: <FiCalendar />, roles: ['admin', 'medico', 'enfermeria', 'sistemas', 'rh'] },
-    { path: '/camas', label: 'Camas y pacientes', icon: <MdLocalHospital />, roles: ['admin', 'sistemas', 'enfermeria', 'medico', 'rh'] },
-    { path: '/ehr', label: 'Expedientes', icon: <FiFileText />, roles: ['admin', 'medico', 'enfermeria', 'sistemas'] },
-    { path: '/captura', label: 'Registro de enfermería', icon: <FiClipboard />, roles: ['admin', 'enfermeria', 'sistemas'] },
-    { path: '/firma-express', label: 'Firmas pendientes', icon: <FiEdit3 />, roles: ['admin', 'medico', 'ayudante'] }
+    { path: rol === 'rh' ? '/rh' : '/admin', label: rol === 'rh' ? 'Personal' : 'Inicio', icon: <FiActivity /> },
+    ...modules.filter(item => !item.tab).map(item => ({ path: item.path, label: navLabels[item.id] || item.label, icon: navIcons[item.id] || <FiFileText /> }))
   ];
-
-  let permisosModulos = {};
-  try {
-    const permsStr = localStorage.getItem('permisos_modulos');
-    if (permsStr) permisosModulos = JSON.parse(permsStr);
-  } catch (e) {}
-
-  const visibleItems = menuItems.filter(item => {
-    // If the user has specific module permissions defined, override role default
-    if (item.path === '/admin' && typeof permisosModulos.admin !== 'undefined') return permisosModulos.admin;
-    if (item.path === '/rh' && typeof permisosModulos.rh !== 'undefined') return permisosModulos.rh;
-    if (item.path === '/camas' && typeof permisosModulos.camas !== 'undefined') return permisosModulos.camas;
-    if (item.path === '/agenda' && typeof permisosModulos.agenda !== 'undefined') return permisosModulos.agenda;
-    if (item.path === '/ehr' && typeof permisosModulos.ehr !== 'undefined') return permisosModulos.ehr;
-    if (item.path === '/captura' && typeof permisosModulos.captura_enfermeria !== 'undefined') return permisosModulos.captura_enfermeria;
-    if (item.path === '/firma-express' && typeof permisosModulos.captura_medica !== 'undefined') return permisosModulos.captura_medica;
-    
-    // Otherwise fallback to role based logic
-    return item.roles.includes(rol);
-  });
+  const visibleItems = menuItems.filter(item => canAccessPath(user, item.path));
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
@@ -133,7 +89,7 @@ export default function Layout() {
           
           <div className="flex items-center gap-3">
             {/* Botón Buscador Universal de Pacientes */}
-            <button
+            {canSearch && <button
               type="button"
               onClick={() => setSearchOpen(true)}
               className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10 transition-all group"
@@ -144,7 +100,7 @@ export default function Layout() {
               <kbd className="hidden md:inline-flex items-center justify-center bg-white/10 text-[10px] text-slate-300 px-1.5 rounded h-4 font-mono ml-1">
                 Ctrl K
               </kbd>
-            </button>
+            </button>}
 
             <div className="h-5 w-px bg-white/20 hidden md:block mx-1"></div>
 
@@ -211,15 +167,24 @@ export default function Layout() {
       </header>
 
       {/* Modal de Búsqueda Global de Pacientes */}
-      <PatientSearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+      {canSearch && <PatientSearchModal key={searchOpen ? 'open' : 'closed'} isOpen={searchOpen} onClose={() => setSearchOpen(false)} />}
 
       {/* Main Content Area */}
       <main className="page-content-scroll flex-1 flex flex-col justify-between">
         <div className="flex-1">
           <Outlet />
         </div>
-        <footer className="py-4 px-6 text-right bg-transparent text-[11px] text-slate-400 font-mono select-none">
-          Uso interno · Hospital Escandón
+        <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-4 px-6 bg-transparent text-[11px] text-slate-400 font-mono select-none">
+          <a
+            href="https://github.com/TeruIshijo1"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Autor: Ing. Alberto García Mendoza. Abrir GitHub en una pestaña nueva"
+            className="text-left transition-colors hover:text-hes-blue-main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hes-blue-main/40 focus-visible:ring-offset-2 rounded"
+          >
+            Autor: Ing. Alberto García Mendoza
+          </a>
+          <span className="ml-auto text-right">Uso interno · Hospital Escandón</span>
         </footer>
       </main>
     </div>

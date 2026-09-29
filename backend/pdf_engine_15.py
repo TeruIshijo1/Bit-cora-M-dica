@@ -18,12 +18,14 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 try:
     from .pdf_engine_v2 import (
         CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H,
-        TEXT_MUTED, TEXT_DARK, PRIMARY_BLUE, RED_ALERT
+        TEXT_MUTED, TEXT_DARK, PRIMARY_BLUE, RED_ALERT,
+        letterhead_content_width
     )
 except ImportError:
     from pdf_engine_v2 import (
         CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H,
-        TEXT_MUTED, TEXT_DARK, PRIMARY_BLUE, RED_ALERT
+        TEXT_MUTED, TEXT_DARK, PRIMARY_BLUE, RED_ALERT,
+        letterhead_content_width
     )
 
 def generate_consentimiento_15(pt_data: dict, output_path: str, firma_data: dict = None) -> str:
@@ -36,7 +38,7 @@ def generate_consentimiento_15(pt_data: dict, output_path: str, firma_data: dict
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0  # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0

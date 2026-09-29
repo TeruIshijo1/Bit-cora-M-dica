@@ -27,6 +27,15 @@ export function shouldReloadForDynamicImportFailure(error, storage) {
   const failureId = dynamicImportFailureId(error);
   if (!failureId) return false;
 
+  return shouldReloadOnce(failureId, storage);
+}
+
+export function shouldReloadForMissingAsset(assetUrl, storage) {
+  if (!assetUrl) return false;
+  return shouldReloadOnce(String(assetUrl), storage);
+}
+
+function shouldReloadOnce(failureId, storage) {
   try {
     if (storage?.getItem(RECOVERY_STORAGE_KEY) === failureId) return false;
     storage?.setItem(RECOVERY_STORAGE_KEY, failureId);
@@ -36,4 +45,3 @@ export function shouldReloadForDynamicImportFailure(error, storage) {
 
   return true;
 }
-

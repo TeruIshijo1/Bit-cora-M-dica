@@ -7,6 +7,7 @@ import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import Button from '../components/ui/Button';
 import PasswordChangeForm from '../components/PasswordChangeForm';
 import { useAuth } from '../context/AuthContext';
+import { landingRoute } from '../utils/permissions';
 import { friendlyBiometricError, friendlyReaderStatus } from '../utils/userMessages';
 
 export default function LoginDual() {
@@ -17,7 +18,7 @@ export default function LoginDual() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState('medico'); // 'medico' or 'personal'
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
 
   const handleAdminLogin = async (e) => {
@@ -41,15 +42,7 @@ export default function LoginDual() {
         setPasswordChangeRequired(true);
         return;
       }
-      if (role === 'admin' || role === 'sistemas') {
-        navigate('/admin');
-      } else if (role === 'rh') {
-        navigate('/rh');
-      } else if (role === 'limpieza' || role === 'Mantenimiento/Limpieza') {
-        navigate('/camas');
-      } else {
-        navigate('/captura');
-      }
+      navigate(landingRoute(res.data));
     } catch (error) {
       if (attempt !== loginAttemptRef.current) return;
       setLoginError(error.response?.data?.detail || 'No fue posible iniciar sesión. Revise sus datos e intente nuevamente.');
@@ -135,17 +128,7 @@ export default function LoginDual() {
       else localStorage.removeItem('formatos_permitidos');
 
       const role = res.data.rol;
-      if (role === 'medico' || role === 'ayudante') {
-        navigate('/firma-express');
-      } else if (role === 'admin' || role === 'sistemas') {
-        navigate('/admin');
-      } else if (role === 'rh') {
-        navigate('/rh');
-      } else if (role === 'limpieza' || role === 'Mantenimiento/Limpieza') {
-        navigate('/camas');
-      } else {
-        navigate('/captura');
-      }
+      navigate(landingRoute(res.data));
     } catch (err) {
       if (attempt !== loginAttemptRef.current) return;
       setLoginError(friendlyBiometricError(err.response?.data?.detail, 'No se pudo validar la huella. Pulse “Intentar de nuevo”.'));
@@ -175,7 +158,7 @@ export default function LoginDual() {
     }
   }, [fmdTemplate, captureTimestamp, isProcessing, activeTab]);
 
-  if (passwordChangeRequired) return <PasswordChangeForm onComplete={() => { setPasswordChangeRequired(false); setPassword(''); }} />;
+  if (passwordChangeRequired || user?.must_change_password) return <PasswordChangeForm onComplete={() => { setPasswordChangeRequired(false); setPassword(''); }} />;
 
   return (
     <div className="he-login min-h-screen flex bg-white font-sans text-slate-800">
@@ -377,8 +360,17 @@ export default function LoginDual() {
             )}
           </div>
           
-          <div className="text-center mt-6 text-slate-400 text-xs font-medium">
-            Uso interno · Hospital Escandón
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-6 text-[11px] text-slate-400 font-medium">
+            <a
+              href="https://github.com/TeruIshijo1"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Autor: Ing. Alberto García Mendoza. Abrir GitHub en una pestaña nueva"
+              className="text-left transition-colors hover:text-hes-blue-main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hes-blue-main/40 focus-visible:ring-offset-2 rounded"
+            >
+              Autor: Ing. Alberto García Mendoza
+            </a>
+            <span className="ml-auto text-right">Uso interno · Hospital Escandón</span>
           </div>
         </div>
       </div>

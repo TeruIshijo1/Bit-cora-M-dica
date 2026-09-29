@@ -76,6 +76,12 @@ def test_timeout_is_retryable_and_never_synced():
         assert operation.completed_at is None
 
 
+def test_spanish_unavailable_message_is_retryable():
+    assert clinical_sync.classify_external_error(
+        RuntimeError("Vertical no disponible")
+    ) is clinical_sync.RetryableExternalError
+
+
 def test_permanent_external_error_is_failed():
     with database.SessionLocal() as session:
         operation = _locally_applied(session)

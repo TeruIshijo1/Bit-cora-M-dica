@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { 
   FiCalendar, FiClock, FiUser, FiPlus, FiFilter, FiCheckCircle, 
@@ -6,9 +7,19 @@ import {
 } from 'react-icons/fi';
 import { MdOutlineMedicalServices } from 'react-icons/md';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { usePatientSearchQuery } from '../hooks/useQueries';
 
 export default function AgendaMedica() {
   const rolActual = localStorage.getItem('rol');
+  const isDoctorSession = rolActual === 'medico' || rolActual === 'ayudante';
+  const sessionMedico = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('medico') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+  const sessionMedicoId = sessionMedico?.medico_id || sessionMedico?.id || null;
   const [medicos, setMedicos] = useState([]);
   const [selectedMedicoId, setSelectedMedicoId] = useState('');
   const [citas, setCitas] = useState([]);
@@ -30,10 +41,15 @@ export default function AgendaMedica() {
     notas: ''
   });
 
-  const [patientResults, setPatientResults] = useState([]);
-  const [searchingPatients, setSearchingPatients] = useState(false);
   const [showPatientDropdown, setShowPatientDropdown] = useState(false);
-  const searchPatientTimeout = useRef(null);
+  const patientSearchTerm = formData.pt_num ? '' : formData.nombre_paciente_manual.trim();
+  const patientSearchQuery = usePatientSearchQuery(
+    patientSearchTerm,
+    showPatientDropdown && patientSearchTerm.length >= 2,
+    8,
+  );
+  const patientResults = patientSearchQuery.data || [];
+  const searchingPatients = patientSearchQuery.isFetching;
 
   // Cargar lista de médicos
   useEffect(() => {
@@ -43,24 +59,36 @@ export default function AgendaMedica() {
         if (res.data && Array.isArray(res.data)) {
           setMedicos(res.data);
           let defaultMedico = null;
-          
-          // 1. Intentar seleccionar al médico logueado
-          const loggedMedicoStr = localStorage.getItem('medico');
-          if (loggedMedicoStr) {
-            try {
-              const loggedMedico = JSON.parse(loggedMedicoStr);
-              defaultMedico = res.data.find(m => m.id === loggedMedico.medico_id || m.id.toString() === loggedMedico.medico_id?.toString());
-            } catch(e) {}
+
+          // Para una sesión médica, el backend ya entrega únicamente el
+          // perfil vigente; no dependemos de un ID guardado en el navegador.
+          if (isDoctorSession && res.data.length > 0) {
+            defaultMedico = res.data[0];
           }
-          
-          // 2. Fallback al primer médico de la lista
-          if (!defaultMedico && res.data.length > 0) {
+
+          // Para administración, seleccionar inicialmente el médico logueado
+          // si existe; en otro caso usar el primer médico activo.
+          if (!defaultMedico && !isDoctorSession) {
+            const loggedMedicoStr = localStorage.getItem('medico');
+            if (loggedMedicoStr) {
+              try {
+                const loggedMedico = JSON.parse(loggedMedicoStr);
+                defaultMedico = res.data.find(m => String(m.id) === String(loggedMedico.medico_id));
+              } catch {
+                defaultMedico = null;
+              }
+            }
+          }
+          if (!defaultMedico && !isDoctorSession && res.data.length > 0) {
             defaultMedico = res.data[0];
           }
 
           if (defaultMedico) {
             setSelectedMedicoId(defaultMedico.id.toString());
             setFormData(prev => ({ ...prev, medico_id: defaultMedico.id }));
+          } else if (isDoctorSession && sessionMedicoId) {
+            setSelectedMedicoId(String(sessionMedicoId));
+            setFormData(prev => ({ ...prev, medico_id: sessionMedicoId }));
           }
         }
       } catch (err) {
@@ -68,7 +96,7 @@ export default function AgendaMedica() {
       }
     };
     fetchMedicos();
-  }, []);
+  }, [isDoctorSession, sessionMedicoId]);
 
   const [pendientesCount, setPendientesCount] = useState(0);
 
@@ -104,29 +132,8 @@ export default function AgendaMedica() {
 
   const handlePatientInputChange = (e) => {
     const val = e.target.value;
-    setFormData(prev => ({ ...prev, nombre_paciente_manual: val, pt_num: '', expediente: '' }));
-    
-    if (searchPatientTimeout.current) clearTimeout(searchPatientTimeout.current);
-    if (!val || val.trim().length < 2) {
-      setPatientResults([]);
-      setShowPatientDropdown(false);
-      return;
-    }
-
-    searchPatientTimeout.current = setTimeout(async () => {
-      try {
-        setSearchingPatients(true);
-        const res = await api.get(`/ehr/pacientes/buscar?q=${encodeURIComponent(val)}&limit=8`);
-        if (res.data && Array.isArray(res.data)) {
-          setPatientResults(res.data);
-          setShowPatientDropdown(true);
-        }
-      } catch (err) {
-        console.error("Error searching patients in agenda:", err);
-      } finally {
-        setSearchingPatients(false);
-      }
-    }, 250);
+    setFormData(prev => ({ ...prev, nombre_paciente_manual: val, pt_num: '', expediente: '', paciente_id: null }));
+    setShowPatientDropdown(val.trim().length >= 2);
   };
 
   const handleSelectPatientFromSearch = (pt) => {
@@ -149,14 +156,22 @@ export default function AgendaMedica() {
 
     try {
       setSubmitting(true);
+      const targetMedicoId = isDoctorSession
+        ? (selectedMedicoId || sessionMedicoId)
+        : (formData.medico_id || selectedMedicoId || null);
+      if (!targetMedicoId) {
+        alert('No se pudo identificar al médico de la sesión. Vuelve a iniciar sesión.');
+        return;
+      }
+
       await api.post('/agenda/citas', {
         ...formData,
-        medico_id: formData.medico_id ? parseInt(formData.medico_id) : (selectedMedicoId ? parseInt(selectedMedicoId) : null)
+        medico_id: parseInt(targetMedicoId, 10)
       });
       setShowModal(false);
       setShowPatientDropdown(false);
       setFormData({
-        medico_id: selectedMedicoId,
+        medico_id: isDoctorSession ? (selectedMedicoId || sessionMedicoId) : selectedMedicoId,
         nombre_paciente_manual: '',
         pt_num: '',
         expediente: '',
@@ -175,7 +190,7 @@ export default function AgendaMedica() {
     }
   };
 
-  const currentDoctor = medicos.find(m => m.id.toString() === selectedMedicoId);
+  const currentDoctor = medicos.find(m => m.id.toString() === String(selectedMedicoId || sessionMedicoId));
 
   return (
     <div className="he-agenda-page p-4 md:p-6 max-w-7xl mx-auto space-y-5 min-h-screen">
@@ -333,12 +348,12 @@ export default function AgendaMedica() {
 
                 <div className="flex items-center gap-2 self-end md:self-center">
                   {(c.pt_num || c.expediente || c.paciente_id) && (
-                    <a
-                      href={`/ehr/${c.pt_num || c.expediente || c.paciente_id}`}
+                    <Link
+                      to={`/ehr/${encodeURIComponent(c.pt_num || c.expediente || c.paciente_id)}`}
                       className="he-btn-ghost text-xs font-bold px-3.5 py-2 transition-colors flex items-center gap-1.5"
                     >
                       <FiFileText /> Ver Expediente
-                    </a>
+                    </Link>
                   )}
                 </div>
               </div>
@@ -364,17 +379,30 @@ export default function AgendaMedica() {
             <form onSubmit={handleCreateCita} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Médico Asignado *</label>
-                <select 
-                  value={formData.medico_id}
-                  onChange={(e) => setFormData({ ...formData, medico_id: e.target.value })}
-                  className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800"
-                  required
-                >
-                  <option value="">-- Seleccionar Médico --</option>
-                  {medicos.map(m => (
-                    <option key={m.id} value={m.id}>{m.nombre} ({m.especialidad})</option>
-                  ))}
-                </select>
+                {isDoctorSession ? (
+                  <div className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {currentDoctor
+                        ? `${currentDoctor.nombre} (${currentDoctor.especialidad})`
+                        : (sessionMedico?.nombre_completo || 'Médico de la sesión')}
+                    </span>
+                    <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">
+                      Usted
+                    </span>
+                  </div>
+                ) : (
+                  <select 
+                    value={formData.medico_id}
+                    onChange={(e) => setFormData({ ...formData, medico_id: e.target.value })}
+                    className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800"
+                    required
+                  >
+                    <option value="">-- Seleccionar Médico --</option>
+                    {medicos.map(m => (
+                      <option key={m.id} value={m.id}>{m.nombre} ({m.especialidad})</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="relative">
@@ -385,7 +413,7 @@ export default function AgendaMedica() {
                       type="text" 
                       value={formData.nombre_paciente_manual}
                       onChange={handlePatientInputChange}
-                      onFocus={() => { if (patientResults.length > 0) setShowPatientDropdown(true); }}
+                      onFocus={() => { if (patientSearchTerm.length >= 2) setShowPatientDropdown(true); }}
                       placeholder="Buscar por Nombre, Folio o CURP..."
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-hes-blue-main outline-none"
                       required

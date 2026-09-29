@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { purgeBiometrics } from '../hooks/useDigitalPersona';
 import { api } from '../api';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSessionPermissionsQuery } from '../hooks/useQueries';
+import { effectiveModules, parsePermissionValue } from '../utils/permissions';
 
 const AuthContext = createContext(null);
 
@@ -18,11 +20,22 @@ export function AuthProvider({ children }) {
     return {
       rol: localStorage.getItem('rol') || '',
       username: localStorage.getItem('usuario') || '',
+      permisos_modulos: localStorage.getItem('permisos_modulos'),
+      formatos_permitidos: localStorage.getItem('formatos_permitidos'),
       medicoId: localStorage.getItem('medico_id') || null,
       medico: localStorage.getItem('medico') ? JSON.parse(localStorage.getItem('medico')) : null
     };
   });
-  const [loading, setLoading] = useState(false);
+  const sessionAccess = useSessionPermissionsQuery(token);
+  useEffect(() => {
+    if (!sessionAccess.data || !token) return;
+    const fresh = sessionAccess.data;
+    for (const key of ['rol', 'permisos_modulos', 'formatos_permitidos']) {
+      if (fresh[key] == null) localStorage.removeItem(key);
+      else localStorage.setItem(key, fresh[key]);
+    }
+    setUser(previous => ({ ...previous, ...fresh }));
+  }, [sessionAccess.data, token]);
 
   // Sincronizar cambios en token
   useEffect(() => {
@@ -30,6 +43,8 @@ export function AuthProvider({ children }) {
       setUser({
         rol: localStorage.getItem('rol') || '',
         username: localStorage.getItem('usuario') || '',
+        permisos_modulos: localStorage.getItem('permisos_modulos'),
+        formatos_permitidos: localStorage.getItem('formatos_permitidos'),
         medicoId: localStorage.getItem('medico_id') || null,
         medico: localStorage.getItem('medico') ? JSON.parse(localStorage.getItem('medico')) : null
       });
@@ -47,6 +62,7 @@ export function AuthProvider({ children }) {
     queryClient.clear();
     ['token','rol','usuario','medico','medico_id','nombre_completo','permisos_modulos','formatos_permitidos'].forEach(key=>localStorage.removeItem(key));
     localStorage.setItem('token', authToken);
+    localStorage.setItem('hes_last_activity_at', String(Date.now()));
     
     let userObj = {};
     if (typeof userData === 'string') {
@@ -57,7 +73,12 @@ export function AuthProvider({ children }) {
       if (userData.username) localStorage.setItem('usuario', userData.username);
       if (userData.medico_id) localStorage.setItem('medico_id', userData.medico_id);
       if (userData.medico) localStorage.setItem('medico', JSON.stringify(userData.medico));
+      for (const key of ['permisos_modulos', 'formatos_permitidos']) {
+        if (userData[key] != null) localStorage.setItem(key, userData[key]);
+      }
       userObj = {
+        permisos_modulos: userData.permisos_modulos ?? null,
+        formatos_permitidos: userData.formatos_permitidos ?? null,
         rol: userData.rol || localStorage.getItem('rol') || '',
         username: userData.username || localStorage.getItem('usuario') || '',
         medicoId: userData.medico_id || localStorage.getItem('medico_id') || null,
@@ -87,6 +108,7 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('nombre_completo');
       localStorage.removeItem('permisos_modulos');
       localStorage.removeItem('formatos_permitidos');
+      localStorage.removeItem('hes_last_activity_at');
       sessionStorage.clear();
       queryClient.clear();
       setToken(null);
@@ -107,9 +129,17 @@ export function AuthProvider({ children }) {
 
   const value = {
     token,
-    user,
+    user: user ? { ...user, ...sessionAccess.data } : null,
     isAuthenticated: !!token,
-    loading,
+    loading: Boolean(token && sessionAccess.isPending),
+    accessError: sessionAccess.isError,
+    refreshAccess: sessionAccess.refetch,
+    hasModule: (...keys) => keys.some(key => effectiveModules(user)[key]),
+    hasFormat: code => {
+      if (user?.formatos_permitidos == null) return true;
+      const formats = parsePermissionValue(user.formatos_permitidos, []);
+      return Array.isArray(formats) && formats.includes(code);
+    },
     login,
     logout,
     hasRole

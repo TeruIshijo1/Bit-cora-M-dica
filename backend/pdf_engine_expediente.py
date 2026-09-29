@@ -14,12 +14,13 @@ import os
 import re
 import datetime
 import qrcode
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak, Image
+    BaseDocTemplate, SimpleDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak, Image
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 
@@ -27,13 +28,15 @@ try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, MIDNIGHT_BLUE,
-        BLUE_BAR_COLOR, BANNER_BG, BANNER_BORDER, BORDER_GREY
+        BLUE_BAR_COLOR, BANNER_BG, BANNER_BORDER, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
         TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, MIDNIGHT_BLUE,
-        BLUE_BAR_COLOR, BANNER_BG, BANNER_BORDER, BORDER_GREY
+        BLUE_BAR_COLOR, BANNER_BG, BANNER_BORDER, BORDER_GREY,
+        letterhead_content_width
     )
 
 QR_CACHE_DIR = os.path.join(os.path.dirname(__file__), 'static', 'qr_cache')
@@ -78,7 +81,7 @@ def generate_caratula_expediente(
     is_alta = patient_info.get("status") == "Alta" or bool(patient_info.get("is_alta"))
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0  # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0
     frame_h = frame_top - frame_bottom
@@ -384,7 +387,7 @@ def generate_anexo_farmaco_dietas(dashboard_data: dict, output_path: str) -> str
     hora_ingreso = patient_info.get("hora_ingreso", "")
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0
+    content_w = letterhead_content_width(content_x)
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0
     frame_h = frame_top - frame_bottom
@@ -588,7 +591,7 @@ def generate_anexo_estudios(dashboard_data: dict, output_path: str) -> str:
     hora_ingreso = patient_info.get("hora_ingreso", "")
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0
+    content_w = letterhead_content_width(content_x)
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0
     frame_h = frame_top - frame_bottom
@@ -652,19 +655,25 @@ def generate_anexo_estudios(dashboard_data: dict, output_path: str) -> str:
         ]
     ]
 
-    for l in labs[:6]:
-        st_txt = l.get("estatus", "Completado")
+    for l in labs:
+        st_txt = l.get("estatus") or "Completado"
         st_col = "#006633" if st_txt.lower() == "completado" else "#d97706"
+        critical_text = l.get("valores_criticos") or "—"
+        report_text = l.get("resultado_resumen") or "Sin reporte"
+        if l.get("tiene_documento") and l.get("nombre_archivo"):
+            report_text = f"{report_text}<br/><font color='#005FA8'>Adjunto: {l.get('nombre_archivo')}</font>"
         lab_table_data.append([
             Paragraph(f"<b>{l.get('id', 'LAB')}</b>", style_td_c),
-            Paragraph(f"<b>{l.get('estudio', '')}</b>", style_td_b),
-            Paragraph(f"{l.get('fecha_solicitud', '')}<br/><font color='#666'>{l.get('solicitado_por', '')[:20]}</font>", style_td),
-            Paragraph(l.get("resultado_resumen", "Sin reporte"), style_td),
-            Paragraph(l.get("valores_criticos", "—"), style_td_crit if "leucocitosis" in l.get("valores_criticos", "").lower() or "crítico" in l.get("valores_criticos", "").lower() else style_td),
+            Paragraph(f"<b>{l.get('estudio') or 'Estudio de laboratorio'}</b>", style_td_b),
+            Paragraph(f"{l.get('fecha_solicitud') or '—'}<br/><font color='#666'>{str(l.get('solicitado_por') or '')[:20]}</font>", style_td),
+            Paragraph(report_text, style_td),
+            Paragraph(critical_text, style_td_crit if "leucocitosis" in str(critical_text).lower() or "crítico" in str(critical_text).lower() else style_td),
             Paragraph(f"<font color='{st_col}'><b>{st_txt}</b></font>", style_td_c)
         ])
 
-    t_labs = Table(lab_table_data, colWidths=[48, 120, 85, 140, 78.76, 50])
+    if len(lab_table_data) == 1:
+        lab_table_data.append([Paragraph("Sin estudios de laboratorio registrados.", style_td_c), "", "", "", "", ""])
+    t_labs = Table(lab_table_data, colWidths=[48, 120, 85, 140, 78.76, 50], repeatRows=1)
     t_labs.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_GREY),
@@ -703,19 +712,25 @@ def generate_anexo_estudios(dashboard_data: dict, output_path: str) -> str:
         ]
     ]
 
-    for im in img_studies[:4]:
-        st_txt = im.get("estatus", "Completado")
+    for im in img_studies:
+        st_txt = im.get("estatus") or "Completado"
         st_col = "#006633" if st_txt.lower() == "completado" else "#d97706"
+        findings = im.get("hallazgos") or im.get("resultado_resumen") or "Sin hallazgos reportados"
+        conclusion = im.get("conclusion") or "—"
+        if im.get("tiene_documento") and im.get("nombre_archivo"):
+            conclusion = f"{conclusion}<br/><font color='#005FA8'>Adjunto: {im.get('nombre_archivo')}</font>"
         img_table_data.append([
             Paragraph(f"<b>{im.get('id', 'IMG')}</b>", style_td_c),
-            Paragraph(f"<b>{im.get('estudio', '')}</b>", style_td_b),
-            Paragraph(f"{im.get('fecha_solicitud', '')}<br/><font color='#666'>{im.get('solicitado_por', '')[:20]}</font>", style_td),
-            Paragraph(im.get("hallazgos", "Sin hallazgos reportados"), style_td),
-            Paragraph(f"<b>{im.get('conclusion', '—')}</b>", style_td_b),
+            Paragraph(f"<b>{im.get('estudio') or 'Estudio de gabinete'}</b>", style_td_b),
+            Paragraph(f"{im.get('fecha_solicitud') or '—'}<br/><font color='#666'>{str(im.get('solicitado_por') or '')[:20]}</font>", style_td),
+            Paragraph(findings, style_td),
+            Paragraph(f"<b>{conclusion}</b>", style_td_b),
             Paragraph(f"<font color='{st_col}'><b>{st_txt}</b></font>", style_td_c)
         ])
 
-    t_img = Table(img_table_data, colWidths=[48, 115, 85, 140, 83.76, 50])
+    if len(img_table_data) == 1:
+        img_table_data.append([Paragraph("Sin estudios de imagenología o gabinete registrados.", style_td_c), "", "", "", "", ""])
+    t_img = Table(img_table_data, colWidths=[48, 115, 85, 140, 83.76, 50], repeatRows=1)
     t_img.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_GREY),
@@ -729,4 +744,460 @@ def generate_anexo_estudios(dashboard_data: dict, output_path: str) -> str:
     story.append(t_img)
 
     doc.build(story, canvasmaker=make_canvas)
+    return output_path
+
+
+def generate_formato_universal(
+    dashboard_data: dict,
+    output_path: str,
+    *,
+    codigo: str,
+    nombre: str,
+    historial: list[dict],
+    firma_data: dict | None = None,
+    verification_url: str | None = None,
+) -> str:
+    """Renderiza cualquier formato registrado que aún no tenga plantilla propia.
+
+    Este camino no inventa campos ni reduce el registro a un resumen: imprime
+    todos los valores no vacíos devueltos por la tabla Vertical, junto con el
+    estado nativo de firma y la evidencia HES disponible.  Cuando exista una
+    plantilla institucional especializada, ``pdf_service`` sigue usando esa
+    plantilla; este renderer es la red de seguridad para que los formatos
+    nuevos nunca desaparezcan del expediente compilado.
+    """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    patient = dashboard_data.get("patient", {}) or {}
+    firma_data = firma_data if isinstance(firma_data, dict) else {}
+    content_x = FRAME_X + 16.0
+    content_w = letterhead_content_width(content_x)
+
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        leftMargin=content_x,
+        rightMargin=letter[0] - (content_x + content_w),
+        topMargin=62,
+        bottomMargin=44,
+        title=f"{nombre} - {patient.get('mrn', '')}",
+        author="Hospital Escandón",
+    )
+
+    style_title = ParagraphStyle(
+        "UniversalTitle", fontName="Helvetica-Bold", fontSize=13,
+        leading=16, textColor=DARK_BLUE, alignment=TA_CENTER,
+    )
+    style_subtitle = ParagraphStyle(
+        "UniversalSubtitle", fontName="Helvetica", fontSize=7.5,
+        leading=10, textColor=TEXT_MUTED, alignment=TA_CENTER,
+    )
+    style_section = ParagraphStyle(
+        "UniversalSection", fontName="Helvetica-Bold", fontSize=8.2,
+        leading=10, textColor=colors.white,
+    )
+    style_label = ParagraphStyle(
+        "UniversalLabel", fontName="Helvetica-Bold", fontSize=7,
+        leading=8.5, textColor=TEXT_MUTED,
+    )
+    style_value = ParagraphStyle(
+        "UniversalValue", fontName="Helvetica", fontSize=7.2,
+        leading=9, textColor=TEXT_DARK, wordWrap="CJK",
+    )
+    style_value_b = ParagraphStyle(
+        "UniversalValueBold", fontName="Helvetica-Bold", fontSize=7.2,
+        leading=9, textColor=TEXT_DARK, wordWrap="CJK",
+    )
+    style_note = ParagraphStyle(
+        "UniversalNote", fontName="Helvetica", fontSize=6.7,
+        leading=8.4, textColor=TEXT_MUTED,
+    )
+    style_historical = ParagraphStyle(
+        "UniversalHistorical", fontName="Helvetica-Bold", fontSize=6.7,
+        leading=8.4, textColor=colors.HexColor("#92400E"),
+    )
+
+    def safe(value, fallback="—"):
+        text = fallback if value in (None, "") else str(value)
+        return escape(text).replace("\n", "<br/>")
+
+    def section(title):
+        table = Table([[Paragraph(f"<b>{escape(title)}</b>", style_section)]], colWidths=[content_w])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), DARK_BLUE),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        return table
+
+    story = [
+        Paragraph("FORMATO CLÍNICO INTEGRADO", style_title),
+        Spacer(1, 2),
+        Paragraph(safe(nombre), style_subtitle),
+        Paragraph(f"Código institucional: <b>{safe(codigo)}</b>", style_subtitle),
+        Spacer(1, 8),
+    ]
+
+    notice = (
+        "Representación universal del registro institucional. Conserva los campos "
+        "capturados en Vertical y no sustituye la evidencia criptográfica ni el "
+        "documento fuente firmado."
+    )
+    notice_table = Table([[Paragraph(f"<b>TRAZABILIDAD:</b> {escape(notice)}", style_note)]], colWidths=[content_w])
+    notice_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF7ED")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#FDBA74")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([notice_table, Spacer(1, 7), section("IDENTIFICACIÓN DEL PACIENTE")])
+
+    patient_rows = [
+        [Paragraph("PACIENTE", style_label), Paragraph(safe(patient.get("name")), style_value_b),
+         Paragraph("EXPEDIENTE", style_label), Paragraph(safe(patient.get("mrn")), style_value_b)],
+        [Paragraph("FECHA DE NACIMIENTO", style_label), Paragraph(safe(patient.get("dob")), style_value),
+         Paragraph("CAMA / SERVICIO", style_label), Paragraph(safe(patient.get("cama")), style_value)],
+        [Paragraph("ESTATUS", style_label), Paragraph(safe(patient.get("status")), style_value),
+         Paragraph("DIAGNÓSTICO", style_label), Paragraph(safe(patient.get("diagnostico")), style_value)],
+    ]
+    patient_table = Table(patient_rows, colWidths=[88, 178, 88, content_w - 354])
+    patient_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#E2E8F0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.extend([patient_table, Spacer(1, 7), section("REGISTROS CLÍNICOS DEL FORMATO")])
+
+    records = historial or []
+    if not records:
+        story.append(Paragraph("No se localizaron registros para este paciente.", style_note))
+    for index, record in enumerate(records, 1):
+        meta_rows = [
+            [Paragraph("REGISTRO", style_label), Paragraph(safe(record.get("mrnum")), style_value_b),
+             Paragraph("ESTATUS", style_label), Paragraph(safe(record.get("mr_st")), style_value_b),
+             Paragraph("FIRMADO EN VERTICAL", style_label), Paragraph("SÍ" if record.get("firmado") else "NO", style_value_b)],
+            [Paragraph("CREADO", style_label), Paragraph(safe(record.get("created_on")), style_value),
+             Paragraph("MODIFICADO", style_label), Paragraph(safe(record.get("modified_on")), style_value),
+             Paragraph("MÉDICO", style_label), Paragraph(safe(record.get("medico_tratante")), style_value)],
+        ]
+        meta_table = Table(meta_rows, colWidths=[48, 72, 55, 72, 82, content_w - 329])
+        meta_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#E2E8F0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.extend([Spacer(1, 5), Paragraph(f"<b>Registro {index}</b>", style_value_b), meta_table])
+
+        record_signature = record.get("_firma_hes") or {}
+        if record_signature:
+            record_signature_rows = [[
+                Paragraph("FIRMA MÉDICA HES", style_label),
+                Paragraph("PRESENTE" if record_signature.get("sello_digital") else "NO REGISTRADA", style_value),
+                Paragraph("PACIENTE / REPRESENTANTE", style_label),
+                Paragraph("PRESENTE" if record_signature.get("sello_paciente") else "NO REGISTRADA", style_value),
+            ], [
+                Paragraph("TESTIGO 1", style_label),
+                Paragraph("PRESENTE" if record_signature.get("sello_testigo1") else "NO REGISTRADA", style_value),
+                Paragraph("TESTIGO 2", style_label),
+                Paragraph("PRESENTE" if record_signature.get("sello_testigo2") else "NO REGISTRADA", style_value),
+            ]]
+            record_signature_table = Table(
+                record_signature_rows,
+                colWidths=[112, 80, 122, content_w - 314],
+            )
+            record_signature_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("BOX", (0, 0), (-1, -1), 0.4, BORDER_GREY),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ]))
+            story.append(record_signature_table)
+
+        historical_signatures = record_signature.get("_signature_history") or []
+        if historical_signatures:
+            history_rows = [[
+                Paragraph("EVIDENCIA HISTÓRICA CONSERVADA", style_label),
+                Paragraph("FIRMANTE", style_label),
+                Paragraph("FECHA / ESQUEMA", style_label),
+                Paragraph("ESTADO", style_label),
+            ]]
+            for historical in historical_signatures:
+                history_rows.append([
+                    Paragraph("Sello no vinculado a la versión actual", style_note),
+                    Paragraph(safe(historical.get("rol")) + " · " + safe(historical.get("nombre")), style_value),
+                    Paragraph(safe(historical.get("fecha")) + "<br/>" + safe(historical.get("esquema")), style_value),
+                    Paragraph("REQUIERE REFIRMA", style_historical),
+                ])
+            history_table = Table(history_rows, colWidths=[155, 150, 110, content_w - 415], repeatRows=1)
+            history_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FFF7ED")),
+                ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#FDBA74")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#FED7AA")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(history_table)
+
+        fields = record.get("datos_completos") or {}
+        field_rows = [[Paragraph("CAMPO", style_label), Paragraph("VALOR CAPTURADO", style_label)]]
+        for field, value in fields.items():
+            field_rows.append([Paragraph(safe(field), style_value_b), Paragraph(safe(value), style_value)])
+        if len(field_rows) == 1:
+            field_rows.append([Paragraph("—", style_value), Paragraph("Sin campos adicionales disponibles.", style_note)])
+        fields_table = Table(field_rows, colWidths=[145, content_w - 145], repeatRows=1)
+        fields_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F8FAFC")),
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ]))
+        story.append(fields_table)
+
+    story.extend([Spacer(1, 8), section("TRAZABILIDAD DE FIRMAS")])
+    signature_rows = [
+        [Paragraph("FIRMA MÉDICA HES", style_label), Paragraph("PRESENTE" if firma_data.get("sello_digital") else "NO REGISTRADA", style_value),
+         Paragraph("MÉDICO", style_label), Paragraph(safe(firma_data.get("nombre_medico")), style_value)],
+        [Paragraph("FIRMA PACIENTE / REPRESENTANTE", style_label), Paragraph("PRESENTE" if firma_data.get("sello_paciente") else "NO REGISTRADA", style_value),
+         Paragraph("NOMBRE", style_label), Paragraph(safe(firma_data.get("firmante_paciente")), style_value)],
+        [Paragraph("TESTIGO 1", style_label), Paragraph("PRESENTE" if firma_data.get("sello_testigo1") else "NO REGISTRADA", style_value),
+         Paragraph("NOMBRE", style_label), Paragraph(safe(firma_data.get("firmante_testigo1")), style_value)],
+        [Paragraph("TESTIGO 2", style_label), Paragraph("PRESENTE" if firma_data.get("sello_testigo2") else "NO REGISTRADA", style_value),
+         Paragraph("NOMBRE", style_label), Paragraph(safe(firma_data.get("firmante_testigo2")), style_value)],
+    ]
+    signature_table = Table(signature_rows, colWidths=[145, 90, 60, content_w - 295])
+    signature_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#E2E8F0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(signature_table)
+
+    def draw_page(canvas_obj, doc_obj):
+        canvas_obj.saveState()
+        canvas_obj.setStrokeColor(BLUE_BAR_COLOR)
+        canvas_obj.setLineWidth(1.2)
+        canvas_obj.line(content_x, letter[1] - 43, content_x + content_w, letter[1] - 43)
+        canvas_obj.setFillColor(DARK_BLUE)
+        canvas_obj.setFont("Helvetica-Bold", 8)
+        canvas_obj.drawString(content_x, letter[1] - 32, "HOSPITAL ESCANDÓN")
+        canvas_obj.setFont("Helvetica", 6.5)
+        canvas_obj.setFillColor(TEXT_MUTED)
+        canvas_obj.drawRightString(content_x + content_w, letter[1] - 32, f"{codigo} · PT-{patient.get('mrn', '').replace('PT-', '')}")
+        canvas_obj.setStrokeColor(BORDER_GREY)
+        canvas_obj.line(content_x, 31, content_x + content_w, 31)
+        canvas_obj.setFillColor(TEXT_MUTED)
+        canvas_obj.setFont("Helvetica", 6.5)
+        canvas_obj.drawString(content_x, 20, "Representación de trazabilidad · Conservar junto con el documento fuente")
+        canvas_obj.drawRightString(content_x + content_w, 20, f"Página {doc_obj.page}")
+        canvas_obj.restoreState()
+
+    doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
+    return output_path
+
+
+def generate_anexo_trazabilidad_firmas(
+    patient: dict,
+    output_path: str,
+    items: list[dict],
+) -> str:
+    """Genera un anexo transversal de firmas para el expediente compilado.
+
+    El anexo conserva la evidencia que no puede cubrir la versión actual sin
+    presentarla como firma vigente. Esto evita que una refirma o una migración
+    de versión haga desaparecer del expediente el rastro de lo firmado.
+    """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    content_w = letterhead_content_width(FRAME_X + 16.0)
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        leftMargin=FRAME_X + 16.0,
+        rightMargin=letter[0] - (FRAME_X + 16.0 + content_w),
+        topMargin=62,
+        bottomMargin=44,
+        title=f"Trazabilidad de firmas - {patient.get('mrn', '')}",
+        author="Hospital Escandón",
+    )
+
+    style_title = ParagraphStyle(
+        "SignatureLedgerTitle", fontName="Helvetica-Bold", fontSize=13,
+        leading=16, textColor=DARK_BLUE, alignment=TA_CENTER,
+    )
+    style_subtitle = ParagraphStyle(
+        "SignatureLedgerSubtitle", fontName="Helvetica", fontSize=7.5,
+        leading=10, textColor=TEXT_MUTED, alignment=TA_CENTER,
+    )
+    style_label = ParagraphStyle(
+        "SignatureLedgerLabel", fontName="Helvetica-Bold", fontSize=7,
+        leading=8.5, textColor=TEXT_MUTED,
+    )
+    style_value = ParagraphStyle(
+        "SignatureLedgerValue", fontName="Helvetica", fontSize=7.1,
+        leading=9, textColor=TEXT_DARK, wordWrap="CJK",
+    )
+    style_note = ParagraphStyle(
+        "SignatureLedgerNote", fontName="Helvetica", fontSize=6.8,
+        leading=8.5, textColor=TEXT_MUTED,
+    )
+    style_current = ParagraphStyle(
+        "SignatureLedgerCurrent", fontName="Helvetica-Bold", fontSize=7,
+        leading=8.5, textColor=colors.HexColor("#166534"),
+    )
+    style_historical = ParagraphStyle(
+        "SignatureLedgerHistorical", fontName="Helvetica", fontSize=6.7,
+        leading=8.2, textColor=colors.HexColor("#92400e"),
+    )
+
+    def safe(value, fallback="—"):
+        text = fallback if value in (None, "") else str(value)
+        return escape(text).replace("\n", "<br/>")
+
+    story = [
+        Paragraph("ANEXO DE TRAZABILIDAD DE FIRMAS", style_title),
+        Spacer(1, 2),
+        Paragraph(
+            f"Paciente: <b>{safe(patient.get('name'))}</b> · Expediente: <b>{safe(patient.get('mrn'))}</b>",
+            style_subtitle,
+        ),
+        Spacer(1, 8),
+    ]
+    notice = (
+        "Este anexo se genera dentro de la misma corrida que integra el expediente. "
+        "Las firmas vigentes se imprimen en su formato; las evidencias históricas, "
+        "nativas o no vinculadas se conservan aquí con su estado para no perderlas "
+        "ni presentarlas indebidamente como cobertura de la versión actual."
+    )
+    notice_table = Table([[Paragraph(f"<b>CONTROL DE INTEGRIDAD:</b> {escape(notice)}", style_note)]], colWidths=[content_w])
+    notice_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF7ED")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#FDBA74")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([notice_table, Spacer(1, 8)])
+
+    for item in items or []:
+        current = item.get("actuales") or {}
+        historical = item.get("historicas") or []
+        native = item.get("nativas") or []
+        status_parts = [
+            f"Médico: {'VIGENTE' if current.get('medico') else 'NO REGISTRADA'}",
+            f"Paciente/representante: {'VIGENTE' if current.get('paciente') else 'NO REGISTRADA'}",
+            f"Testigo 1: {'VIGENTE' if current.get('testigo1') else 'NO REGISTRADA'}",
+            f"Testigo 2: {'VIGENTE' if current.get('testigo2') else 'NO REGISTRADA'}",
+        ]
+        if native:
+            status_parts.append(f"Vertical nativa: {len(native)} registro(s)")
+        if historical:
+            status_parts.append(f"Histórica/no vinculada: {len(historical)} registro(s)")
+
+        heading = Table([
+            [
+                Paragraph(f"<b>{safe(item.get('nombre') or item.get('codigo'))}</b>", style_value),
+                Paragraph(f"Código: <b>{safe(item.get('codigo'))}</b><br/>Ranura: {safe(item.get('slot'), 'última')}", style_value),
+            ],
+            [Paragraph(" · ".join(status_parts), style_current if all((current.get('medico'), current.get('paciente'), not historical)) else style_value), ""],
+        ], colWidths=[content_w * 0.62, content_w * 0.38])
+        heading.setStyle(TableStyle([
+            ("SPAN", (0, 1), (1, 1)),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.extend([Spacer(1, 6), heading])
+
+        detail_rows = [[
+            Paragraph("TIPO", style_label),
+            Paragraph("FIRMANTE", style_label),
+            Paragraph("FECHA", style_label),
+            Paragraph("ESTADO", style_label),
+            Paragraph("EVIDENCIA", style_label),
+        ]]
+        for record in historical:
+            detail_rows.append([
+                Paragraph(safe(record.get("rol")), style_value),
+                Paragraph(safe(record.get("nombre")), style_value),
+                Paragraph(safe(record.get("fecha")), style_value),
+                Paragraph("HISTÓRICA / REQUIERE REFIRMA", style_historical),
+                Paragraph(safe(record.get("sello_corto"), "Conservada en registro clínico"), style_historical),
+            ])
+        for record in native:
+            detail_rows.append([
+                Paragraph("VERTICAL", style_value),
+                Paragraph(safe(record.get("usuario") or "Vertical EHR"), style_value),
+                Paragraph(safe(record.get("fecha")), style_value),
+                Paragraph("NATIVA · NO ES FEA HES", style_value),
+                Paragraph(safe(record.get("sello_corto"), "Registro nativo"), style_value),
+            ])
+        if len(detail_rows) == 1:
+            detail_rows.append([
+                Paragraph("—", style_value), Paragraph("—", style_value),
+                Paragraph("—", style_value), Paragraph("Sin evidencia histórica adicional", style_note),
+                Paragraph("Las firmas vigentes permanecen en el formato", style_note),
+            ])
+        detail_table = Table(detail_rows, colWidths=[68, 142, 82, 132, content_w - 424], repeatRows=1)
+        detail_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F8FAFC")),
+            ("BOX", (0, 0), (-1, -1), 0.4, BORDER_GREY),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(detail_table)
+
+    def draw_page(canvas_obj, doc_obj):
+        canvas_obj.saveState()
+        canvas_obj.setStrokeColor(BLUE_BAR_COLOR)
+        canvas_obj.setLineWidth(1.2)
+        canvas_obj.line(FRAME_X + 16.0, letter[1] - 43, FRAME_X + 16.0 + content_w, letter[1] - 43)
+        canvas_obj.setFillColor(DARK_BLUE)
+        canvas_obj.setFont("Helvetica-Bold", 8)
+        canvas_obj.drawString(FRAME_X + 16.0, letter[1] - 32, "HOSPITAL ESCANDÓN")
+        canvas_obj.setFont("Helvetica", 6.5)
+        canvas_obj.setFillColor(TEXT_MUTED)
+        canvas_obj.drawRightString(FRAME_X + 16.0 + content_w, letter[1] - 32, "TRAZABILIDAD DE FIRMAS")
+        canvas_obj.setStrokeColor(BORDER_GREY)
+        canvas_obj.line(FRAME_X + 16.0, 31, FRAME_X + 16.0 + content_w, 31)
+        canvas_obj.setFont("Helvetica", 6.5)
+        canvas_obj.drawString(FRAME_X + 16.0, 20, "Anexo generado con la misma versión de cada formato clínico")
+        canvas_obj.drawRightString(FRAME_X + 16.0 + content_w, 20, f"Página {doc_obj.page}")
+        canvas_obj.restoreState()
+
+    doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
     return output_path

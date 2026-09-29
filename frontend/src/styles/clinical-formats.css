@@ -1,0 +1,211 @@
+/* Clinical document readers and editors share the quiet record typography. */
+.he-record-workspace [data-clinical-document] {
+  color: var(--record-text);
+  font-size: 14px;
+}
+.he-record-workspace [data-clinical-document] > div {
+  border-color: var(--record-outline) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+.he-record-workspace [data-clinical-document] .he-fmt-head {
+  padding: 24px 28px 0;
+  background: #fff !important;
+  border-bottom: 1px solid var(--record-line);
+}
+.he-clinical-document-heading {
+  display: flex;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 20px !important;
+}
+.he-clinical-document-identity { min-width: 0; align-items: flex-start; }
+.he-clinical-document-identity > div:first-child {
+  width: 36px; height: 36px; border-radius: 8px !important;
+  background: var(--record-soft-blue) !important; color: var(--record-blue) !important;
+  box-shadow: none !important; font-size: 18px;
+}
+.he-clinical-document-identity > div:last-child { min-width: 0; flex: 1; }
+.he-record-workspace [data-clinical-document] h3 {
+  font-size: 19px !important; font-weight: 600 !important;
+  line-height: 1.45; color: var(--record-text); letter-spacing: -.2px;
+}
+.he-clinical-document-identity h3 + div { margin-top: 9px; gap: 6px 12px; }
+.he-clinical-document-identity h3 + div > :is(span, button) {
+  font-size: 12px !important; font-weight: 400 !important; letter-spacing: 0;
+  padding: 0 !important; border: 0 !important; background: transparent !important;
+  box-shadow: none !important; line-height: 1.6;
+}
+.he-clinical-document-identity h3 + div > span:nth-child(-n+2) { color: var(--record-muted) !important; }
+.he-clinical-document-identity :is(.he-fmt-st-ok, .he-fmt-st-pend, .he-fmt-st-next) {
+  font-size: 12px !important; font-weight: 400 !important; padding: 0 !important;
+  border: 0 !important; background: transparent !important; box-shadow: none !important;
+}
+.he-record-workspace [data-clinical-document] .he-clinical-format-header { padding: 24px 28px; }
+.he-clinical-format-top { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.he-clinical-format-top > .he-clinical-document-identity { flex: 1 1 430px; }
+.he-clinical-format-top .he-clinical-main-actions { width: auto; border: 0; padding: 0; align-self: center !important; }
+.he-clinical-main-actions .he-clinical-signatures-toggle { order: -1; }
+.he-clinical-main-actions .he-fmt-btn-new { order: 2; }
+.he-clinical-signatures-toggle[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+.he-clinical-signatures-panel { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--record-line); }
+.he-clinical-signatures-panel > p { font-size: 12px; color: var(--record-muted); margin-bottom: 10px; }
+.he-clinical-signatures-panel .he-clinical-document-actions { border: 0; padding: 0; }
+.he-clinical-document-actions {
+  display: flex; flex-wrap: wrap;
+  width: 100%; justify-content: flex-start !important; align-self: stretch !important;
+  padding: 14px 0; border-top: 1px solid var(--record-line); gap: 8px !important;
+}
+.he-record-workspace .he-clinical-document-actions button {
+  min-height: 36px; padding: 7px 11px; font-size: 13px !important; font-weight: 500 !important;
+  border-radius: 6px !important; box-shadow: none !important; transform: none !important;
+  background: #fff !important; border: 1px solid var(--record-line) !important;
+  color: var(--record-text) !important; white-space: normal; text-align: left;
+}
+.he-record-workspace .he-clinical-document-actions button:hover { background: #f4f7fb !important; border-color: #aabdd2 !important; }
+.he-record-workspace .he-clinical-document-actions .he-fmt-btn-new {
+  margin-left: auto; background: var(--record-blue) !important; color: #fff !important;
+  border-color: var(--record-blue) !important;
+}
+.he-record-workspace .he-clinical-document-actions .he-fmt-btn-new:hover { background: #00386c !important; }
+/* Signature statuses with an audit action must read as controls, not plain badges. */
+.he-record-workspace [data-clinical-document] button:is(.he-fmt-st-ok, [title="Ver verificación de integridad y sello digital"]) {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px;
+  padding: 5px 10px !important; border: 1px solid #9bcbb6 !important;
+  border-radius: 6px !important; background: #eff9f4 !important; color: #116448 !important;
+  font-size: 12px !important; font-weight: 500 !important; cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.he-record-workspace [data-clinical-document] button:is(.he-fmt-st-ok, [title="Ver verificación de integridad y sello digital"]):hover {
+  background: #dff2e9 !important; border-color: #579b7b !important;
+}
+.he-record-workspace [data-clinical-document] button:is(.he-fmt-st-ok, [title="Ver verificación de integridad y sello digital"]):focus-visible {
+  outline: 2px solid #004687; outline-offset: 3px;
+}
+.he-record-workspace [data-clinical-document] .he-reg-box {
+  padding: 10px 0 16px; background: transparent !important;
+  border: 0 !important; border-bottom: 1px solid var(--record-line) !important;
+  border-radius: 0 !important;
+}
+.he-record-workspace [data-clinical-document] .he-reg-label {
+  font-size: 12px !important; font-weight: 500 !important; letter-spacing: 0 !important;
+  text-transform: none !important; color: var(--record-muted) !important; margin-bottom: 6px;
+}
+.he-record-workspace [data-clinical-document] .he-reg-label::before { display: none; }
+.he-record-workspace [data-clinical-document] .he-reg-box p {
+  font-size: 14px; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere;
+}
+.he-record-workspace [data-clinical-document] :is(.he-reg-tab, .he-det-tab) {
+  box-shadow: none; border-radius: 6px; font-size: 12px; font-weight: 500;
+}
+.he-record-workspace [data-clinical-document] .he-det-header {
+  background: #fff !important; padding: 24px; border-bottom: 1px solid var(--record-line);
+}
+.he-record-workspace [data-clinical-document] .he-det-header::before { display: none; }
+.he-record-workspace [data-clinical-document] .he-det-icon { background: var(--record-soft-blue) !important; box-shadow: none; }
+.he-record-workspace [data-clinical-document] .he-det-grid { border: 0; background: #fff; padding: 0; gap: 24px; }
+.he-record-workspace [data-clinical-document] .he-det-label { font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.he-record-workspace [data-clinical-document] .he-det-value { font-size: 14px; font-weight: 400; }
+.he-record-workspace [data-clinical-document] .he-det-value strong { font-weight: 500; }
+.he-record-workspace [data-clinical-document] .he-det-sign { flex-direction: column; align-items: stretch; background: #f8fafc !important; border-color: var(--record-line) !important; box-shadow: none; gap: 18px; }
+.he-record-workspace [data-clinical-document] .he-det-sign-title { text-transform: none; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.he-record-workspace [data-clinical-document] .he-det-sign-icon { box-shadow: none; }
+
+.he-clinical-editor-overlay {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgb(20 35 54 / 42%); overscroll-behavior: contain;
+}
+.he-clinical-editor {
+  width: min(100%, 960px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #dce3eb; border-radius: 12px; overflow: hidden;
+  color: #263548; box-shadow: 0 24px 80px rgb(15 23 42 / 20%);
+}
+.he-clinical-editor-header {
+  display: flex; align-items: flex-start; gap: 24px; flex-shrink: 0;
+  padding: 24px 32px 20px; border-bottom: 1px solid #e2e8ef;
+}
+.he-clinical-editor-heading { min-width: 0; flex: 1; }
+.he-clinical-editor-eyebrow { display: flex; align-items: center; gap: 7px; color: #617084; font-size: 11px; letter-spacing: .03em; overflow-wrap: anywhere; }
+.he-clinical-editor-eyebrow svg { flex-shrink: 0; }
+.he-clinical-editor h2 { margin-top: 7px; font-size: 21px; line-height: 1.4; letter-spacing: -.35px; font-weight: 600; }
+.he-clinical-editor h2:focus { outline: none; }
+.he-clinical-editor-patient { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 9px; font-size: 12px; color: #617084; }
+.he-clinical-editor-patient strong { font-weight: 500; color: #394a60; }
+.he-clinical-editor .he-clinical-editor-close { padding: 8px; border-radius: 6px; font-size: 19px; }
+.he-clinical-editor-form { display: flex; flex-direction: column; min-height: 0; }
+.he-clinical-editor-body { padding: 26px 32px 32px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; font-size: 14px; line-height: 1.6; }
+.he-clinical-editor-body > * + * { margin-top: 24px; }
+.he-clinical-editor-body .he-ed-sec {
+  background: transparent !important; border: 0 !important; border-radius: 0 !important;
+  padding: 0; overflow: visible;
+}
+.he-clinical-editor-body .he-ed-sec::before { display: none; }
+.he-clinical-editor-body :is(h4, .he-ed-sec > h4) {
+  font-size: 14px !important; font-weight: 600 !important; color: #263548 !important;
+  text-transform: none !important; letter-spacing: 0 !important; padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8ef; margin-bottom: 16px;
+}
+.he-clinical-editor-body label {
+  font-size: 13px !important; font-weight: 500 !important; text-transform: none !important;
+  letter-spacing: 0 !important; color: #425369 !important; line-height: 1.5; gap: 8px;
+}
+.he-clinical-editor-body label > span { font-weight: inherit; }
+.he-clinical-editor-body label > span:has(svg) { font-size: 11px; font-weight: 400; }
+.he-clinical-editor-body :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: 41px; font-size: 14px !important; font-weight: 400 !important; line-height: 1.5;
+  border: 1px solid #c7d1dd; border-radius: 6px !important; padding: 9px 11px;
+  background: #fff; color: #263548; box-shadow: none; max-width: 100%;
+}
+.he-clinical-editor-body :is(input, select, textarea):focus-visible {
+  outline: 2px solid #0088c9 !important; outline-offset: 2px; border-color: #004687; box-shadow: none;
+}
+.he-clinical-editor-body :is(input, textarea)::placeholder { color: #78889b; font-weight: 400; }
+.he-clinical-editor-body :is(input, textarea)[readonly] { background: #f5f7fa; color: #617084; border-color: #e2e8ef; }
+.he-clinical-editor-body textarea { resize: vertical; min-height: 96px !important; }
+.he-clinical-editor-body :is(input[type="checkbox"], input[type="radio"]) { flex-shrink: 0; accent-color: #004687; }
+.he-clinical-editor-body .grid { column-gap: 22px; row-gap: 16px; }
+.he-clinical-editor-body .grid > * { min-width: 0; }
+.he-clinical-editor-body > :is(.bg-slate-50, .bg-white) {
+  background: #fff !important; border: 0; border-radius: 0; padding: 0; box-shadow: none;
+}
+.he-clinical-editor-body .font-black { font-weight: 600; }
+.he-clinical-editor-body button { box-shadow: none !important; border-radius: 6px; }
+.he-clinical-editor-body :is(p, span).text-\[10px\],
+.he-clinical-editor-body :is(p, span).text-\[11px\] { font-size: 12px; }
+.he-clinical-editor-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-shrink: 0;
+  padding: 16px 32px; border-top: 1px solid #e2e8ef; background: #fff;
+}
+.he-clinical-editor-footer button { min-height: 42px; font-size: 13px; font-weight: 500; border-radius: 6px; box-shadow: none; white-space: nowrap; transition-property: background-color, border-color, color; }
+.he-clinical-editor-hint { margin-right: auto; font-size: 12px; color: #617084; }
+@media(max-width: 760px) {
+  .he-record-workspace [data-clinical-document] .he-fmt-head { padding: 18px 18px 0; }
+  .he-record-workspace [data-clinical-document] .he-clinical-format-header { padding: 18px; }
+  .he-clinical-format-top { gap: 16px; }
+  .he-record-workspace [data-clinical-document] h3 { font-size: 17px !important; }
+  .he-clinical-document-identity { gap: 10px; }
+  .he-clinical-document-identity > div:first-child { display: none; }
+  .he-clinical-document-actions { gap: 7px !important; }
+  .he-record-workspace .he-clinical-document-actions .he-fmt-btn-new { margin-left: 0; }
+  .he-clinical-editor-overlay { padding: 10px; }
+  .he-clinical-editor { max-height: calc(100dvh - 20px); border-radius: 10px; }
+  .he-clinical-editor-header { padding: 18px; gap: 8px; }
+  .he-clinical-editor h2 { font-size: 18px; }
+  .he-clinical-editor-body { padding: 20px 18px; }
+  .he-clinical-editor-body label { flex-wrap: wrap; }
+  .he-clinical-editor-body .grid { column-gap: 12px; }
+  .he-clinical-editor-body .flex:has(> label) { flex-wrap: wrap; gap: 8px; }
+  .he-clinical-editor-footer { padding: 12px 18px; }
+  .he-clinical-editor-hint { display: none; }
+}
+@media(max-width: 420px) {
+  .he-clinical-editor-overlay { padding: 0; }
+  .he-clinical-editor { max-height: 100dvh; height: 100dvh; border: 0; border-radius: 0; }
+  .he-clinical-editor-header { padding: 16px; }
+  .he-clinical-editor-form { flex: 1; }
+  .he-clinical-editor-body { flex: 1; padding: 20px 16px; }
+  .he-clinical-editor-body .grid:not(table .grid) { grid-template-columns: minmax(0,1fr); }
+  .he-clinical-editor-body .grid > * { grid-column: auto; }
+  .he-clinical-editor-footer { padding: 12px 16px; }
+  .he-clinical-editor-footer button { flex: 1; padding-left: 10px; padding-right: 10px; }
+}

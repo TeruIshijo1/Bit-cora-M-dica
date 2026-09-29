@@ -24,6 +24,7 @@ from route_policy import (  # noqa: E402
     REQUIRES_FUNCTIONAL_DECISION,
     WRITE_ROLE_POLICIES,
 )
+from access_control import route_modules, role_restricted_route
 
 
 @dataclass(frozen=True)
@@ -130,15 +131,15 @@ def expected_policy(entry: RouteEntry) -> tuple[str, str, str]:
         return "PUBLICA", "—", "allowlist exacta método+ruta"
     if key in REQUIRES_FUNCTIONAL_DECISION:
         return "ROL_ESPECIFICO", "REQUIERE_DECISION_FUNCIONAL", "bloqueada por defecto (403)"
-    if key in READ_ROLE_POLICIES:
-        roles = ", ".join(sorted(READ_ROLE_POLICIES[key]))
-        return "ROL_ESPECIFICO", roles, "middleware global + política de lectura clínica"
-    if key in WRITE_ROLE_POLICIES:
-        roles = ", ".join(sorted(WRITE_ROLE_POLICIES[key]))
-        return "ROL_ESPECIFICO", roles, "middleware global + política de escritura"
-    if entry.declared_roles:
-        return "ROL_ESPECIFICO", ", ".join(entry.declared_roles), "middleware global + dependencia local"
-    return "AUTENTICADA", "cualquier identidad activa", "middleware global"
+    required = route_modules(entry.method, entry.path)
+    if required is None:
+        return "ROL_ESPECIFICO", "SIN_POLITICA", "bloqueada por defecto (403)"
+    if not required:
+        return "AUTENTICADA", "identidad activa", "sesión / catálogo de permisos / shell SPA"
+    extra = ""
+    if role_restricted_route(entry.method, entry.path):
+        extra = "; además rol: " + ", ".join(sorted(WRITE_ROLE_POLICIES.get(key, entry.declared_roles)))
+    return "ROL_ESPECIFICO", "áreas: " + ", ".join(required) + extra, "permisos vigentes por usuario + formatos; nuevas escrituras requieren allowlist"
 
 
 def main() -> int:
@@ -209,7 +210,7 @@ def main() -> int:
                 f"- AUTENTICADA: **{counts['AUTENTICADA']}**",
                 f"- ROL_ESPECIFICO: **{counts['ROL_ESPECIFICO']}**",
                 "",
-                "La columna “roles actuales/locales” refleja dependencias declaradas en cada handler; el middleware global se aplica además a toda ruta no pública.",
+                "La columna “roles actuales/locales” refleja dependencias heredadas. La autorización efectiva usa access_catalog.json + access_control.py: permisos vigentes por usuario, límite RH y formatos. Las dependencias de rol aceptan el permiso de área validado, excepto operaciones médicas y suplantación que conservan su restricción de rol.",
                 "",
                 "| Endpoint | Acción | Roles actuales/locales | Roles esperados | Clase | Protección existente/faltante | Fuente |",
                 "|---|---|---|---|---|---|---|",

@@ -1,0 +1,141 @@
+/* Scoped to the patient record; forms, clinical state and other pages keep their contracts. */
+.he-premium-scope.he-record-workspace {
+  --record-text: #263548;
+  --record-muted: #617084;
+  --record-line: #ccd7e3;
+  --record-outline: #b5c5d6;
+  --record-blue: #004687;
+  --record-soft-blue: #edf4fb;
+  --record-alert: #ad303b;
+  background: #f5f7fa !important;
+  color: var(--record-text);
+  gap: 16px;
+  padding: 22px;
+}
+.he-record-workspace [hidden] { display: none !important; }
+.he-record-header { padding: 22px 24px 0; background: #fff; border: 1px solid var(--record-outline); border-radius: 12px; }
+.he-record-identity-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.he-record-avatar { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; background: var(--record-soft-blue); color: var(--record-blue); border-radius: 50%; font-size: 18px; font-weight: 500; }
+.he-record-identity { flex: 1; min-width: 200px; }
+.he-record-identity h1 { font-size: 23px; line-height: 1.35; font-weight: 600; letter-spacing: -.4px; overflow-wrap: anywhere; }
+.he-record-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 5px; color: var(--record-muted); font-size: 13px; }
+.he-record-mrn { font-weight: 500; color: var(--record-text); }
+.he-record-discharged { display: inline-flex; align-items: center; gap: 5px; }
+.he-record-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.he-record-header-actions .he-evolution-action, .he-record-header-actions .he-record-pdf {
+  padding: 9px 13px; border-radius: 7px; font-size: 13px; font-weight: 500; box-shadow: none;
+}
+.he-record-header-actions .he-evolution-action { background: var(--record-blue) !important; border: 1px solid var(--record-blue) !important; box-shadow: none !important; transform: none !important; }
+.he-record-header-actions .he-record-pdf { color: var(--record-blue); background: #fff; border: 1px solid var(--record-line); display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.he-record-header-actions .he-record-pdf:hover { background: #f5f7fa; }
+.he-record-disclosure { min-width: 0; background: #fff; border: 1px solid var(--record-outline); border-radius: 8px; }
+.he-record-disclosure .he-record-disclosure-toggle {
+  width: 100%; justify-content: flex-start; padding: 14px 17px; gap: 12px; flex-wrap: wrap;
+  border-radius: 8px; font-size: 13px; font-weight: 400; text-align: left; color: var(--record-text);
+}
+.he-record-disclosure-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.he-record-disclosure-title > svg, .he-record-chevron { width: 16px; height: 16px; color: var(--record-muted); flex-shrink: 0; }
+.he-record-disclosure .he-record-chevron { margin-left: auto; transition: transform .15s ease; }
+.he-record-disclosure-toggle[aria-expanded="true"] > .he-record-chevron { transform: rotate(180deg); }
+.he-record-disclosure-body { border-top: 1px solid var(--record-line); padding: 18px; }
+.he-record-patient-details { border: 0; margin: 5px 0 0 58px; }
+.he-record-patient-details .he-record-disclosure-toggle { width: auto; padding: 6px 0; color: var(--record-blue); font-size: 12px; }
+.he-record-patient-details .he-record-disclosure-body { border: 0; padding: 12px 0 18px; }
+.he-record-demographics { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px 26px; }
+.he-record-demographics dt { color: var(--record-muted); font-size: 12px; margin-bottom: 4px; }
+.he-record-demographics dd { font-size: 14px; overflow-wrap: anywhere; }
+.he-record-allergies { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 11px 0; border-top: 1px solid var(--record-line); color: var(--record-muted); font-size: 13px; }
+.he-record-allergies > svg { flex: 0 0 auto; }
+.he-record-allergies > span { flex: 1; min-width: 150px; overflow-wrap: anywhere; }
+.he-record-allergies strong { font-weight: 500; }
+.he-record-allergies.has-alert { color: var(--record-alert); }
+.he-record-allergies .he-record-manage-allergies { font-size: 12px; color: inherit; font-weight: 500; padding: 5px 8px; }
+.he-record-layout { display: grid; grid-template-columns: 205px minmax(0,1fr); align-items: start; gap: 22px; }
+.he-record-navigation { min-width: 0; position: sticky; top: 12px; }
+.he-record-nav { display: flex; flex-direction: column; gap: 4px; }
+.he-record-nav-label { padding: 10px 12px; color: var(--record-muted); font-size: 11px; letter-spacing: .06em; }
+.he-record-nav .he-record-nav-item { width: 100%; justify-content: flex-start; gap: 9px; padding: 11px 12px; font-size: 13px; line-height: 1.4; border-radius: 7px; font-weight: 400; color: var(--record-muted); text-align: left; white-space: normal; }
+.he-record-nav-item > svg { flex-shrink: 0; width: 16px; height: 16px; }
+.he-record-nav-item[aria-current="page"] { background: var(--record-soft-blue); color: var(--record-blue); font-weight: 600; }
+.he-record-nav-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.he-record-navigation .he-record-menu-toggle { display: none; }
+.he-record-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.he-record-reading-date { font-size: 12px; color: var(--record-muted); }
+.he-record-vital-alerts { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.he-record-vital-alerts + .he-record-chevron { margin-left: 0; }
+.he-record-vital-alert { display: inline-flex; align-items: center; gap: 5px; color: var(--record-alert); background: #fff2f3; padding: 3px 7px; border-radius: 4px; font-size: 12px; }
+.he-record-vital-alert > svg { width: 12px; height: 12px; flex-shrink: 0; }
+.he-record-vitals-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.he-record-vitals-actions button { font-weight: 500; border-radius: 7px; }
+.he-record-vitals-grid { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; }
+.he-record-vitals-grid .he-record-reading { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; padding: 13px 12px; border-radius: 7px; color: var(--record-text); font-weight: 400; text-align: left; }
+.he-record-reading.has-alert { background: #fff4f5; color: var(--record-alert); }
+.he-record-reading-label { color: var(--record-muted); font-size: 12px; }
+.he-record-reading-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.he-record-reading-value small { font-size: 11px; font-weight: 400; color: var(--record-muted); }
+.he-record-reading-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.he-record-reading-flag > svg { width: 12px; height: 12px; }
+.he-record-empty { color: var(--record-muted); font-size: 13px; }
+.he-record-orders .he-record-disclosure-body { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); gap: 22px; }
+.he-record-orders .he-side-card { min-width: 0; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; padding: 0; background: #fff !important; }
+.he-record-orders .he-side-card::before { display: none; }
+.he-record-orders .he-side-card .font-black { font-weight: 600; }
+.he-record-main .he-det-nav { background: transparent !important; box-shadow: none !important; border: 0 !important; padding: 0; flex-wrap: wrap; gap: 10px; }
+.he-record-main .he-det-nav .he-btn-ghost { padding: 6px 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; font-weight: 400 !important; color: var(--record-muted); }
+.he-record-main .he-catalog { background: #fff !important; box-shadow: none !important; border: 1px solid var(--record-outline) !important; border-radius: 10px !important; padding: 24px; }
+.he-record-main .he-catalog::before { display: none; }
+.he-record-catalog-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; }
+.he-record-catalog-heading h2 { font-size: 21px; font-weight: 600; }
+.he-record-catalog-heading p { font-size: 13px; color: var(--record-muted); margin-top: 5px; }
+.he-record-catalog-search { position: relative; width: min(100%, 290px); }
+.he-record-catalog-search > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--record-muted); }
+.he-record-catalog-search input { width: 100%; border: 1px solid #c6cfda; background: #fff; padding: 10px 12px 10px 36px; border-radius: 7px; font-size: 13px; }
+.he-record-catalog-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px; }
+.he-record-catalog-filters button { font-size: 12px; font-weight: 400; border-radius: 6px; }
+.he-record-catalog-filters button[aria-pressed="true"] { color: var(--record-blue); background: var(--record-soft-blue); }
+.he-record-format-list { display: flex; flex-direction: column; }
+.he-record-format-list .he-record-format { justify-content: flex-start; width: 100%; gap: 13px; padding: 17px 4px; border: 0; border-bottom: 1px solid var(--record-line); border-radius: 0; text-align: left; white-space: normal; color: var(--record-text); }
+.he-record-format:last-child { border-bottom: 0; }
+.he-record-format > svg { color: var(--record-blue); flex-shrink: 0; }
+.he-record-format-copy { flex: 1; min-width: 0; }
+.he-record-format-copy strong { display: block; font-size: 14px; font-weight: 500; }
+.he-record-format-copy small { display: block; font-size: 12px; font-weight: 400; color: var(--record-muted); margin-top: 4px; overflow-wrap: anywhere; }
+.he-record-format-state { font-size: 11px; font-weight: 400; color: var(--record-muted); }
+.he-record-main #signature-repair-format-panel > .shadow-sm { box-shadow: none; border-radius: 10px; }
+@media(max-width: 1400px) {
+  .he-record-vitals-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+@media(max-width: 1000px) {
+  .he-record-header-actions { flex-basis: 100%; margin-left: 58px; }
+  .he-record-layout { grid-template-columns: 185px minmax(0,1fr); gap: 16px; }
+  .he-record-reading-date { order: 4; width: 100%; }
+  .he-record-orders .he-record-disclosure-body { grid-template-columns: 1fr; }
+  .he-record-demographics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width: 760px) {
+  .he-premium-scope.he-record-workspace { padding: 12px; gap: 12px; }
+  .he-record-header { padding: 16px 16px 0; }
+  .he-record-identity h1 { font-size: 20px; }
+  .he-record-layout { display: flex; flex-direction: column; gap: 14px; }
+  .he-record-navigation { width: 100%; position: static; }
+  .he-record-navigation .he-record-menu-toggle { display: flex; justify-content: flex-start; width: 100%; border: 1px solid var(--record-line); border-radius: 7px; background: #fff; color: var(--record-blue); font-weight: 500; font-size: 13px; }
+  .he-record-menu-toggle > svg:last-child { margin-left: auto; }
+  .he-record-nav { display: none; padding: 10px 0; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .he-record-navigation.is-menu-open .he-record-nav { display: grid; }
+  .he-record-nav-label { display: none; }
+  .he-record-main { width: 100%; gap: 16px; }
+  .he-record-header-actions, .he-record-patient-details { margin-left: 0; }
+  .he-record-disclosure .he-record-disclosure-toggle { gap: 8px; padding: 12px; }
+  .he-record-patient-details .he-record-disclosure-toggle { padding: 6px 0; }
+  .he-record-main .he-catalog { padding: 18px; }
+}
+@media(max-width: 420px) {
+  .he-record-avatar { width: 36px; height: 36px; }
+  .he-record-identity { min-width: 160px; }
+  .he-record-vitals-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .he-record-disclosure-body { padding: 12px; }
+  .he-record-demographics { grid-template-columns: 1fr; }
+  .he-record-vital-alerts { order: 3; width: 100%; margin-left: 0; }
+  .he-record-format-state { display: none; }
+}
+@media(prefers-reduced-motion: reduce) { .he-record-chevron { transition: none !important; } }

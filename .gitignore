@@ -68,3 +68,9 @@ Instalacion_Enfermeria/MANIFEST.sha256.json
 .pytest_cache/
 test_*.png
 dummy_*.pdf
+
+# Extra ignores added
+tmp/
+backend/tmp/
+output/
+backend/static/qr_cache/

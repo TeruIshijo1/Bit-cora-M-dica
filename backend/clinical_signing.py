@@ -33,24 +33,149 @@ class CanonicalPayloadError(ValueError):
     """The stored canonical snapshot is malformed or internally inconsistent."""
 
 
-def requires_consent_signers(code: str) -> bool:
-    """Existing consent/voluntary-discharge formats, not every clinical note."""
+ONE_WITNESS_CONSENT_TABLES = frozenset({"MR_CI_CC", "MR_CI_APA", "MR_CI_CES"})
+NO_WITNESS_CONSENT_TABLES = frozenset({"MR_CI_EED"})
+TWO_WITNESS_CONSENT_TABLES = frozenset({
+    "MR_02_CI_TRATAMIENTO_QUIRURGICO", "MR_08_CI_DIAGNOSTICO_ADMISION_CONTI",
+    "MR_MR_CI_HOSP", "MR_CI_AUT_TRANS_HEMO", "MR_CI_EMI", "MR_CI_ETE_CARD",
+    "MR_CI_HISTERECTOMIA", "MR_CI_NO_REANIMACION", "MR_CI_OI", "MR_CI_PQ",
+    "MR_CI_REANIMACION", "MR_CI_RGO_CE", "MR_CI_RGO_HU", "MR_CI_TINA",
+})
+MEDICAL_ONLY_TABLES = frozenset({
+    "MR_24_HOJA_EVOL", "MR_26_01", "MR_ERC_HOS", "MR_EV_HOSP", "MR_HC_HOS",
+    "MR_HC_URG", "MR_LV_SPI", "MR_N_POST_OP", "MR_NE_URG", "MR_PLT_79",
+    "MR_RCE_Q", "MR_RPS_FQ", "MR_RTOE_PACE", "MR_RTOE_RPA", "MR_SOL_DIET",
+    "MR_SOL_OP", "MR_TERM_EMB", "MR_URGENCIAS", "MR_VRA_HOS",
+})
+EVOLUTION_CONSENT_CODES = frozenset({
+    # This authorization form shares MR_EV_HOSP with ordinary progress notes.
+    "HE-DIRMED-SINPRO-PLT-15", "SINPRO-PLT-15", "PLT-EV-15",
+})
+
+
+def consent_signature_policy(code: str) -> tuple[bool, int]:
+    """Return (authorizer required, witness count) for a registered format.
+
+    Every resolvable clinical source needs an explicit policy. New modules must
+    declare one before signing; an unknown source cannot silently become a
+    medical-only note and bypass a patient authorization.
+    """
     from vertical_signer import resolve_vertical_controller_and_pk
+
+    normalized = str(code or "").strip().upper()
     try:
-        table, _ = resolve_vertical_controller_and_pk(code)
-    except ValueError:
-        return False  # The authoritative loader rejects unregistered documents.
-    return table.startswith("MR_CI_") or table in {
-        "MR_02_CI_TRATAMIENTO_QUIRURGICO", "MR_08_CI_DIAGNOSTICO_ADMISION_CONTI",
-        "MR_MR_CI_HOSP",
-    } or code.upper() in {"HE-DIRMED-SINPRO-PLT-15", "SINPRO-PLT-15", "PLT-EV-15"}
+        table, _ = resolve_vertical_controller_and_pk(normalized)
+    except ValueError as exc:
+        raise ClinicalDocumentUnavailable(str(exc)) from exc
+    if normalized in EVOLUTION_CONSENT_CODES:
+        return True, 2
+    if table in ONE_WITNESS_CONSENT_TABLES:
+        return True, 1
+    if table in NO_WITNESS_CONSENT_TABLES:
+        return True, 0
+    if table in TWO_WITNESS_CONSENT_TABLES:
+        return True, 2
+    if table in MEDICAL_ONLY_TABLES:
+        return False, 0
+    raise ClinicalDocumentUnavailable(
+        "Este formato todavía no tiene definida su regla de firmas. Solicite su configuración antes de firmar."
+    )
 
 
-def consent_signatures_complete(info) -> bool:
-    ids = [info.get(key) for key in ("firmante_paciente_id", "firmante_testigo1_id", "firmante_testigo2_id")]
-    return all(ids) and len(set(ids)) == 3 and all(info.get(key) for key in (
-        "sello_paciente", "sello_testigo1", "sello_testigo2",
-    ))
+def special_signature_requirements(code: str) -> list[str]:
+    """Return additional signer roles declared by the active format catalog."""
+    from format_catalog import special_signature_requirements as catalog_requirements
+
+    return catalog_requirements(code)
+
+
+def required_consent_witnesses(code: str) -> int:
+    """Witness places in the registered document, before authorizer adjustment."""
+    return consent_signature_policy(code)[1]
+
+
+def minimum_consent_witnesses_for_closure(code: str, authorizer_role: str | None) -> int:
+    """Return the operational minimum; all template witness places remain open.
+
+    This threshold describes workflow completion only. It must not be used as
+    a declaration that the document meets NOM witness requirements.
+    """
+    expected = required_consent_witnesses(code)
+    role = str(authorizer_role or "").strip().upper()
+    if role in {"REPRESENTANTE_LEGAL", "TUTOR", "FAMILIAR"}:
+        return 0
+    return min(1, expected)
+
+
+def required_consent_witnesses_for_authorizer(code: str, authorizer_role: str | None) -> int:
+    """Compatibility name for the operational closure minimum."""
+    return minimum_consent_witnesses_for_closure(code, authorizer_role)
+
+
+def requires_consent_signers(code: str) -> bool:
+    """Whether the patient/representative authorization is part of the flow.
+
+    A zero witness count does not mean that the patient signature is optional:
+    EED, for example, has an authorization block but no witness line.
+    """
+    return consent_signature_policy(code)[0]
+
+
+def consent_signatures_complete(info, *, required_witnesses: int) -> bool:
+    """Validate the authorizer, signed identities and minimum for closure."""
+    if required_witnesses not in (0, 1, 2):
+        raise ValueError("La política de firmas debe requerir entre cero y dos testigos")
+    if not info.get("firmante_paciente_id") or not info.get("sello_paciente"):
+        return False
+    witness_ids = []
+    for index in (1, 2):
+        if not info.get(f"sello_testigo{index}"):
+            continue
+        witness_id = info.get(f"firmante_testigo{index}_id")
+        if not witness_id:
+            return False
+        witness_ids.append(witness_id)
+    all_ids = [info["firmante_paciente_id"], *witness_ids]
+    return len(set(all_ids)) == len(all_ids) and len(witness_ids) >= required_witnesses
+
+
+def signed_witness_count(info) -> int:
+    """Count distinct signed witnesses, excluding the authorizer."""
+    authorizer_id = info.get("firmante_paciente_id")
+    return len({
+        info.get(f"firmante_testigo{index}_id")
+        for index in (1, 2)
+        if info.get(f"sello_testigo{index}")
+        and info.get(f"firmante_testigo{index}_id")
+        and info.get(f"firmante_testigo{index}_id") != authorizer_id
+    })
+
+
+def explicit_patient_capacity(document: ClinicalDocument) -> bool | None:
+    """Read only an explicit capacity decision from the signed source snapshot.
+
+    Legacy Vertical records often omit this field. Interrogation type, age,
+    representative name and PDF defaults are not proof of patient capacity.
+    In those cases return None, never invent a clinical decision.
+    """
+    content = getattr(document, "contenido_clinico", None)
+    if not isinstance(content, Mapping):
+        return None
+    value = next(
+        (item for key, item in content.items() if str(key).strip().lower() == "paciente_capaz"),
+        None,
+    )
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "si", "sí", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
 
 
 def load_document_after_capture(db, **kwargs):
@@ -135,6 +260,26 @@ def document_digest(document: ClinicalDocument) -> str:
     }))
 
 
+_URGENCY_NATIVE_SIGNATURE_FIELDS = frozenset({
+    "signed_by", "signed_on", "es_signature", "mr_st", "firmado",
+})
+
+
+def _clinical_content_for_comparison(source_identifier: str, content: Mapping[str, Any]) -> dict[str, Any]:
+    """Ignore native-signature metadata, but only for the MR_NE_URG source.
+
+    Older 87/01 snapshots retain their original signed bytes. We verify those
+    bytes first and compare only clinical fields with the current source.
+    """
+    normalized = _normalise(content)
+    if str(source_identifier).startswith("MR_NE_URG:"):
+        return {
+            key: value for key, value in normalized.items()
+            if key.lower() not in _URGENCY_NATIVE_SIGNATURE_FIELDS
+        }
+    return normalized
+
+
 def evidence_matches_current(db, signature, document: ClinicalDocument) -> bool:
     """Do not stamp an operational PDF using stale, legacy or misbound evidence."""
     try:
@@ -152,17 +297,29 @@ def evidence_matches_current(db, signature, document: ClinicalDocument) -> bool:
             payload.get("tipo_documento") == document.tipo_documento,
             str(payload.get("version_documento")) == str(document.version_documento) == str(signature.document_version),
             payload.get("source_identifier") == document.source_identifier,
-            payload.get("contenido_clinico") == _normalise(document.contenido_clinico),
+            _clinical_content_for_comparison(
+                document.source_identifier, payload.get("contenido_clinico") or {},
+            ) == _clinical_content_for_comparison(
+                document.source_identifier, document.contenido_clinico,
+            ),
         )):
             return False
         if signature.signature_schema_version == SCHEMA_VERSION:
             return bool(verify_signature_record(db, signature)["complete"])
         signer = payload.get("firmante") or {}
-        return signature.signature_schema_version == BIOMETRIC_EVIDENCE_VERSION and all((
-            signer.get("firmante_id") == signature.firmante_id,
+        common_identity_matches = all((
             signer.get("rol") == signature.rol_firmante,
             signer.get("nombre") == signature.nombre_medico,
         ))
+        if signature.usuario_firmante_id is not None:
+            signer_identity_matches = all((
+                signer.get("firmante_id") is None,
+                signature.firmante_id is None,
+                signer.get("usuario_firmante_id") == signature.usuario_firmante_id,
+            ))
+        else:
+            signer_identity_matches = signer.get("firmante_id") == signature.firmante_id
+        return signature.signature_schema_version == BIOMETRIC_EVIDENCE_VERSION and common_identity_matches and signer_identity_matches
     except (AttributeError, TypeError, ValueError, KeyError):
         return False
 
@@ -222,11 +379,12 @@ def build_biometric_evidence_payload(
     expediente: str,
     evolution_slot: int,
     patient_identity: Mapping[str, Any],
-    firmante_id: int,
+    firmante_id: Optional[int],
     rol_firmante: str,
     nombre_firmante: str,
     identificacion: Optional[str],
     signed_at: dt.datetime,
+    usuario_firmante_id: Optional[int] = None,
 ) -> tuple[dict[str, Any], bytes, str]:
     if signed_at.tzinfo is None or signed_at.utcoffset() is None:
         raise CanonicalPayloadError("fecha_hora_firma debe incluir zona horaria")
@@ -242,7 +400,8 @@ def build_biometric_evidence_payload(
         "source_identifier": document.source_identifier,
         "contenido_clinico": _normalise(document.contenido_clinico),
         "firmante": {
-            "firmante_id": int(firmante_id),
+            "firmante_id": int(firmante_id) if firmante_id is not None else None,
+            "usuario_firmante_id": int(usuario_firmante_id) if usuario_firmante_id is not None else None,
             "rol": rol_firmante,
             "nombre": nombre_firmante,
             "identificacion": identificacion,
@@ -398,7 +557,11 @@ def compare_current_document(db, signature) -> Optional[bool]:
         return None
     return all(
         (
-            _normalise(document.contenido_clinico) == payload.get("contenido_clinico"),
+            _clinical_content_for_comparison(
+                document.source_identifier, document.contenido_clinico,
+            ) == _clinical_content_for_comparison(
+                document.source_identifier, payload.get("contenido_clinico") or {},
+            ),
             str(document.version_documento) == str(payload.get("version_documento")),
             str(document.source_identifier) == str(payload.get("source_identifier")),
             document.tipo_documento == payload.get("tipo_documento"),
@@ -496,7 +659,12 @@ def _load_vertical_document(pt_num: str, codigo_formato: str, slot: int) -> dict
         evolution = (dashboard.get("evoluciones") or {}).get(f"evolucion{slot or 1}")
         if not evolution:
             raise ClinicalDocumentUnavailable("La evolución solicitada no existe")
-        source = dict(evolution)
+        # SignRecord mutates these fields on the same Vertical row, without
+        # changing the medical note. Keep them outside new signed snapshots.
+        source = _clinical_content_for_comparison(
+            f"MR_NE_URG:{evolution.get('mrnum_ne_urg')}:{evolution.get('slot_in_row')}",
+            evolution,
+        )
         source["__version_documento__"] = source.get("date_iso") or source.get("created_on") or 1
         source["__source_identifier__"] = f"MR_NE_URG:{source.get('mrnum_ne_urg')}:{source.get('slot_in_row')}"
         return source

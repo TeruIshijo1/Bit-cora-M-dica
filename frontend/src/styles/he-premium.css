@@ -1854,3 +1854,487 @@
   color: #fff !important;
   box-shadow: none !important;
 }
+
+/* ---- Cabecera clínica: jerarquía clara y responsive ---- */
+.he-top-patient {
+  min-height: 86px;
+  padding-top: 14px !important;
+  padding-bottom: 14px !important;
+  border-radius: 14px !important;
+  background: linear-gradient(105deg, #ffffff 0%, #fbfdff 72%, #f3fafb 100%) !important;
+}
+
+.he-top-patient::before {
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+}
+
+.he-patient-identity {
+  flex: 1 1 auto;
+}
+
+.he-avatar {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 14px !important;
+  font-size: 1.15rem !important;
+}
+
+.he-patient-kicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-bottom: 3px;
+  min-height: 18px;
+}
+
+.he-patient-label,
+.he-patient-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 1;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.he-patient-label {
+  color: #075985;
+  background: #eff8fc;
+  border: 1px solid #b9e5f5;
+}
+
+.he-patient-label svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.4;
+}
+
+.he-patient-status-bed {
+  max-width: min(260px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  letter-spacing: .03em;
+  text-transform: none;
+}
+
+.he-patient-status-discharged {
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  letter-spacing: .03em;
+}
+
+.he-patient-name {
+  max-width: 100%;
+  margin: 0;
+  color: #0f2a4e !important;
+  font-size: clamp(1.1rem, 1.65vw, 1.45rem) !important;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.he-patient-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.he-patient-meta strong {
+  color: #334155;
+  font-weight: 750;
+}
+
+.he-meta-separator {
+  color: #94a3b8;
+  user-select: none;
+}
+
+.he-patient-actions {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.he-evolution-action {
+  min-height: 44px;
+  border-radius: 12px !important;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #004687 0%, #0069a8 100%) !important;
+  border: 1px solid #003b73 !important;
+  box-shadow: 0 6px 14px -8px rgba(0, 70, 135, .72), inset 0 1px 0 rgba(255, 255, 255, .18) !important;
+}
+
+.he-evolution-action:hover {
+  background: linear-gradient(135deg, #003b73 0%, #005b94 100%) !important;
+  box-shadow: 0 8px 18px -8px rgba(0, 70, 135, .78), inset 0 1px 0 rgba(255, 255, 255, .2) !important;
+}
+
+.he-evolution-action svg {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .he-top-patient {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .he-patient-actions {
+    justify-content: flex-start;
+    padding-left: 57px;
+  }
+}
+
+@media (max-width: 640px) {
+  .he-top-patient {
+    padding-left: 17px !important;
+  }
+
+  .he-patient-actions {
+    padding-left: 0;
+  }
+}
+
+/* ---- Tarjeta clínica: resumen y monitoreo ---- */
+.he-vitals-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+  border-color: #dce6f0 !important;
+  box-shadow: 0 10px 28px -22px rgba(15, 42, 78, .45) !important;
+}
+
+.he-demo-grid {
+  border-bottom-color: #e7eef5 !important;
+}
+
+.he-demo-box {
+  position: relative;
+  overflow: hidden;
+  padding: 11px 13px 12px 15px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f5f8fb 100%);
+  border-color: #e4ebf3;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.he-demo-box::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #b9cce0;
+}
+
+.he-demo-box:hover {
+  border-color: #c9d9e8;
+  box-shadow: 0 6px 14px -12px rgba(15, 42, 78, .4);
+  transform: translateY(-1px);
+}
+
+.he-demo-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: #7b8da4;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .09em;
+}
+
+.he-demo-label svg {
+  width: 12px;
+  height: 12px;
+  color: #4f78a0;
+  stroke-width: 2.2;
+}
+
+.he-demo-value {
+  color: #102c4f;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.he-demo-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.he-demo-heading .he-demo-label {
+  margin-bottom: 0;
+}
+
+.he-demo-action {
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: #385d80;
+  font-size: 10px;
+  font-weight: 800;
+  transition: background .15s ease, color .15s ease;
+}
+
+.he-demo-action:hover {
+  color: #0f2a4e;
+  background: #eaf2f9;
+}
+
+.he-demo-action svg {
+  width: 11px;
+  height: 11px;
+}
+
+.he-demo-allergy {
+  background: linear-gradient(135deg, #fffafa 0%, #fff6f6 100%);
+  border-color: #f4d7da;
+}
+
+.he-demo-allergy::before {
+  background: #e87979;
+}
+
+.he-demo-allergy .he-demo-label svg {
+  color: #c45b5b;
+}
+
+.he-allergy-value {
+  min-height: 30px;
+  padding: 7px 10px !important;
+  line-height: 1.3;
+}
+
+.he-allergy-alert {
+  background: #fff1f2;
+  border-color: #f7b9c0;
+  color: #b4232f;
+}
+
+.he-allergy-ok {
+  background: #f7fafc;
+  border-color: #dbe5ee;
+  color: #66788d;
+}
+
+.he-vitals-section-head {
+  min-height: 38px;
+}
+
+.he-vitals-heading {
+  min-width: 0;
+}
+
+.he-vitals-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid #cce2f1;
+  border-radius: 10px;
+  color: #0075ad;
+  background: #eff8fc;
+}
+
+.he-vitals-title-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.he-vitals-title {
+  color: #0f2a4e;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.he-vitals-last {
+  color: #8493a5;
+  font-size: 11px;
+}
+
+.he-vitals-last strong {
+  color: #52657a;
+}
+
+.he-vitals-actions .he-btn-ghost,
+.he-vitals-actions .he-btn-navy {
+  min-height: 36px;
+}
+
+.he-vitals-grid {
+  gap: 10px !important;
+  margin-top: 13px !important;
+}
+
+.he-vital-tile {
+  min-height: 80px;
+  position: relative;
+  overflow: hidden;
+  padding: 12px !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #fbfdff 100%) !important;
+  border-color: #dce6f0 !important;
+}
+
+.he-vital-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: #b8cee2;
+}
+
+.he-vital-tile:hover {
+  border-color: #9fb8cf !important;
+  box-shadow: 0 8px 18px -14px rgba(15, 42, 78, .42) !important;
+  transform: translateY(-1px);
+}
+
+.he-vital-tile.alert {
+  background: linear-gradient(135deg, #fffafa 0%, #fff6f6 100%) !important;
+  border-color: #f2b8bd !important;
+}
+
+.he-vital-tile.alert::before {
+  background: #dc5d67;
+}
+
+.he-vital-tile.alert:hover {
+  border-color: #e7838a !important;
+}
+
+.he-vital-icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px !important;
+}
+
+.he-vital-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.he-vital-copy {
+  padding-left: 2px;
+}
+
+.he-vital-label-row {
+  min-height: 17px;
+}
+
+.he-vital-tile .he-reg-label {
+  margin-bottom: 0;
+  color: #314863 !important;
+  font-size: 11px !important;
+  letter-spacing: .055em !important;
+}
+
+.he-vital-tile .he-reg-label::before {
+  content: none;
+}
+
+.he-vital-value {
+  color: #0f2a4e;
+  font-size: 20px !important;
+  line-height: 1.1;
+}
+
+.he-vital-unit {
+  color: #8191a3 !important;
+  font-size: 10px !important;
+}
+
+.he-vital-flag {
+  padding: 3px 7px;
+  font-size: 8.5px;
+  letter-spacing: .06em;
+}
+
+/* ---- Modal de captura de signos: más amplio y cómodo ---- */
+.he-vitals-entry-modal {
+  border-color: #dce6f0 !important;
+  box-shadow: 0 24px 70px -28px rgba(15, 42, 78, .42), 0 10px 28px rgba(15, 42, 78, .14) !important;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c9dc transparent;
+}
+
+.he-vitals-entry-modal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.he-vitals-entry-modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.he-vitals-entry-modal::-webkit-scrollbar-thumb {
+  background: #b8c9dc;
+  border: 2px solid #fff;
+  border-radius: 999px;
+}
+
+.he-vitals-entry-modal label {
+  color: #334155 !important;
+}
+
+.he-vitals-entry-modal input {
+  min-height: 44px;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+}
+
+.he-vitals-entry-modal input::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+.he-vitals-bmi-value {
+  color: #0f172a !important;
+  font-size: 19px !important;
+}
+
+@media (max-width: 640px) {
+  .he-vitals-entry-modal {
+    border-radius: 22px !important;
+    padding: 18px !important;
+  }
+
+  .he-vitals-card {
+    padding: 16px !important;
+  }
+
+  .he-vitals-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .he-vital-tile {
+    min-height: 74px;
+    padding: 10px !important;
+  }
+}

@@ -11,12 +11,14 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 
 BLUE_BAR_COLOR = colors.HexColor('#005691')
@@ -30,7 +32,7 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None, firma_data: dict = No
         pt_data['firma_data'] = firma_data
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 64.0
@@ -132,7 +134,6 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None, firma_data: dict = No
         paciente_capaz = bool(raw_capaz)
 
     responsable_nom = (pt_data.get('responsable') or pt_data.get('pariente') or pt_data.get('representante_legal') or pt_data.get('declarante') or '').strip()
-    has_tutor = bool(responsable_nom) or (not paciente_capaz)
 
     parentesco_tutor = (pt_data.get('parentesco') or pt_data.get('parentesco_declarante') or pt_data.get('parentesco_paciente') or 'Tutor / Representante Legal').strip()
     if parentesco_tutor.upper() in ('PACIENTE', 'TITULAR', 'DIRECTO'):
@@ -140,9 +141,13 @@ def generar_pdf_eed(pt_data: dict, force_output_path=None, firma_data: dict = No
 
     paciente_clean = re.sub(r'\s*\([^)]*\)', '', str(pt_data.get('nombre', '') or '')).strip()
     resp_clean = re.sub(r'\s*\([^)]*\)', '', str(responsable_nom or ('Tutor / Representante Legal' if not paciente_capaz else ''))).strip()
+    has_tutor = (not paciente_capaz) or bool(
+        resp_clean and resp_clean.casefold() != paciente_clean.casefold()
+    )
 
     paciente_txt = f"<b>{paciente_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: Paciente</b></i></font>" if paciente_clean else "<b>Nombre completo del paciente</b>"
-    resp_txt = f"<b>{resp_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_tutor}</b></i></font>" if resp_clean else "<b>Nombre completo del familiar o tutor</b>"
+    resp_display = resp_clean if has_tutor else ''
+    resp_txt = f"<b>{resp_display}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_tutor}</b></i></font>" if resp_display else "<b>Nombre completo del familiar o tutor</b>"
 
     sig_row1 = [
         [

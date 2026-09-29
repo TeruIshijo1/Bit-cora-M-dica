@@ -1,0 +1,34 @@
+{
+  "roles": [
+    {"id":"admin","label":"Administrador"},
+    {"id":"sistemas","label":"Sistemas"},
+    {"id":"rh","label":"Recursos Humanos (RH)"},
+    {"id":"director","label":"Dirección"},
+    {"id":"enfermeria","label":"Enfermería"},
+    {"id":"trabajo_social","label":"Trabajo Social"},
+    {"id":"nutricion","label":"Nutrición"},
+    {"id":"limpieza","label":"Limpieza / Mantenimiento"},
+    {"id":"laboratorio","label":"Laboratorio"},
+    {"id":"banco_sangre","label":"Banco de Sangre"}
+  ],
+  "modules": [
+    {"id":"dashboard","label":"Dashboard","group":"Administración","path":"/admin","tab":"dashboard","defaults":["admin","sistemas","rh","director"]},
+    {"id":"historial","label":"Historial Global","group":"Administración","path":"/admin","tab":"historial","defaults":["admin","sistemas","rh"]},
+    {"id":"pacientes","label":"Pacientes","group":"Administración","path":"/admin","tab":"pacientes","defaults":["admin","sistemas"]},
+    {"id":"alta","label":"Alta de Médicos","group":"Personal","path":"/admin","tab":"alta","defaults":["admin","sistemas","rh"]},
+    {"id":"directorio","label":"Directorio","group":"Personal","path":"/admin","tab":"directorio","defaults":["admin","sistemas","rh"]},
+    {"id":"escaneos","label":"Escaneos Diarios","group":"Personal","path":"/admin","tab":"escaneos","defaults":["admin","sistemas","rh"]},
+    {"id":"catalogos","label":"Catálogos","group":"Configuración","path":"/admin","tab":"catalogos","defaults":["admin","sistemas"]},
+    {"id":"auditoria","label":"Auditoría","group":"Configuración","path":"/admin","tab":"auditoria","defaults":["admin","sistemas"]},
+    {"id":"usuarios","label":"Usuarios y permisos","group":"Configuración","path":"/admin","tab":"usuarios","defaults":["admin","sistemas"],"roles":["admin","sistemas"]},
+    {"id":"respaldos","label":"Respaldos","group":"Configuración","path":"/admin","tab":"respaldos","defaults":["admin","sistemas"],"roles":["admin","sistemas"]},
+    {"id":"agenda","label":"Agenda Médica","group":"Atención clínica","path":"/agenda","defaults":["admin","sistemas","medico","ayudante","enfermeria"]},
+    {"id":"camas","label":"Censo de Camas","group":"Atención clínica","path":"/camas","defaults":["admin","sistemas","medico","ayudante","enfermeria","limpieza"]},
+    {"id":"ehr","label":"Expediente Clínico","group":"Atención clínica","path":"/ehr","defaults":["admin","sistemas","medico","ayudante","enfermeria"]},
+    {"id":"captura_enfermeria","label":"Captura de Enfermería","group":"Atención clínica","path":"/captura","defaults":["admin","sistemas","enfermeria"]},
+    {"id":"captura_medica","label":"Firmas pendientes","group":"Atención clínica","path":"/firma-express","defaults":["admin","medico","ayudante"],"roles":["admin","medico","ayudante"]},
+    {"id":"firmas_area","label":"Firmas del área","group":"Atención clínica","path":"/firmas-area","defaults":[]}
+  ],
+  "role_limits": {"rh":["dashboard","historial","alta","directorio","escaneos"],"banco_sangre":["firmas_area"]},
+  "legacy_groups": {"admin":["dashboard","historial","pacientes","alta","directorio","escaneos","catalogos","auditoria","usuarios","respaldos"],"rh":["dashboard","historial","alta","directorio","escaneos"]}
+}

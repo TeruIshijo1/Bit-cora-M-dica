@@ -12,12 +12,14 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 
 def generate_consentimiento_12(pt_data: dict, output_path: str = None, firma_data: dict = None) -> str:
@@ -29,7 +31,7 @@ def generate_consentimiento_12(pt_data: dict, output_path: str = None, firma_dat
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0  # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0

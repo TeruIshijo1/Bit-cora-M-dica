@@ -12,12 +12,14 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, DARK_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 
 BLUE_BANNER_BG = colors.HexColor('#EBF3FA')
@@ -45,7 +47,7 @@ def generate_consentimiento_02(pt_data: dict, output_path: str = None, firma_dat
 
     # Margen horizontal estricto respetando la barra lateral
     content_x = FRAME_X + 14.0
-    content_w = FRAME_W - 36.0  # ~533.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 39.0
     frame_top = (FRAME_Y + FRAME_H) - 59.5
@@ -144,6 +146,7 @@ def generate_consentimiento_02(pt_data: dict, output_path: str = None, firma_dat
         'folio': expediente or pt_data.get('pt_num', ''),
         'pt_num': str(pt_data.get('pt_num') or expediente or ''),
         'slot': pt_data.get('slot') or pt_data.get('mrnum') or 1,
+        'qr_data': pt_data.get('qr_data') or pt_data.get('qr_url'),
         'draw_qr': True
     }
 

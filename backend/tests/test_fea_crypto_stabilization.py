@@ -568,6 +568,15 @@ def test_24_tsa_outage_is_pending_not_verified(monkeypatch):
     assert result["verificado"] is False
 
 
+def test_24b_tsa_token_without_configured_trust_store_remains_pending(monkeypatch):
+    digest = hashlib.sha256(b"payload TSA").digest()
+    token, _root, nonce = _tsa_token(digest)
+    monkeypatch.delenv("TSA_TRUST_STORE", raising=False)
+    result = tsa_client.verify_timestamp(token, digest.hex(), expected_nonce=nonce)
+    assert result["status"] == tsa_client.TSA_PENDIENTE
+    assert result["verificado"] is False
+
+
 def test_25_tsa_retry_does_not_modify_original_ecdsa(db, monkeypatch):
     _, signature, _ = _signed_record(db)
     original = signature.sello_digital

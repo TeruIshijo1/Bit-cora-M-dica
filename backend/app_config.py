@@ -8,6 +8,7 @@ does not become a production deployment by accident.
 from __future__ import annotations
 
 import os
+import ipaddress
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -37,6 +38,19 @@ def _secret(name: str, *, production: bool) -> str:
     if production and (len(value) < 32 or any(fragment in value.lower() for fragment in PLACEHOLDER_FRAGMENTS)):
         raise ConfigurationError(f"{name} debe ser aleatorio, no predecible y tener al menos 32 caracteres.")
     return value
+
+
+def _is_public_https_url(value: str) -> bool:
+    parsed = urlparse(value.strip())
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username:
+        return False
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname in {"localhost", "testserver"} or hostname.endswith((".local", ".internal", ".intranet")):
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_global
+    except ValueError:
+        return "." in hostname
 
 
 @dataclass(frozen=True)
@@ -83,6 +97,14 @@ def load_settings() -> AppSettings:
             raise ConfigurationError("ALLOWED_HOSTS debe ser una allowlist explícita sin '*'.")
         if not proxy_https_enabled:
             raise ConfigurationError("PROXY_HTTPS_ENABLED=true es obligatorio detrás del proxy TLS de producción.")
+        public_verification_url = (
+            os.getenv("PUBLIC_VERIFICATION_BASE_URL", "").strip()
+            or os.getenv("VERIFICATION_BASE_URL", "").strip()
+        )
+        if not _is_public_https_url(public_verification_url):
+            raise ConfigurationError(
+                "PUBLIC_VERIFICATION_BASE_URL debe ser una URL HTTPS pública; no se permiten localhost ni IPs privadas."
+            )
         tsa_url = os.getenv("TSA_URL", "").strip()
         if tsa_url and not os.getenv("TSA_TRUST_STORE", "").strip():
             raise ConfigurationError("TSA_TRUST_STORE es obligatorio cuando TSA_URL está configurada.")

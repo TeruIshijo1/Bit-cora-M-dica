@@ -85,6 +85,7 @@ class UsuarioCreate(BaseModel):
     nombre_completo: Optional[str] = None
     permisos_modulos: Optional[str] = None
     formatos_permitidos: Optional[str] = None
+    formatos_firma_permitidos: Optional[str] = None
 
 class UsuarioPasswordUpdate(BaseModel):
     new_password: str
@@ -99,6 +100,7 @@ class UsuarioUpdate(BaseModel):
     nombre_completo: Optional[str] = None
     permisos_modulos: Optional[str] = None
     formatos_permitidos: Optional[str] = None
+    formatos_firma_permitidos: Optional[str] = None
 
 class UsuarioResponse(BaseModel):
     id: int
@@ -109,6 +111,9 @@ class UsuarioResponse(BaseModel):
     must_change_password: bool = False
     permisos_modulos: Optional[str] = None
     formatos_permitidos: Optional[str] = None
+    formatos_firma_permitidos: Optional[str] = None
+    biometric_status: str = "SIN_BIOMETRIA"
+    tiene_huella: bool = False
     class Config:
         from_attributes = True
 
@@ -387,7 +392,7 @@ class VerificarHuellaFirmanteResponse(BaseModel):
 class FirmaBiometricaFirmanteInputSchema(BaseModel):
     fmd_template: str
     firmante_id: int
-    rol_firmante: Optional[str] = None # Sólo se valida; el rol persistido es autoritativo
+    rol_firmante: Optional[str] = None # Papel elegido para este documento; no modifica el perfil enrolado
     codigo_formato: str
     tipo_documento: str
     evolution_slot: Optional[int] = 0
@@ -400,6 +405,21 @@ class BiometricEnrollmentRequest(BaseModel):
     challenge_id: str
     session_id: str
     motivo: Optional[str] = None
+
+
+class FirmaBiometricaEspecialInputSchema(BaseModel):
+    fmd_template: str
+    usuario_firmante_id: int
+    rol_firmante: Optional[str] = None
+    codigo_formato: str
+    tipo_documento: str
+    evolution_slot: int = 0
+    challenge_id: str
+    session_id: str
+
+
+# Compatibilidad para clientes antiguos; el endpoint genérico usa el esquema nuevo.
+FirmaBiometricaBancoSangreInputSchema = FirmaBiometricaEspecialInputSchema
 
 
 class FEAKeyRotationRequest(BaseModel):

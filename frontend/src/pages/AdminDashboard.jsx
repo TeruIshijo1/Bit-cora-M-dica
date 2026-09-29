@@ -1,6 +1,11 @@
 // Imports and basic setup...
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import { adminModules } from '../utils/permissions';
+import { useAdminResourceQuery } from '../hooks/useQueries';
+import Button from '../components/ui/Button';
+import AlertBanner from '../components/ui/AlertBanner';
 import { FiUserPlus, FiAlertCircle, FiCheckCircle, FiUsers, FiTrash2, FiLock, FiCamera, FiBarChart2, FiDatabase, FiList, FiUser, FiActivity, FiFileText, FiFolder, FiUpload, FiSearch, FiEdit, FiEdit3, FiPlusCircle } from 'react-icons/fi';
 import { MdFingerprint } from 'react-icons/md';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
@@ -12,6 +17,8 @@ import AuditLogsTab from '../features/admin/AuditLogsTab';
 import UsersManagerTab from '../features/admin/UsersManagerTab';
 import { captureBelongsToMedicalFlow, medicalBiometricFlow } from '../utils/medicalBiometricEnrollment';
 import { friendlyBiometricError, friendlyReaderStatus } from '../utils/userMessages';
+import AuthenticatedPdfButton from '../components/AuthenticatedPdfButton';
+import { parseContentDispositionFilename } from '../utils/pdfFilename';
 
 const COLORS = ['#004687', '#0088c9', '#005fa9', '#00974a', '#FFBB28'];
 
@@ -54,8 +61,11 @@ const HorarioBuilder = ({ horario, setHorario }) => {
 };
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('dashboard'); 
-  const [rolActual, setRolActual] = useState(localStorage.getItem('rol'));
+  const { user, hasModule } = useAuth();
+  const rolActual = user?.rol;
+  const [selectedTab, setActiveTab] = useState('dashboard');
+  const allowedTabs = adminModules.filter(item => hasModule(item.id));
+  const activeTab = allowedTabs.some(item => item.id === selectedTab) ? selectedTab : allowedTabs[0]?.id;
   
   const { status: readerStatus, fmdTemplate, captureContext, challengeId, sessionId, error, devices, resetFmd, startCapture, isAcquiring } = useDigitalPersona();
   const isReady = devices?.length > 0;
@@ -73,30 +83,23 @@ export default function AdminDashboard() {
   
   const [medicoHuellaFilter, setMedicoHuellaFilter] = useState('todos');
   
-  const [medicos, setMedicos] = useState([]);
-  const [areas, setAreas] = useState([]);
-  const [tipos, setTipos] = useState([]);
+  const medicosQuery = useAdminResourceQuery('/medicos', ['alta', 'directorio'].includes(activeTab));
+  const medicos = medicosQuery.data || [];
+  const areasQuery = useAdminResourceQuery('/catalogos/areas', ['catalogos', 'historial', 'pacientes'].includes(activeTab));
+  const areas = areasQuery.data || [];
+  const tiposQuery = useAdminResourceQuery('/catalogos/tipos', activeTab === 'catalogos');
+  const tipos = tiposQuery.data || [];
   const [tiposAtencion, setTiposAtencion] = useState([]);
-  const [formatosDisponibles, setFormatosDisponibles] = useState([]);
+  const formatosDisponiblesQuery = useAdminResourceQuery('/catalogos/formatos', ['directorio', 'alta', 'usuarios'].includes(activeTab));
+  const formatosDisponibles = formatosDisponiblesQuery.data || [];
   const [notaModal, setNotaModal] = useState({ open: false, folio: '', text: '' });
   const [newArea, setNewArea] = useState('');
   const [newTipo, setNewTipo] = useState('');
   
   // Search state
   const [medicoSearchTerm, setMedicoSearchTerm] = useState('');
-  const [usuarios, setUsuarios] = useState([]);
-  const [newUser, setNewUser] = useState({ username: '', password: '', rol: '', nombre_completo: '', permisos_modulos: '{}', formatos_permitidos: '[]' });
-  const [userPermsObj, setUserPermsObj] = useState({
-    admin: false,
-    rh: false,
-    camas: false,
-    agenda: false,
-    ehr: false,
-    captura_enfermeria: false,
-    captura_medica: false
-  });
-  const [userFormatosArr, setUserFormatosArr] = useState([]);
-  
+  const usuariosQuery = useAdminResourceQuery('/usuarios', activeTab === 'usuarios');
+  const usuarios = usuariosQuery.data || [];
   // Edit Medico State
   const [editingMedico, setEditingMedico] = useState(null);
   const [editFormData, setEditFormData] = useState({ numero_empleado: '', nombre_completo: '', especialidad: '', cedula: '' });
@@ -112,10 +115,13 @@ export default function AdminDashboard() {
   const [savingBiometric, setSavingBiometric] = useState(false);
   const editFileInputRef = useRef(null);
   
-  const [stats, setStats] = useState(null);
-  const [pacientes, setPacientes] = useState([]);
+  const statsQuery = useAdminResourceQuery('/analytics', activeTab === 'dashboard');
+  const stats = statsQuery.data || null;
+  const pacientesQuery = useAdminResourceQuery('/pacientes', activeTab === 'pacientes');
+  const pacientes = pacientesQuery.data || [];
   const [filterPacientesAdmin, setFilterPacientesAdmin] = useState('');
-  const [auditoriaLogs, setAuditoriaLogs] = useState([]);
+  const auditoriaLogsQuery = useAdminResourceQuery('/auditoria', activeTab === 'auditoria');
+  const auditoriaLogs = auditoriaLogsQuery.data || [];
   const [cleanModal, setCleanModal] = useState({ open: false, atenciones: true, notas: true, traslados: true, pacientes: true });
   const [newPacienteNombre, setNewPacienteNombre] = useState('');
   const [newPacienteHabitacion, setNewPacienteHabitacion] = useState('');
@@ -131,14 +137,16 @@ export default function AdminDashboard() {
   const [editPacienteForm, setEditPacienteForm] = useState({ nombre_completo: '', num_habitacion: '', area_hospitalaria: '', codigo_barras: '' });
   
   // Historial global
-  const [historialGlobal, setHistorialGlobal] = useState([]);
+  const historialGlobalQuery = useAdminResourceQuery('/atenciones/todas', activeTab === 'historial');
+  const historialGlobal = historialGlobalQuery.data || [];
   const [filterText, setFilterText] = useState('');
   const [filterArea, setFilterArea] = useState('');
   const [filterDateStart, setFilterDateStart] = useState('');
   const [filterDateEnd, setFilterDateEnd] = useState('');
 
   // Escaneos RH
-  const [escaneos, setEscaneos] = useState([]);
+  const escaneosQuery = useAdminResourceQuery('/escaneos', activeTab === 'escaneos');
+  const escaneos = escaneosQuery.data || [];
   const [uploadTitulo, setUploadTitulo] = useState('');
   const [uploadFile, setUploadFile] = useState(null);
   const [filterEscaneos, setFilterEscaneos] = useState('');
@@ -157,41 +165,11 @@ export default function AdminDashboard() {
     }
   };
 
-  useEffect(() => {
-    fetchMedicos();
-    fetchCatalogos();
-    if (rolActual === 'admin' || rolActual === 'sistemas' || rolActual === 'rh' || rolActual === 'director') {
-      fetchUsuarios();
-      fetchStats();
-      fetchPacientes();
-      fetchHistorialGlobal();
-      fetchEscaneos();
-      fetchAuditoria();
-    }
-  }, [rolActual]);
-
   const getToken = () => localStorage.getItem('token');
 
-  const fetchStats = async () => {
-    try {
-      const res = await api.get('/analytics', { headers: { Authorization: `Bearer ${getToken()}` } });
-      setStats(res.data);
-    } catch(e) { console.error("Error fetching stats", e); }
-  };
 
-  const fetchAuditoria = async () => {
-    try {
-      const res = await api.get('/auditoria', { headers: { Authorization: `Bearer ${getToken()}` } });
-      setAuditoriaLogs(res.data);
-    } catch(e) { console.error("Error fetching auditoria", e); }
-  };
 
-  const fetchPacientes = async () => {
-    try {
-      const res = await api.get('/pacientes');
-      setPacientes(res.data);
-    } catch(e) { console.error("Error fetching pacientes", e); }
-  };
+  const fetchPacientes = () => pacientesQuery.refetch();
 
   const openTrasladosModal = async (paciente) => {
     try {
@@ -200,19 +178,9 @@ export default function AdminDashboard() {
     } catch(e) { console.error("Error fetching traslados", e); }
   };
 
-  const fetchHistorialGlobal = async () => {
-    try {
-      const res = await api.get('/atenciones/todas', { headers: { Authorization: `Bearer ${getToken()}` } });
-      setHistorialGlobal(res.data);
-    } catch(e) { console.error("Error fetching historial", e); }
-  };
+  const fetchHistorialGlobal = () => historialGlobalQuery.refetch();
 
-  const fetchEscaneos = async () => {
-    try {
-      const res = await api.get('/escaneos', { headers: { Authorization: `Bearer ${getToken()}` } });
-      setEscaneos(res.data);
-    } catch(e) { console.error("Error fetching escaneos", e); }
-  };
+  const fetchEscaneos = () => escaneosQuery.refetch();
 
   const handleUploadEscaneo = async (e) => {
     e.preventDefault();
@@ -256,13 +224,20 @@ export default function AdminDashboard() {
         headers: { Authorization: `Bearer ${getToken()}` },
         responseType: 'blob'
       });
+      const disposition = response.headers?.['content-disposition'];
+      const serverName = parseContentDispositionFilename(disposition);
+      const cleanName = serverName || nombreArchivo || `escaneo_${id}.pdf`;
       const objectUrl = URL.createObjectURL(response.data);
-      const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
-      if (!opened) URL.revokeObjectURL(objectUrl);
-      else window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = cleanName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (err) {
-      console.error(`No se pudo abrir ${nombreArchivo}`, err);
-      alert('No se pudo abrir el archivo autorizado');
+      console.error(`No se pudo descargar ${nombreArchivo}`, err);
+      alert('No se pudo descargar el archivo autorizado');
     }
   };
 
@@ -289,12 +264,7 @@ export default function AdminDashboard() {
     } catch(e) { alert("Error al dar de alta al paciente"); }
   };
 
-  const fetchMedicos = async () => {
-    try {
-      const res = await api.get('/medicos'); 
-      setMedicos(res.data);
-    } catch(e) { console.error("Error fetching medicos", e); }
-  };
+  const fetchMedicos = () => medicosQuery.refetch();
 
   const handleReaperturar = async (folio) => {
     try {
@@ -328,23 +298,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchCatalogos = async () => {
-    try {
-      const resA = await api.get('/catalogos/areas');
-      setAreas(resA.data);
-      const resT = await api.get('/catalogos/tipos');
-      setTipos(resT.data);
-      const resF = await api.get('/catalogos/formatos');
-      setFormatosDisponibles(resF.data);
-    } catch(e) { console.error("Error fetching catalogos", e); }
-  };
+  const fetchCatalogos = () => Promise.all([areasQuery.refetch(), tiposQuery.refetch()]);
 
-  const fetchUsuarios = async () => {
-    try {
-      const res = await api.get('/usuarios', { headers: { Authorization: `Bearer ${getToken()}` } });
-      setUsuarios(res.data);
-    } catch(e) { console.error(e); }
-  };
+  const fetchUsuarios = () => usuariosQuery.refetch();
 
   const handleAddArea = async () => {
     if(!newArea.trim()) return;
@@ -380,22 +336,6 @@ export default function AdminDashboard() {
     } catch(e) { alert("Error al eliminar tipo"); }
   };
 
-  const handleAddUser = async () => {
-    if(!newUser.username || !newUser.password || !newUser.rol) return;
-    try {
-      const payload = {
-          ...newUser,
-          permisos_modulos: JSON.stringify(userPermsObj),
-          formatos_permitidos: JSON.stringify(userFormatosArr)
-      };
-      await api.post('/usuarios', payload, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setNewUser({ username: '', password: '', rol: '', nombre_completo: '', permisos_modulos: '{}', formatos_permitidos: '' });
-      setUserPermsObj({ admin: false, rh: false, camas: false, agenda: false, ehr: false, captura_enfermeria: false, captura_medica: false });
-      setUserFormatosArr([]);
-      fetchUsuarios();
-      alert("Usuario creado exitosamente");
-    } catch(e) { alert("Error al crear usuario."); }
-  };
 
   const handleExportExcel = async () => {
     try {
@@ -415,27 +355,7 @@ export default function AdminDashboard() {
     } catch (e) { alert("Error al exportar a Excel"); }
   };
 
-  const handleDeleteUser = async (id) => {
-    if(!window.confirm("¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.")) return;
-    try {
-      await api.delete(`/usuarios/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      fetchUsuarios();
-    } catch(e) {
-      alert("Error al eliminar usuario o no tienes permisos.");
-    }
-  };
 
-  const handleChangePassword = async (id, rolTarget) => {
-    const newPass = window.prompt("Introduce la nueva contraseña para este usuario:");
-    if (!newPass) return;
-    try {
-      await api.put(`/usuarios/${id}/password`, { new_password: newPass }, { headers: { Authorization: `Bearer ${getToken()}` } });
-      alert("Contraseña actualizada exitosamente.");
-    } catch (e) {
-      if(e.response && e.response.data && e.response.data.detail) alert("Error: " + e.response.data.detail);
-      else alert("Error al cambiar la contraseña.");
-    }
-  };
 
   const handleDownloadBackup = async () => {
     try {
@@ -633,7 +553,7 @@ export default function AdminDashboard() {
         ? 'Huella actualizada. Para proteger la identidad del médico, otro usuario autorizado debe completar la activación desde este mismo botón.'
         : biometricFlow.kind === 'fea'
           ? 'Activación completada. El médico ya puede entrar y firmar con su huella.'
-          : 'Huella registrada exitosamente.');
+          : 'Huella registrada. El médico ya puede firmar en HES y Vertical con sus propios datos.');
       closeHuellaModal();
       await fetchMedicos();
     } catch (e) {
@@ -649,7 +569,7 @@ export default function AdminDashboard() {
 
   const openEditModal = (m) => {
     setEditingMedico(m.id);
-    let formatosArr = [];
+    let formatosArr = formatosDisponibles.map(item => item.codigo);
     if (m.formatos_permitidos) {
       try {
         formatosArr = JSON.parse(m.formatos_permitidos);
@@ -698,7 +618,7 @@ export default function AdminDashboard() {
     if (editBajoContrato) {
       formDataToSend.append('horario_laboral', JSON.stringify(editHorarioLaboral));
     }
-    formDataToSend.append('formatos_permitidos', JSON.stringify(editFormData.formatos_permitidos || []));
+    if (hasModule('usuarios')) formDataToSend.append('formatos_permitidos', JSON.stringify(editFormData.formatos_permitidos || []));
 
     try {
       await api.put(`/medicos/${editingMedico}/datos`, formDataToSend, { headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${getToken()}` } });
@@ -743,16 +663,11 @@ export default function AdminDashboard() {
   });
 
   // Render Tabs Configuration
-  const sidebarItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: <FiBarChart2 /> },
-    { id: 'historial', label: 'Historial Global', icon: <FiActivity /> },
-    { id: 'pacientes', label: 'Pacientes', icon: <FiUser /> },
-    { id: 'alta', label: 'Alta de Médicos', icon: <FiUserPlus /> },
-    { id: 'directorio', label: 'Directorio', icon: <FiUsers /> },
-    { id: 'escaneos', label: 'Escaneos Diarios', icon: <FiFolder /> },
-    ...(rolActual === 'admin' || rolActual === 'sistemas' ? [{ id: 'catalogos', label: 'Catálogos', icon: <FiList /> }, { id: 'auditoria', label: 'Auditoría', icon: <FiDatabase /> }] : []),
-    { id: 'usuarios', label: 'Configuración', icon: <FiLock /> }
-  ];
+  const tabIcons = { dashboard: <FiBarChart2 />, historial: <FiActivity />, pacientes: <FiUser />, alta: <FiUserPlus />, directorio: <FiUsers />, escaneos: <FiFolder />, catalogos: <FiList />, auditoria: <FiDatabase />, usuarios: <FiLock />, respaldos: <FiDatabase /> };
+  const sidebarItems = allowedTabs.map(item => ({ ...item, icon: tabIcons[item.id] || <FiFolder /> }));
+  const activeQueries = [medicosQuery, areasQuery, tiposQuery, formatosDisponiblesQuery, usuariosQuery, statsQuery, pacientesQuery, auditoriaLogsQuery, historialGlobalQuery, escaneosQuery];
+  const failedQuery = activeQueries.find(query => query.isError && query.isEnabled);
+
 
   return (
     <div className="flex flex-col md:flex-row w-full h-full">
@@ -802,10 +717,13 @@ export default function AdminDashboard() {
             {sidebarItems.find(i => i.id === activeTab)?.label}
           </h1>
 
+          {failedQuery && <AlertBanner message="No se pudieron cargar los datos de esta sección." onRetry={failedQuery.refetch} />}
+          {activeQueries.some(query => query.isLoading) && <p className="py-4 text-slate-500">Cargando…</p>}
+          {activeTab === 'respaldos' && <Button icon={<FiDatabase />} onClick={handleDownloadBackup}>Descargar respaldo</Button>}
           {activeTab === 'dashboard' && stats && (
             <div className="space-y-6">
               <div className="mb-4 flex justify-end">
-                 <button onClick={handleExportExcel} className="bg-hes-green hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-sm">
+                 <button disabled={!hasModule('historial')} onClick={handleExportExcel} className="bg-hes-green hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-sm">
                    Exportar a Excel (XLSX)
                  </button>
               </div>
@@ -964,7 +882,7 @@ export default function AdminDashboard() {
                 </h3>
                 <div className="flex gap-4">
                    <button onClick={fetchHistorialGlobal} className="text-sm font-medium text-hes-blue-main hover:underline">Refrescar</button>
-                   <button onClick={handleExportExcel} className="text-sm font-bold text-green-700 hover:underline">Exportar Excel</button>
+                   <button disabled={!hasModule('historial')} onClick={handleExportExcel} className="text-sm font-bold text-green-700 hover:underline">Exportar Excel</button>
                 </div>
               </div>
               
@@ -1029,7 +947,7 @@ export default function AdminDashboard() {
                               ))}
                             </div>
                           )}
-                          {(rolActual === 'admin' || rolActual === 'sistemas') && (
+                          {hasModule('captura_enfermeria', 'captura_medica') && (
                             <button onClick={() => setNotaModal({ open: true, folio: h.folio, text: '' })} className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
                               <FiPlusCircle /> Añadir Nota
                             </button>
@@ -1039,9 +957,9 @@ export default function AdminDashboard() {
                         <td className="p-3 text-sm">
                           <div>
                             {h.ruta_archivo_firmado ? (
-                                <a href={`${h.ruta_archivo_firmado}`} target="_blank" rel="noreferrer" className="bg-hes-green hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow-sm flex items-center gap-2 w-max">
+                                <AuthenticatedPdfButton endpoint={`/atenciones/${h.folio}/pdf`} className="bg-hes-green hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow-sm flex items-center gap-2 w-max">
                                   <FiFileText className="inline" /> PDF
-                                </a>
+                                </AuthenticatedPdfButton>
                             ) : (
                                 <div className="flex flex-col gap-2">
                                   <span className={`px-3 py-1 rounded-full text-xs font-bold w-max ${
@@ -1392,7 +1310,6 @@ export default function AdminDashboard() {
               formatosDisponibles={formatosDisponibles}
               rolActual={rolActual}
               onRefresh={fetchUsuarios}
-              onDownloadBackup={handleDownloadBackup}
             />
           )}
         </div>
@@ -1433,7 +1350,7 @@ export default function AdminDashboard() {
                 )}
               </div>
               
-              <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 shadow-sm mt-4 max-h-64 overflow-y-auto">
+              {hasModule('usuarios') && <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 shadow-sm mt-4 max-h-64 overflow-y-auto">
                 <label className="block text-sm font-bold text-slate-700 mb-1">Formatos Clínicos Permitidos</label>
                 <p className="text-xs text-slate-500 mb-3">Selecciona los formatos que este médico tiene autorizados firmar. Si desmarcas todos, no podrá generar notas.</p>
                 {formatosDisponibles.length === 0 ? (
@@ -1463,7 +1380,7 @@ export default function AdminDashboard() {
                     })}
                   </div>
                 )}
-              </div>
+              </div>}
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Actualizar Fotografía (Opcional)</label>
@@ -1557,6 +1474,11 @@ export default function AdminDashboard() {
                   Último paso: coloque nuevamente la huella del médico. Por seguridad, debe hacerlo un usuario distinto de quien actualizó la huella.
                 </p>
               )}
+              {biometricFlow.kind === 'enroll' && (
+                <p className="mb-4 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3 text-left">
+                  El médico debe existir previamente en Vertical. Al guardar la huella, la bitácora preparará automáticamente su firma en el sistema base.
+                </p>
+              )}
               {biometricFlow.requiresReason && (
                 <div className="w-full text-left mb-4">
                   <label className="block text-sm font-semibold text-slate-700 mb-1" htmlFor="motivo-biometrico">Motivo de la actualización</label>
@@ -1594,7 +1516,13 @@ export default function AdminDashboard() {
             </div>
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
               <button onClick={closeHuellaModal} disabled={savingBiometric} className="px-6 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50">Cancelar</button>
-              <button onClick={handleSaveHuella} disabled={!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric} className={`px-6 py-2 rounded-lg font-bold text-white shadow-md transition-colors ${!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric ? 'bg-slate-400' : 'bg-hes-blue-main hover:bg-[#003870]'}`}>{savingBiometric ? 'Guardando…' : biometricFlow.kind === 'fea' ? 'Terminar activación' : 'Guardar huella'}</button>
+              <button
+                onClick={handleSaveHuella}
+                disabled={!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric}
+                className={`px-6 py-2 rounded-lg font-bold text-white shadow-md transition-colors ${!fmdTemplate || !captureMatchesBiometricFlow || savingBiometric ? 'bg-slate-400' : 'bg-hes-blue-main hover:bg-[#003870]'}`}
+              >
+                {savingBiometric ? 'Guardando…' : biometricFlow.kind === 'fea' ? 'Terminar activación' : 'Guardar huella'}
+              </button>
             </div>
           </div>
         </div>

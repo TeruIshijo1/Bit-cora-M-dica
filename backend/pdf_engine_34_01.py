@@ -1,5 +1,6 @@
 import os
 import re
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
@@ -11,12 +12,14 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 
 BLUE_BAR_COLOR = colors.HexColor('#005691')
@@ -27,7 +30,7 @@ def generate_consentimiento_34_01(pt_data: dict, output_path: str = None, firma_
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top = (FRAME_Y + FRAME_H) - 64.0
@@ -49,9 +52,9 @@ def generate_consentimiento_34_01(pt_data: dict, output_path: str = None, firma_
     )
 
     # Estilos tipográficos institucionales
-    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.2, leading=8.8, textColor=TEXT_MUTED)
-    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=7.6, leading=9.2, textColor=TEXT_DARK)
-    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=7.6, leading=9.2, textColor=RED_ALERT)
+    style_label = ParagraphStyle('MetaLabel', fontName='Helvetica-Bold', fontSize=7.6, leading=9.2, textColor=TEXT_MUTED)
+    style_val = ParagraphStyle('MetaVal', fontName='Helvetica-Bold', fontSize=8.2, leading=10.0, textColor=TEXT_DARK)
+    style_val_red = ParagraphStyle('MetaValRed', fontName='Helvetica-Bold', fontSize=8.2, leading=10.0, textColor=RED_ALERT)
     
     style_section = ParagraphStyle('SecHeader', fontName='Helvetica-Bold', fontSize=8.0, leading=10.0, textColor=PRIMARY_BLUE)
     style_body = ParagraphStyle('Body', fontName='Helvetica', fontSize=7.6, leading=10.2, textColor=TEXT_DARK, alignment=TA_JUSTIFY)
@@ -78,54 +81,40 @@ def generate_consentimiento_34_01(pt_data: dict, output_path: str = None, firma_
     cedula = pt_data.get('cedula', '')
     fecha_atencion = pt_data.get('fecha_atencion', '')
 
+    # Mantener las etiquetas y los valores en columnas legibles. La tabla
+    # anterior repartía alergias y fecha en celdas de 34-60 pt, haciendo que
+    # el contenido se partiera letra por letra en pantallas e impresiones.
+    def label_cell(text):
+        return Paragraph(escape(str(text or "")), style_label)
+
+    def value_cell(text, style=style_val):
+        return Paragraph(escape(str(text or "—")), style)
+
     pt_info_data = [
-        [
-            Paragraph("NOMBRE DEL PACIENTE:", style_label),
-            Paragraph(f"<b>{paciente_nombre}</b>", style_val),
-            Paragraph("FECHA DE NAC:", style_label),
-            Paragraph(fecha_nac, style_val),
-            Paragraph("EDAD:", style_label),
-            Paragraph(edad, style_val),
-            Paragraph("SEXO:", style_label),
-            Paragraph(sexo, style_val)
-        ],
-        [
-            Paragraph("EXPEDIENTE:", style_label),
-            Paragraph(f"<b>{expediente}</b>", style_val),
-            Paragraph("GRUPO Y RH:", style_label),
-            Paragraph(grupo_rh, style_val),
-            Paragraph("ALERGIAS:", style_label),
-            Paragraph(alergias, style_val_red),
-            Paragraph("INTERROGATORIO:", style_label),
-            Paragraph(tipo_int, style_val)
-        ],
-        [
-            Paragraph("MÉDICO TRATANTE:", style_label),
-            Paragraph(f"<b>{medico}</b>", style_val),
-            Paragraph("CÉDULA:", style_label),
-            Paragraph(cedula, style_val),
-            Paragraph("FECHA ATENCIÓN:", style_label),
-            Paragraph(fecha_atencion, style_val),
-            '', ''
-        ]
+        [label_cell("NOMBRE DEL PACIENTE:"), value_cell(paciente_nombre), '', ''],
+        [label_cell("EXPEDIENTE:"), value_cell(expediente), label_cell("FECHA DE NAC:"), value_cell(fecha_nac)],
+        [label_cell("EDAD:"), value_cell(edad), label_cell("SEXO:"), value_cell(sexo)],
+        [label_cell("GRUPO Y RH:"), value_cell(grupo_rh), label_cell("INTERROGATORIO:"), value_cell(tipo_int)],
+        [label_cell("ALERGIAS:"), value_cell(alergias, style_val_red), '', ''],
+        [label_cell("MÉDICO TRATANTE:"), value_cell(medico), '', ''],
+        [label_cell("CÉDULA:"), value_cell(cedula), label_cell("FECHA ATENCIÓN:"), value_cell(fecha_atencion)],
     ]
 
-    t_info = Table(pt_info_data, colWidths=[80, 140, 60, 60, 38, 40, 34, content_w - (80 + 140 + 60 + 60 + 38 + 40 + 34)])
+    t_info = Table(pt_info_data, colWidths=[78, 172, 98, content_w - 348])
     t_info.setStyle(TableStyle([
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('SPAN', (1,2), (3,2)),
-        ('SPAN', (5,2), (7,2)),
+        ('SPAN', (1,0), (3,0)),
+        ('SPAN', (1,4), (3,4)),
+        ('SPAN', (1,5), (3,5)),
         ('GRID', (0,0), (-1,-1), 0.5, BORDER_GREY),
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F8FAFC')),
-        ('BACKGROUND', (2,0), (2,1), colors.HexColor('#F8FAFC')),
-        ('BACKGROUND', (4,0), (4,1), colors.HexColor('#F8FAFC')),
-        ('BACKGROUND', (6,0), (6,1), colors.HexColor('#F8FAFC')),
-        ('BACKGROUND', (4,2), (4,2), colors.HexColor('#F8FAFC')),
-        ('PADDING', (0,0), (-1,-1), 3.0),
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F1F5F9')),
+        ('BACKGROUND', (2,1), (2,3), colors.HexColor('#F1F5F9')),
+        ('BACKGROUND', (2,6), (2,6), colors.HexColor('#F1F5F9')),
+        ('PADDING', (0,0), (-1,-1), 4.5),
     ]))
     story.append(t_info)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 10))
 
     # 2. Texto Legal Normado de Consentimiento
     pariente = pt_data.get('pariente') or pt_data.get('representante_legal', '')

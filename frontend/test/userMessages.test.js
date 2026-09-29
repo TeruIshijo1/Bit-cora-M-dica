@@ -5,7 +5,7 @@ import { friendlyBiometricError, friendlyReaderStatus } from '../src/utils/userM
 test('fingerprint mismatch is explained without technical language', () => {
   assert.equal(
     friendlyBiometricError('La huella no corresponde a la identidad vigente autorizada.'),
-    'La huella no coincide con la persona seleccionada. Verifique el nombre e intente nuevamente.'
+    'La huella no coincide con la registrada para esta persona. No se guardó la firma. Use el mismo dedo que se registró e inténtelo de nuevo.'
   );
 });
 
@@ -19,4 +19,14 @@ test('expired challenge becomes a clear retry instruction', () => {
 test('reader statuses use everyday wording', () => {
   assert.equal(friendlyReaderStatus('Solicitando challenge biométrico...'), 'Preparando el lector…');
   assert.equal(friendlyReaderStatus('Lector conectado'), 'Lector listo');
+});
+
+test('Vertical doctor profile errors confirm that the fingerprint was accepted', () => {
+  assert.equal(
+    friendlyBiometricError({
+      code: 'VERTICAL_DOCTOR_PROFILE_NOT_READY',
+      message: 'Su huella fue reconocida, pero su perfil médico en Vertical no está listo para firmar.'
+    }),
+    'Su huella fue reconocida, pero su perfil de firma en Vertical necesita revisión. Pida a Sistemas comprobar su cédula y autorización. No necesita registrar otra huella.'
+  );
 });

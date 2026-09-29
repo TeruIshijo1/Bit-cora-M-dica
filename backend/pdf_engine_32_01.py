@@ -1,5 +1,6 @@
 import os
 import re
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether
@@ -11,12 +12,14 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 try:
     from backend.pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 except ModuleNotFoundError:
     from pdf_engine_v2 import (
         RDLCCanvas, CleanConsentCanvas, FRAME_X, FRAME_Y, FRAME_W, FRAME_H, 
-        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY
+        TEXT_MUTED, TEXT_DARK, RED_ALERT, PRIMARY_BLUE, BORDER_GREY,
+        letterhead_content_width
     )
 
 def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_data: dict = None) -> str:
@@ -24,7 +27,7 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 64.0
@@ -187,7 +190,15 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     t2_text = f"<b>{t2_clean}</b><br/><font size='6.2' color='#334155'><i><b>Parentesco: {parentesco_test2}</b></i></font>" if t2_clean else "<b>Nombre completo de testigo</b>"
 
     # Sello biométrico paciente si existe
-    firma_data = pt_data.get('firma_data', {})
+    # The compiled expediente passes the authoritative signature evidence as
+    # an argument.  Prefer it over the optional legacy value embedded in the
+    # clinical payload; otherwise this renderer silently discarded all seals
+    # and printed only the signer names/lines.
+    firma_data = (
+        firma_data
+        if isinstance(firma_data, dict)
+        else pt_data.get('firma_data', {})
+    )
     if pt_data.get('firma_paciente_biometrica') or pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')):
         sello_pac_val = str(pt_data.get('sello_paciente') or (firma_data and firma_data.get('sello_paciente')) or 'BIO-HES:OK')[:24]
         pac_stamp_html = f"""
@@ -337,7 +348,13 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
     story.append(Spacer(1, 6))
     
     # --- Doctor signature block (centered, clean line) ---
-    firma_data = pt_data.get('firma_data', {})
+    # Keep the same precedence in the second signature block used by the
+    # alternate rendering path of this format.
+    firma_data = (
+        firma_data
+        if isinstance(firma_data, dict)
+        else pt_data.get('firma_data', {})
+    )
     med_col_w = content_w * 0.60
     
     if firma_data and (firma_data.get('sello_digital') or firma_data.get('hash_sha256')):
@@ -350,6 +367,15 @@ def generate_consentimiento_32_01(pt_data: dict, output_path: str = None, firma_
         <font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>
         """
         top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
+    elif firma_data and firma_data.get('firma_nativa_vertical'):
+        native_user = escape(str(firma_data.get('usuario_tecnico_vertical') or 'Vertical EHR'))
+        native_date = escape(str(firma_data.get('fecha_hora_firma_vertical') or 'fecha no disponible'))
+        top_sig_p = Paragraph(
+            f"<font size='5.8' color='#1d4ed8'><b>REGISTRO NATIVO EN VERTICAL</b></font><br/>"
+            f"<font size='4.8' color='#1e3a8a'>Usuario técnico: {native_user} · {native_date}</font><br/>"
+            "<font size='4.6' color='#9a3412'>No acredita firma biométrica HES del médico o paciente</font>",
+            ParagraphStyle('SigNative', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER),
+        )
     else:
         top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8.0, leading=12.0))
         

@@ -11,6 +11,8 @@ Calibración exacta según especificaciones RDLC:
 
 import os
 import re
+from PIL import Image as PILImage
+from xml.sax.saxutils import escape
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from reportlab.lib.pagesizes import letter
@@ -45,6 +47,11 @@ HEADER_P1_IMG = find_asset('encabezado_perfecto_600dpi.png', 'encabezado_vector_
 LOGO_IMG = find_asset('logo_hes_oficial.png', 'official_logo_600dpi.png', 'logo.png')
 FOOTER_CLEAN_IMG = find_asset('pie_hes_sin_disenador.png', 'official_footer_600dpi.png')
 LATERAL_IMG = find_asset('lateral_hes_oficial_bold.png', 'official_lateral_600dpi.png')
+try:
+    with PILImage.open(LATERAL_IMG) as _lateral_image:
+        LATERAL_ASPECT_RATIO = _lateral_image.width / _lateral_image.height
+except (OSError, ZeroDivisionError):
+    LATERAL_ASPECT_RATIO = 12.0 / 560.0
 
 # ─────────────────────────────────────────────────────────────
 # GEOMETRÍA EXACTA RDLC (Carta 21.59 x 27.94 cm)
@@ -55,6 +62,21 @@ FRAME_W = 569.76 # 20.1 cm exactos
 FRAME_H = 722.84 # 25.5 cm exactos
 FRAME_X = (PAGE_W - FRAME_W) / 2.0  # 21.12 pt (centrado horizontal perfecto)
 FRAME_Y = (PAGE_H - FRAME_H) / 2.0  # 34.58 pt (centrado vertical perfecto)
+
+# Zona no imprimible del membrete lateral. Todo el contenido clínico debe
+# terminar antes de esta coordenada; así las letras nunca se superponen al
+# nombre vertical de la Fundación, aun cuando cambie el ancho del asset.
+LATERAL_HEIGHT = 560.0
+LATERAL_INSET_RIGHT = 2.5
+LETTERHEAD_CONTENT_GAP = 10.0
+LATERAL_WIDTH = LATERAL_HEIGHT * LATERAL_ASPECT_RATIO
+LATERAL_X = FRAME_X + FRAME_W - LATERAL_WIDTH - LATERAL_INSET_RIGHT
+LETTERHEAD_CONTENT_RIGHT = LATERAL_X - LETTERHEAD_CONTENT_GAP
+
+
+def letterhead_content_width(content_x: float) -> float:
+    """Devuelve el ancho máximo de texto sin invadir el membrete lateral."""
+    return max(1.0, LETTERHEAD_CONTENT_RIGHT - content_x)
 
 # ─────────────────────────────────────────────────────────────
 # PALETA INSTITUCIONAL RDLC
@@ -72,13 +94,46 @@ RED_ALERT = colors.HexColor('#d93025')
 
 
 def parse_date_parts(date_str: str):
-    """Extrae día, mes, año de cualquier formato."""
+    """Extrae día, mes y año, aceptando fechas locales e ISO."""
     if not date_str:
         return '', '', ''
-    m = re.match(r'^(\d{1,2})[\/\-\s]+([A-Za-z0-9]+)[\/\-\s]+(\d{2,4})', str(date_str).strip())
-    if m:
-        return m.group(1).zfill(2), m.group(2), m.group(3)
-    return str(date_str), '', ''
+
+    value = str(date_str).strip()
+    iso_match = re.match(r'^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})', value)
+    if iso_match:
+        return iso_match.group(3).zfill(2), iso_match.group(2), iso_match.group(1)
+
+    local_match = re.match(r'^(\d{1,2})[\/\-\s]+([A-Za-z0-9]+)[\/\-\s]+(\d{2,4})', value)
+    if local_match:
+        return local_match.group(1).zfill(2), local_match.group(2), local_match.group(3)
+    return value, '', ''
+
+
+def format_header_date(date_str: str):
+    """Devuelve una fecha corta y legible para el encabezado institucional."""
+    day, month, year = parse_date_parts(date_str)
+    if not day:
+        return ''
+    if not month or not year:
+        return str(day)
+
+    month_key = str(month).strip().lower()
+    month_names = {
+        '1': 'ENE', '01': 'ENE', 'enero': 'ENE', 'ene': 'ENE',
+        '2': 'FEB', '02': 'FEB', 'febrero': 'FEB', 'feb': 'FEB',
+        '3': 'MAR', '03': 'MAR', 'marzo': 'MAR', 'mar': 'MAR',
+        '4': 'ABR', '04': 'ABR', 'abril': 'ABR', 'abr': 'ABR',
+        '5': 'MAY', '05': 'MAY', 'mayo': 'MAY', 'may': 'MAY',
+        '6': 'JUN', '06': 'JUN', 'junio': 'JUN', 'jun': 'JUN',
+        '7': 'JUL', '07': 'JUL', 'julio': 'JUL', 'jul': 'JUL',
+        '8': 'AGO', '08': 'AGO', 'agosto': 'AGO', 'ago': 'AGO',
+        '9': 'SEP', '09': 'SEP', 'septiembre': 'SEP', 'sep': 'SEP',
+        '10': 'OCT', 'octubre': 'OCT', 'oct': 'OCT',
+        '11': 'NOV', 'noviembre': 'NOV', 'nov': 'NOV',
+        '12': 'DIC', 'diciembre': 'DIC', 'dic': 'DIC',
+    }
+    month_label = month_names.get(month_key, str(month).upper()[:3])
+    return f'{day} {month_label} {year}'
 
 
 def parse_time_parts(time_str: str):
@@ -108,6 +163,23 @@ class RDLCCanvas(canvas.Canvas):
         self._startPage()
 
     def save(self):
+        title = self.doc_info.get('title')
+        if not title:
+            title_lines = self.doc_info.get('title_lines')
+            if title_lines:
+                title = " ".join(str(l).strip() for l in title_lines if str(l).strip())
+            else:
+                title = self.doc_info.get('code') or self.doc_info.get('formato') or "Documento Clínico HES"
+        expediente = self.doc_info.get('expediente') or self.doc_info.get('folio') or self.doc_info.get('pt_num')
+        if expediente and str(expediente) not in str(title):
+            full_title = f"{title} - {expediente}"
+        else:
+            full_title = str(title)
+        self.setTitle(full_title)
+        self.setAuthor("Hospital Escandón")
+        self.setSubject("Expediente Clínico Hospital Escandón")
+        self.setCreator("Bitácora Médica HES")
+
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
@@ -125,25 +197,37 @@ class RDLCCanvas(canvas.Canvas):
         if os.path.exists(HEADER_P1_IMG):
             self.drawImage(HEADER_P1_IMG, FRAME_X, head_y, width=FRAME_W, height=head_h, preserveAspectRatio=False)
 
-        # Posicionar Fecha y Hora en casillas solo si el formato lo requiere
+        # Fecha y hora en una sola línea, con jerarquía visual y separador legible.
         if self.doc_info.get('draw_header_dates', False):
-            self.setFont("Helvetica-Bold", 7.5)
-            self.setFillColor(TEXT_DARK)
-            day, month, year = parse_date_parts(self.fecha_ingreso)
-            y_base = head_y + 11.2
-            scale = FRAME_W / 612.0
-            if day:
-                self.drawCentredString(FRAME_X + 415.5 * scale, y_base, str(day))
-            if month:
-                self.drawCentredString(FRAME_X + 446.8 * scale, y_base, str(month))
-            if year:
-                self.drawCentredString(FRAME_X + 477.5 * scale, y_base, str(year))
-
+            date_label = format_header_date(self.fecha_ingreso)
             hh, mm = parse_time_parts(self.hora_ingreso)
-            if hh:
-                self.drawCentredString(FRAME_X + 531.0 * scale, y_base, str(hh))
-            if mm:
-                self.drawCentredString(FRAME_X + 553.0 * scale, y_base, str(mm))
+            time_label = f'{hh}:{mm} h' if hh and mm else (str(hh) if hh else '')
+            scale = FRAME_W / 612.0
+            header_center_x = FRAME_X + 484.5 * scale
+            y_base = head_y + 11.0
+            date_font = ('Helvetica-Bold', 7.4)
+            time_font = ('Helvetica', 7.1)
+            separator = '  |  ' if date_label and time_label else ''
+            date_width = self.stringWidth(date_label, *date_font) if date_label else 0
+            separator_width = self.stringWidth(separator, 'Helvetica', 7.1) if separator else 0
+            time_width = self.stringWidth(time_label, *time_font) if time_label else 0
+            total_width = date_width + separator_width + time_width
+            cursor_x = header_center_x - (total_width / 2.0)
+
+            if date_label:
+                self.setFont(*date_font)
+                self.setFillColor(PRIMARY_BLUE)
+                self.drawString(cursor_x, y_base, date_label)
+                cursor_x += date_width
+            if separator:
+                self.setFont('Helvetica', 7.1)
+                self.setFillColor(TEXT_MUTED)
+                self.drawString(cursor_x, y_base, separator)
+                cursor_x += separator_width
+            if time_label:
+                self.setFont(*time_font)
+                self.setFillColor(TEXT_DARK)
+                self.drawString(cursor_x, y_base, time_label)
 
         # Título dinámico del formato (idéntico en todas las hojas)
         title_lines = self.doc_info.get('title_lines') or []
@@ -177,11 +261,13 @@ class RDLCCanvas(canvas.Canvas):
 
         # 3. LATERAL DERECHO VERTICAL (Membrete Fundación)
         if os.path.exists(LATERAL_IMG):
-            lat_w = 12.0
-            lat_h = 560.0
-            lat_x = FRAME_X + FRAME_W - lat_w - 2.5
+            lat_h = LATERAL_HEIGHT
+            # Mantener la proporción del membrete: el ancho fijo de 12 pt lo
+            # comprimía y cortaba el texto vertical contra el borde derecho.
+            lat_w = lat_h * LATERAL_ASPECT_RATIO
+            lat_x = LATERAL_X
             lat_y = FRAME_Y + 42.0
-            self.drawImage(LATERAL_IMG, lat_x, lat_y, width=lat_w, height=lat_h, mask='auto', preserveAspectRatio=False)
+            self.drawImage(LATERAL_IMG, lat_x, lat_y, width=lat_w, height=lat_h, mask='auto', preserveAspectRatio=True)
 
         # 4. PIE DE PÁGINA (Integrado sobre el marco inferior)
         if os.path.exists(FOOTER_CLEAN_IMG):
@@ -197,8 +283,12 @@ class RDLCCanvas(canvas.Canvas):
             self.rect(foot_x, foot_y + foot_h - 4.5, foot_w, 4.5, fill=True, stroke=False)
 
             # QR DE VERIFICACIÓN INSTITUCIONAL (Esquina Inferior Derecha)
-            qr_data = self.doc_info.get('qr_data') or self.doc_info.get('qr_url')
-            draw_qr = bool(qr_data) and self.doc_info.get('draw_qr', True)
+            try:
+                from pdf_qr_context import qr_payload
+            except ModuleNotFoundError:
+                from backend.pdf_qr_context import qr_payload
+            qr_data, qr_from_context = qr_payload(self.doc_info)
+            draw_qr = bool(qr_data) and (self.doc_info.get('draw_qr', True) or qr_from_context)
             
             if draw_qr:
                 try:
@@ -294,6 +384,66 @@ def format_clinical_text(raw_text: str) -> str:
     return '<br/>'.join(formatted_lines)
 
 
+def _append_special_signature_evidence(base_table, firma_data: dict, content_w: float):
+    """Print each special signer explicitly required by the active format."""
+    firma_data = firma_data if isinstance(firma_data, dict) else {}
+    required = {str(role).strip().upper() for role in firma_data.get('firmas_especiales_requeridas') or []}
+    if not required:
+        return base_table
+    signatures = firma_data.get('firmas_especiales') or {}
+    rows = []
+    for role in sorted(required):
+        item = signatures.get(role) or {}
+        # Retain the original PLT-09 payload during the API transition.
+        if role == 'BANCO_SANGRE' and not item:
+            item = {
+                'etiqueta': 'Banco de Sangre',
+                'firmado': bool(firma_data.get('sello_banco_sangre') or firma_data.get('firma_banco_sangre_biometrica')),
+                'firmante': firma_data.get('nombre_personal_banco_sangre'),
+                'username': firma_data.get('usuario_personal_banco_sangre'),
+                'fecha': firma_data.get('fecha_firma_banco_sangre'),
+            }
+        label = escape(str(item.get('etiqueta') or role.replace('_', ' ').title()))
+        if item.get('firmado'):
+            status = "<font color='#006633'><b>HUELLA BIOMÉTRICA · NO FEA</b></font>"
+            details = (
+                f"<b>{label}</b> &nbsp; {escape(str(item.get('firmante') or ''))}"
+                f" &nbsp; {escape(str(item.get('username') or ''))}"
+                f" &nbsp; {escape(str(item.get('fecha') or ''))}"
+            )
+        else:
+            status = f"<font color='#9a3412'><b>FIRMA BIOMÉTRICA DE {label.upper()} PENDIENTE</b></font>"
+            details = f"<b>{label}</b> &nbsp; Nombre: ____________________"
+        rows.append([
+            Paragraph(status, ParagraphStyle(f'SpecialSignatureStatus{role}', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER)),
+            Paragraph(details, ParagraphStyle(f'SpecialSignatureDetails{role}', fontName='Helvetica', fontSize=6.0, leading=7.2, alignment=TA_CENTER)),
+        ])
+    signature_table = Table(rows, colWidths=[content_w * 0.42, content_w * 0.58], hAlign='CENTER')
+    signature_table.setStyle(TableStyle([
+        ('LINEABOVE', (0, 0), (-1, 0), 0.8, PRIMARY_BLUE),
+        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 1),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    wrapper = Table([[base_table], [Spacer(1, 5)], [signature_table]], colWidths=[content_w], hAlign='CENTER')
+    wrapper.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    return wrapper
+
+
+def _append_bank_blood_signature(base_table, firma_data: dict, content_w: float):
+    """Backward compatible alias for callers from older PDF engines."""
+    return _append_special_signature_evidence(base_table, firma_data, content_w)
+
+
 def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, content_w: float, firma_data: dict = None):
     """Construye la tabla de firmas normada con sello biométrico NOM estético para impresión."""
     sig_col_w = (content_w - 40.0) / 2.0
@@ -309,8 +459,26 @@ def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, 
         <font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>
         """
         top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
+    elif firma_data and firma_data.get('firma_nativa_vertical'):
+        native_user = escape(str(firma_data.get('usuario_tecnico_vertical') or 'Vertical EHR'))
+        native_date = escape(str(firma_data.get('fecha_hora_firma_vertical') or 'fecha no disponible'))
+        native_id = firma_data.get('sello_nativo_vertical_corto')
+        native_id_html = f"<br/><font size='4.4' color='#444'>Registro: {escape(str(native_id))}</font>" if native_id else ""
+        native_html = f"""
+        <font size='5.8' color='#1d4ed8'><b>[OK] FIRMA NATIVA REGISTRADA EN VERTICAL</b></font><br/>
+        <font size='4.8' color='#1e3a8a'><b>Confirmación técnica del expediente fuente · no es FEA HES</b></font><br/>
+        <font size='4.4' color='#444'>Usuario: {native_user} | {native_date}</font>{native_id_html}
+        """
+        top_sig_p = Paragraph(native_html, ParagraphStyle('SigNative', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
+    elif firma_data and firma_data.get('_signature_history'):
+        historical_count = len(firma_data.get('_signature_history') or [])
+        historical_html = f"""
+        <font size='5.6' color='#b45309'><b>[!] EVIDENCIA HISTÓRICA CONSERVADA</b></font><br/>
+        <font size='4.7' color='#92400e'>{historical_count} registro(s) requieren refirma para cubrir la versión actual</font>
+        """
+        top_sig_p = Paragraph(historical_html, ParagraphStyle('SigHistorical', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
     else:
-        top_sig_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
+        top_sig_p = Paragraph("<font size='5.2' color='#9a3412'><b>[FIRMA MÉDICA NO REGISTRADA]</b></font>", ParagraphStyle('SigMissing', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
 
     # Sello biométrico paciente
     pac_stamp_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
@@ -391,7 +559,7 @@ def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, 
                 ('TOPPADDING', (0,0), (-1,-1), 0),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 0),
             ]))
-            return wrapper
+            return _append_bank_blood_signature(wrapper, firma_data, content_w)
         else:
             # Solo paciente y médico lado a lado
             sig_data = [
@@ -410,15 +578,15 @@ def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, 
                 ('TOPPADDING', (0,1), (-1,1), 2.5),
                 ('BOTTOMPADDING', (0,1), (-1,1), 0),
             ]))
-            return t_sig
+            return _append_bank_blood_signature(t_sig, firma_data, content_w)
     else:
         has_mip = bool(mip_nombre and mip_nombre.strip() and mip_nombre.strip().upper() not in ['NONE', 'NULL', 'N/D', ''])
 
         if has_mip:
             mip_clean = mip_nombre.strip()
-            mip_sub_text = "<br/><font size='6.2' color='#334155'><i><b>MÉDICO INTERNO DE PREGRADO / RESIDENTE</b></i></font>"
+            mip_sub_text = "<br/><font size='6.2' color='#334155'><i><b>MÉDICO INTERNO DE PREGRADO / RESIDENTE · COLABORADOR</b></i></font>"
             sig_data = [
-                [top_sig_p, '', Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))],
+                [top_sig_p, '', Paragraph("<font size='5.2' color='#9a3412'>Sin firma MIP registrada</font>", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12, alignment=TA_CENTER))],
                 [Paragraph(f"<b>{medico_nombre}</b>{doc_ced_text}", ParagraphStyle('SigM', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER)), '', Paragraph(f"<b>{mip_clean}</b>{mip_sub_text}", ParagraphStyle('SigMIP', fontName='Helvetica', fontSize=7.8, leading=9.5, alignment=TA_CENTER))]
             ]
             t_sig = Table(sig_data, colWidths=[sig_col_w, 40.0, sig_col_w])
@@ -427,13 +595,12 @@ def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, 
                 ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
                 ('VALIGN', (0,1), (-1,1), 'TOP'),
                 ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-                ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
                 ('TOPPADDING', (0,0), (-1,0), 0),
                 ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
                 ('TOPPADDING', (0,1), (-1,1), 2.5),
                 ('BOTTOMPADDING', (0,1), (-1,1), 0),
             ]))
-            return t_sig
+            return _append_bank_blood_signature(t_sig, firma_data, content_w)
         else:
             single_sig_w = 250.0
             gap_w = max(0, (content_w - single_sig_w) / 2.0)
@@ -456,20 +623,20 @@ def build_signature_table(medico_nombre: str, medico_ced: str, mip_nombre: str, 
                 ('TOPPADDING', (0,1), (-1,1), 2.5),
                 ('BOTTOMPADDING', (0,1), (-1,1), 0),
             ]))
-            return t_sig
+            return _append_bank_blood_signature(t_sig, firma_data, content_w)
 
 
-def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None, evoluciones_list: list = None) -> str:
+def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None, evoluciones_list: list = None, firma_data_by_slot: dict = None) -> str:
     """
     Genera el PDF oficial de la Nota de Urgencias:
-    - is_general=True: Imprime el documento general unificado con todas las evoluciones consecutivas (1..N) y 1 sola firma al final.
+    - is_general=True: Imprime todas las evoluciones con su propia evidencia cuando se pasa firma_data_by_slot.
     - is_general=False: Imprime la nota individual con su propia firma.
     """
     if output_path and os.path.dirname(output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
@@ -679,14 +846,15 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         
         story.extend(soap_parts)
 
-        if not is_general:
+        if not is_general or firma_data_by_slot is not None:
             med_nom = str(ev.get('medico', '')).upper()
             med_c = str(ev.get('cedula', 'N/D'))
             mip_nom = str(ev.get('mip', '')).upper()
-            t_sig = build_signature_table(med_nom, med_c, mip_nom, content_w, firma_data=firma_data)
+            current_signature = (firma_data_by_slot or {}).get(int(num), {}) if firma_data_by_slot is not None else firma_data
+            t_sig = build_signature_table(med_nom, med_c, mip_nom, content_w, firma_data=current_signature)
             story.append(Spacer(1, 14))
             story.append(KeepTogether([t_sig]))
-        else:
+        if is_general:
             if idx < len(active_evols) - 1:
                 story.append(Spacer(1, 8))
                 t_div = Table([['']], colWidths=[content_w])
@@ -698,7 +866,7 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
                 story.append(t_div)
                 story.append(Spacer(1, 16))
 
-    if is_general and active_evols:
+    if is_general and active_evols and firma_data_by_slot is None:
         last_ev = active_evols[-1]
         med_nom = str(last_ev.get('medico', '')).upper()
         med_c = str(last_ev.get('cedula', 'N/D'))
@@ -712,6 +880,8 @@ def generate_nota_urgencias(pt_data: dict, evol1: dict = None, evol2: dict = Non
         'title': 'NOTA DE EVOLUCIÓN DE URGENCIAS',
         'title_lines': ['NOTA DE EVOLUCIÓN DE URGENCIAS'],
         'code': 'HE-DIRMED-SINPRO-PLT-87/01',
+        'pt_num': str(pt_data.get('pt_num') or pt_data.get('mrn') or ''),
+        'expediente': str(pt_data.get('expediente') or pt_data.get('mrn') or pt_data.get('pt_num') or ''),
     }
 
     def make_canvas(*args, **kwargs):
@@ -756,4 +926,3 @@ def build_biometric_stamp_p(tipo_firmante: str = "PACIENTE", sello_id: str = "BI
     <font size='4.2' color='#444'><b>Validación Dactilar:</b> <font face='Courier' size='3.8'>{sello_short}</font>{fecha_part}</font>
     """
     return Paragraph(html, style_stamp)
-

@@ -41,6 +41,12 @@ ALLOWED_ACTIONS = frozenset(
         "ACTUALIZACION_FEA",
         "ENROLAMIENTO_FIRMANTE",
         "REENROLAMIENTO_FIRMANTE",
+        "FIRMA_BANCO_SANGRE",
+        "ENROLAMIENTO_BANCO_SANGRE",
+        "REENROLAMIENTO_BANCO_SANGRE",
+        "FIRMA_USUARIO_ESPECIAL",
+        "ENROLAMIENTO_USUARIO",
+        "REENROLAMIENTO_USUARIO",
     }
 )
 
@@ -107,24 +113,96 @@ def _secret() -> bytes:
     return secret.encode("utf-8")
 
 
+SIGNER_ROLE_MARKER = "|role:"
+
+
+def identity_subject(identity_ref: Optional[str]) -> Optional[str]:
+    """Return the enrolled identity portion of a role-bound document identity."""
+    if not identity_ref:
+        return identity_ref
+    return str(identity_ref).split(SIGNER_ROLE_MARKER, 1)[0]
+
+
+def role_bound_signer_identity(signer_id: int, role: str) -> str:
+    return f"firmante:{int(signer_id)}{SIGNER_ROLE_MARKER}{str(role or '').strip().upper()}"
+
+
 def _match_job(db: Session, row) -> tuple[bool, list[dict]]:
-    if row.action in {"ENROLAMIENTO_MEDICO", "REENROLAMIENTO_MEDICO", "ENROLAMIENTO_FIRMANTE", "REENROLAMIENTO_FIRMANTE"}:
+    if row.action in {"ENROLAMIENTO_MEDICO", "REENROLAMIENTO_MEDICO", "ENROLAMIENTO_FIRMANTE", "REENROLAMIENTO_FIRMANTE", "ENROLAMIENTO_BANCO_SANGRE", "REENROLAMIENTO_BANCO_SANGRE", "ENROLAMIENTO_USUARIO", "REENROLAMIENTO_USUARIO"}:
         return False, []
-    kind = "firmante" if row.action in {"FIRMA_FIRMANTE", "VERIFICACION_FIRMANTE"} else "medico"
+    if row.action == "FIRMA_USUARIO_ESPECIAL":
+        from access_control import can_sign_format
+        users = db.query(models.Usuario).filter(
+            models.Usuario.activo == True,
+            models.Usuario.biometric_status == "FMD_VALIDO",
+        ).all()
+        expected = row.expected_identity_ref
+        expected_subject = identity_subject(expected)
+        role = str(expected or "").split(SIGNER_ROLE_MARKER, 1)[1].upper() if SIGNER_ROLE_MARKER in str(expected or "") else None
+        candidates = []
+        for user in users:
+            identity = f"usuario_especial:{user.id}"
+            if expected_subject and identity != expected_subject:
+                continue
+            if not can_sign_format(user, row.document_code, role):
+                continue
+            info = detect_template_state(user.fmd_template)
+            if not info.canonical:
+                continue
+            candidates.append({
+                "id": user.id,
+                "identity": expected,
+                "data": json.loads(info.canonical)["data"],
+                "template_hash": hashlib.sha256(info.canonical.encode()).hexdigest(),
+            })
+        return True, candidates
+    if row.action == "FIRMA_BANCO_SANGRE":
+        users = db.query(models.Usuario).filter(
+            models.Usuario.rol == "banco_sangre",
+            models.Usuario.activo == True,
+            models.Usuario.biometric_status == "FMD_VALIDO",
+        ).all()
+        candidates = []
+        expected = row.expected_identity_ref
+        expected_subject = identity_subject(expected)
+        for user in users:
+            identity = f"banco_sangre:{user.id}"
+            if expected_subject and identity != expected_subject:
+                continue
+            info = detect_template_state(user.fmd_template)
+            if not info.canonical:
+                continue
+            candidates.append({
+                "id": user.id,
+                "identity": expected if expected_subject == identity else identity,
+                "data": json.loads(info.canonical)["data"],
+                "template_hash": hashlib.sha256(info.canonical.encode()).hexdigest(),
+            })
+        return True, candidates
+    kind = (
+        "banco_sangre" if row.action == "FIRMA_BANCO_SANGRE"
+        else "firmante" if row.action in {"FIRMA_FIRMANTE", "VERIFICACION_FIRMANTE"}
+        else "medico"
+    )
     expected = row.expected_identity_ref
+    expected_subject = identity_subject(expected)
     if kind == "firmante":
         records = db.query(models.BiometriaFirmanteEpisodio).filter_by(estado="ACTIVO", biometric_status="FMD_VALIDO").all()
+    elif kind == "banco_sangre":
+        records = db.query(models.Usuario).filter_by(
+            rol="banco_sangre", activo=True, biometric_status="FMD_VALIDO",
+        ).all()
     else:
         records = db.query(models.Medico).filter_by(activo_status=True, biometric_status="FMD_VALIDO").all()
     candidates = []
     for record in records:
         identity = f"{kind}:{record.id}"
-        if expected and identity != expected:
+        if expected_subject and identity != expected_subject:
             continue
         info = detect_template_state(record.fmd_template)
         if not info.canonical:
             continue
-        candidates.append({"id": record.id, "identity": identity,
+        candidates.append({"id": record.id, "identity": expected if expected_subject == identity else identity,
                            "data": json.loads(info.canonical)["data"],
                            "template_hash": hashlib.sha256(info.canonical.encode()).hexdigest()})
     return True, candidates
@@ -303,19 +381,32 @@ def verify_attested_match(capture: AttestedCapture, candidates: list[dict], kind
     proof = capture.match_result or {}
     if not capture.context or capture.context.get("match_required") is not True or not isinstance(proof.get("match_success"), bool):
         raise HTTPException(status_code=502, detail="Resultado de matching atestado inválido.")
-    if proof["match_success"] is True:
-        for row in candidates:
-            template = detect_template_state(row["fmd_template"]).canonical
-            if template and proof.get("matched_identity") == f"{kind}:{row['id']}" and proof.get("matched_template_hash") == hashlib.sha256(template.encode()).hexdigest():
-                return row["id"]
-    # Un mismatch durante LOGIN sí es un fallo de autenticación. En una operación
-    # clínica protegida el JWT sigue siendo válido: se rechaza exclusivamente el
-    # acto biométrico para que la SPA muestre el error sin cerrar la sesión.
-    action = str((capture.context or {}).get("action") or "").strip().upper()
-    status_code = 401 if action == "LOGIN" else 403
+    if proof["match_success"] is not True:
+        action = str(capture.context.get("action") or "").strip().upper()
+        status_code = 401 if action == "LOGIN" else 403
+        raise HTTPException(
+            status_code=status_code,
+            detail=(
+                "La huella no coincide con la registrada para esta persona. No se guardó la firma. Use el mismo dedo que se registró e inténtelo de nuevo."
+                if action != "LOGIN"
+                else "La huella no corresponde al usuario seleccionado. Intente nuevamente."
+            ),
+        )
+    for row in candidates:
+        template = detect_template_state(row["fmd_template"]).canonical
+        enrolled_identity = f"{kind}:{row['id']}"
+        expected_identity = (capture.context or {}).get("expected_identity_ref")
+        attested_identity = expected_identity if identity_subject(expected_identity) == enrolled_identity else enrolled_identity
+        if template and proof.get("matched_identity") == attested_identity and proof.get("matched_template_hash") == hashlib.sha256(template.encode()).hexdigest():
+            return row["id"]
+    action = str(capture.context.get("action") or "").strip().upper()
     raise HTTPException(
-        status_code=status_code,
-        detail="Error: la huella no corresponde a la identidad seleccionada. Intente nuevamente.",
+        status_code=401 if action == "LOGIN" else 409,
+        detail=(
+            "No se pudo confirmar que la huella corresponda al usuario seleccionado. Intente nuevamente."
+            if action == "LOGIN"
+            else "La huella sí fue reconocida, pero el registro asociado cambió durante la lectura. Cierre esta ventana, vuelva a abrirla e intente de nuevo."
+        ),
     )
 
 

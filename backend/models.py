@@ -60,8 +60,19 @@ class Usuario(Base):
     must_change_password = Column(Boolean, default=False, nullable=False)
     permisos_modulos = Column(Text, nullable=True) # JSON object (ej. {"camas": "escritura", "agenda": "lectura"})
     formatos_permitidos = Column(Text, nullable=True) # JSON list (ej. ["HE-DIRMED-SINPRO-PLT-87/01"])
+    formatos_firma_permitidos = Column(Text, nullable=True) # JSON list; independiente del acceso de lectura
+    fmd_template = Column(Text, nullable=True) # Sólo FMD ANSI 378; nunca imagen RAW
+    biometric_status = Column(String(32), default="SIN_BIOMETRIA", nullable=False, index=True)
+    template_format = Column(String(32), nullable=True)
+    template_version = Column(Integer, nullable=True)
+    fecha_enrolamiento = Column(DateTime, nullable=True)
+    biometric_updated_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     
     atenciones_creadas = relationship("AtencionMedica", back_populates="creador")
+
+    @property
+    def tiene_huella(self) -> bool:
+        return bool(self.fmd_template and self.biometric_status == "FMD_VALIDO")
 
 class Medico(Base):
     __tablename__ = "medicos"
@@ -359,6 +370,7 @@ class FirmaDocumentoClinico(Base):
     evolution_slot = Column(Integer, nullable=True) # 1, 2, 3 o None
     rol_firmante = Column(String, default="MEDICO", index=True) # "MEDICO", "PACIENTE", "REPRESENTANTE_LEGAL", "TESTIGO_1", "TESTIGO_2"
     firmante_id = Column(Integer, ForeignKey("biometria_firmantes_episodio.id"), nullable=True)
+    usuario_firmante_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     medico_id = Column(Integer, ForeignKey("medicos.id"), index=True, nullable=True)
     nombre_medico = Column(String)
     cedula_profesional = Column(String)
@@ -396,6 +408,7 @@ class FirmaDocumentoClinico(Base):
     version = Column(Integer, default=1)
 
     medico = relationship("Medico")
+    usuario_firmante = relationship("Usuario", foreign_keys=[usuario_firmante_id])
 
     __table_args__ = (
         Index("idx_firmas_pt_formato_slot_estado", "pt_num", "codigo_formato", "evolution_slot", "estado"),

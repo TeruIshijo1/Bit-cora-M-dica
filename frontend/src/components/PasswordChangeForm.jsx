@@ -45,7 +45,7 @@ export default function PasswordChangeForm({ onComplete }) {
         ].map(([label, value, setter, autocomplete]) => <label key={label} className="block text-sm font-semibold">
           {label}<input className="mt-2 w-full border rounded-lg p-3" type="password" autoComplete={autocomplete} required value={value} onChange={event=>setter(event.target.value)} disabled={change.isPending} />
         </label>)}
-        <p className="text-xs text-slate-500">Use al menos 14 caracteres, mayúsculas, minúsculas, números y un símbolo.</p>
+        <p className="text-xs text-slate-500">Use al menos 8 caracteres, mayúsculas, minúsculas, números y un símbolo.</p>
         <Button type="submit" isLoading={change.isPending} className="w-full">Guardar contraseña</Button>
         <Button variant="secondary" onClick={leave} disabled={change.isPending} className="w-full">Volver al acceso</Button>
       </>}

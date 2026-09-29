@@ -14,6 +14,7 @@ Calibración exacta según especificaciones RDLC institucionales:
 import os
 import re
 import datetime
+from xml.sax.saxutils import escape
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -25,6 +26,20 @@ from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, CondPageBreak
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
+
+try:
+    from pdf_qr_context import qr_payload
+except ModuleNotFoundError:
+    from backend.pdf_qr_context import qr_payload
+
+try:
+    from pdf_engine_v2 import (
+        LATERAL_ASPECT_RATIO, LATERAL_HEIGHT, LATERAL_X, letterhead_content_width,
+    )
+except ModuleNotFoundError:
+    from backend.pdf_engine_v2 import (
+        LATERAL_ASPECT_RATIO, LATERAL_HEIGHT, LATERAL_X, letterhead_content_width,
+    )
 
 # ─────────────────────────────────────────────────────────────
 # RUTAS DE ASSETS OFICIALES (600 DPI INSTITUCIONALES)
@@ -112,6 +127,16 @@ class RDLCCanvas24(canvas.Canvas):
         self._startPage()
 
     def save(self):
+        title_lines = self.doc_info.get('title_lines') or ['NOTA DE EVOLUCIÓN DE HOSPITALIZACIÓN']
+        title = " ".join(str(l).strip() for l in title_lines if str(l).strip())
+        exp = self.doc_info.get('expediente') or self.doc_info.get('folio') or self.doc_info.get('pt_num')
+        if exp and str(exp) not in str(title):
+            title = f"{title} - {exp}"
+        self.setTitle(title)
+        self.setAuthor("Hospital Escandón")
+        self.setSubject("Nota de Evolución de Hospitalización NOM-004")
+        self.setCreator("Bitácora Médica HES")
+
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
@@ -152,11 +177,11 @@ class RDLCCanvas24(canvas.Canvas):
 
         # 3. LATERAL DERECHO VERTICAL (Membrete Fundación)
         if os.path.exists(LATERAL_IMG):
-            lat_w = 12.0
-            lat_h = 560.0
-            lat_x = FRAME_X + FRAME_W - lat_w - 2.5
+            lat_h = LATERAL_HEIGHT
+            lat_w = lat_h * LATERAL_ASPECT_RATIO
+            lat_x = LATERAL_X
             lat_y = FRAME_Y + 42.0
-            self.drawImage(LATERAL_IMG, lat_x, lat_y, width=lat_w, height=lat_h, mask='auto', preserveAspectRatio=False)
+            self.drawImage(LATERAL_IMG, lat_x, lat_y, width=lat_w, height=lat_h, mask='auto', preserveAspectRatio=True)
 
         # 4. PIE DE PÁGINA
         if os.path.exists(FOOTER_CLEAN_IMG):
@@ -171,8 +196,10 @@ class RDLCCanvas24(canvas.Canvas):
             self.rect(foot_x, foot_y + foot_h - 4.5, foot_w, 4.5, fill=True, stroke=False)
 
             # QR DE VERIFICACIÓN INSTITUCIONAL
-            qr_data = self.doc_info.get('qr_data') or self.doc_info.get('qr_url')
-            draw_qr = bool(qr_data) and self.doc_info.get('draw_qr', True)
+            qr_data, qr_from_context = qr_payload(self.doc_info)
+            # Las preparaciones verificables inyectan el contexto común aunque
+            # este motor conserve su configuración histórica de QR.
+            draw_qr = bool(qr_data) and (self.doc_info.get('draw_qr', True) or qr_from_context)
             
             if draw_qr:
                 try:
@@ -280,6 +307,26 @@ def build_signature_table_24(medico_nombre: str, medico_ced: str, mip_nombre: st
         <font size='4.6' color='#444'><b>Sello:</b> <font face='Courier' size='4.4'>{sello_resumido}</font> | {fecha_txt}</font>
         """
         top_sig_p = Paragraph(stamp_html, ParagraphStyle('SigStamp', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
+    elif firma_data and firma_data.get('firma_nativa_vertical'):
+        native_user = escape(str(firma_data.get('usuario_tecnico_vertical') or 'Vertical EHR'))
+        native_date = escape(str(firma_data.get('fecha_hora_firma_vertical') or 'fecha no disponible'))
+        native_id = firma_data.get('sello_nativo_vertical_corto')
+        native_id_html = f"<br/><font size='4.4' color='#444'>Registro: {escape(str(native_id))}</font>" if native_id else ""
+        native_html = f"""
+        <font size='5.8' color='#1d4ed8'><b>[OK] FIRMA NATIVA REGISTRADA EN VERTICAL</b></font><br/>
+        <font size='4.8' color='#1e3a8a'><b>Confirmación técnica del expediente fuente · no es FEA HES</b></font><br/>
+        <font size='4.4' color='#444'>Usuario: {native_user} | {native_date}</font>{native_id_html}
+        """
+        top_sig_p = Paragraph(native_html, ParagraphStyle('SigNative', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
+    elif firma_data and firma_data.get('_signature_history'):
+        historical_count = len(firma_data.get('_signature_history') or [])
+        historical_html = f"""
+        <font size='5.6' color='#b45309'><b>[!] EVIDENCIA HISTÓRICA CONSERVADA</b></font><br/>
+        <font size='4.7' color='#92400e'>{historical_count} registro(s) requieren refirma para cubrir la versión actual</font>
+        """
+        top_sig_p = Paragraph(historical_html, ParagraphStyle('SigHistorical', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
+    else:
+        top_sig_p = Paragraph("<font size='5.2' color='#9a3412'><b>[FIRMA MÉDICA NO REGISTRADA]</b></font>", ParagraphStyle('SigMissing', fontName='Helvetica', fontSize=5.0, leading=6.2, alignment=TA_CENTER))
 
     doc_ced_text = f"<br/><font size='6.2' color='#334155'><i><b>CÉD. PROF. {medico_ced}</b></i></font>" if (medico_ced and medico_ced != 'N/D') else ""
 
@@ -289,7 +336,7 @@ def build_signature_table_24(medico_nombre: str, medico_ced: str, mip_nombre: st
     if has_mip:
         sig_col_w = (content_w - 40.0) / 2.0
 
-        top_mip_p = Paragraph("&nbsp;", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12))
+        top_mip_p = Paragraph("<font size='5.2' color='#9a3412'>Sin firma MIP registrada</font>", ParagraphStyle('SigBlank', fontName='Helvetica', fontSize=8, leading=12, alignment=TA_CENTER))
         if firma_mip_data and (firma_mip_data.get('sello_digital') or firma_mip_data.get('hash_sha256')):
             s_mip_raw = str(firma_mip_data.get('sello_digital') or firma_mip_data.get('hash_sha256') or '')
             s_mip_res = (s_mip_raw[:28] + '...') if len(s_mip_raw) > 28 else s_mip_raw
@@ -302,7 +349,7 @@ def build_signature_table_24(medico_nombre: str, medico_ced: str, mip_nombre: st
             top_mip_p = Paragraph(stamp_mip_html, ParagraphStyle('SigStampMIP', fontName='Helvetica', fontSize=5.2, leading=6.5, alignment=TA_CENTER))
 
         mip_clean = mip_nombre.strip()
-        mip_sub_text = "<br/><font size='6.2' color='#334155'><i><b>MÉDICO INTERNO DE PREGRADO / RESIDENTE</b></i></font>"
+        mip_sub_text = "<br/><font size='6.2' color='#334155'><i><b>MÉDICO INTERNO DE PREGRADO / RESIDENTE · COLABORADOR</b></i></font>"
         sig_data = [
             [top_sig_p, '', top_mip_p],
             [
@@ -317,7 +364,6 @@ def build_signature_table_24(medico_nombre: str, medico_ced: str, mip_nombre: st
             ('VALIGN', (0,0), (-1,0), 'BOTTOM'),
             ('VALIGN', (0,1), (-1,1), 'TOP'),
             ('LINEABOVE', (0,1), (0,1), 0.8, PRIMARY_BLUE),
-            ('LINEABOVE', (2,1), (2,1), 0.8, PRIMARY_BLUE),
             ('TOPPADDING', (0,0), (-1,0), 0),
             ('BOTTOMPADDING', (0,0), (-1,0), 0.5),
             ('TOPPADDING', (0,1), (-1,1), 2.5),
@@ -351,17 +397,17 @@ def build_signature_table_24(medico_nombre: str, medico_ced: str, mip_nombre: st
         return t_sig
 
 
-def generate_nota_hospitalizacion(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None, evoluciones_list: list = None) -> str:
+def generate_nota_hospitalizacion(pt_data: dict, evol1: dict = None, evol2: dict = None, evol3: dict = None, output_path: str = None, is_general: bool = True, firma_data: dict = None, evoluciones_list: list = None, firma_data_by_slot: dict = None) -> str:
     """
     Genera el PDF oficial de la Nota de Evolución de Hospitalización (HE-DIRMED-CONSUL-PLT-24):
-    - is_general=True: Imprime el documento general unificado con todas las evoluciones consecutivas (1..N) y 1 sola firma al final.
+    - is_general=True: Imprime todas las evoluciones con su propia evidencia cuando se pasa firma_data_by_slot.
     - is_general=False: Imprime la nota individual con su propia firma.
     """
     if output_path and os.path.dirname(output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     content_x = FRAME_X + 16.0
-    content_w = FRAME_W - 32.0 - 16.0 # ~521.76 pt
+    content_w = letterhead_content_width(content_x)
 
     frame_bottom = FRAME_Y + 41.0
     frame_top_p1 = (FRAME_Y + FRAME_H) - 76.5
@@ -578,14 +624,15 @@ def generate_nota_hospitalizacion(pt_data: dict, evol1: dict = None, evol2: dict
 
         story.extend(soap_parts)
 
-        if not is_general:
+        if not is_general or firma_data_by_slot is not None:
             med_nom = str(ev.get('medico', '')).upper()
             med_c = str(ev.get('cedula', 'N/D'))
             mip_nom = str(ev.get('mip', '')).upper()
-            t_sig = build_signature_table_24(med_nom, med_c, mip_nom, content_w, firma_data=firma_data)
+            current_signature = (firma_data_by_slot or {}).get(int(num), {}) if firma_data_by_slot is not None else firma_data
+            t_sig = build_signature_table_24(med_nom, med_c, mip_nom, content_w, firma_data=current_signature)
             story.append(Spacer(1, 14))
             story.append(KeepTogether([t_sig]))
-        else:
+        if is_general:
             if idx < len(active_evols) - 1:
                 story.append(Spacer(1, 8))
                 t_div = Table([['']], colWidths=[content_w])
@@ -597,7 +644,7 @@ def generate_nota_hospitalizacion(pt_data: dict, evol1: dict = None, evol2: dict
                 story.append(t_div)
                 story.append(Spacer(1, 6))
 
-    if is_general and active_evols:
+    if is_general and active_evols and firma_data_by_slot is None:
         last_ev = active_evols[-1]
         med_nom = str(last_ev.get('medico', '')).upper()
         med_c = str(last_ev.get('cedula', 'N/D'))

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { openNamedPdfPreview } from '../utils/namedPdfPreview';
+import { shouldReloadForMissingAsset } from '../utils/dynamicImportRecovery';
 import {
   FiMousePointer, FiEdit2, FiUnderline, FiEdit3, FiMessageSquare,
   FiSquare, FiTrash2, FiSave, FiDownload, FiPrinter, FiX,
@@ -260,7 +262,7 @@ function PdfPage({
 
 /* ---------------- Visor principal ---------------- */
 export default function ClinicalPdfViewer({
-  fileUrl, docId, title = 'Documento PDF', meta = '',
+  fileUrl, fileData = null, docId, title = 'Documento PDF', meta = '',
   downloadName = 'documento.pdf', onClose, onOpenNewTab,
 }) {
   const [pdfDoc, setPdfDoc] = useState(null);
@@ -293,7 +295,7 @@ export default function ClinicalPdfViewer({
     setTimeout(() => setToast(''), 2200);
   };
 
-  // Cargar PDF (robusto: blob: URL -> ArrayBuffer -> pdf.js, sin range requests)
+  // Cargar PDF desde el Blob autenticado; fileUrl queda para descargar/abrir fuera.
   useEffect(() => {
     let alive = true;
     let docInstance = null;
@@ -303,28 +305,38 @@ export default function ClinicalPdfViewer({
     setNumPages(0);
     (async () => {
       try {
-        const res = await fetch(fileUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status} al obtener el PDF`);
-        const buf = await res.arrayBuffer();
+        let buf;
+        if (fileData instanceof Blob) {
+          buf = await fileData.arrayBuffer();
+        } else {
+          const res = await fetch(fileUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status} al obtener el PDF`);
+          buf = await res.arrayBuffer();
+        }
         if (!alive) return;
         const data = new Uint8Array(buf);
-        let loadingTask;
         try {
-          loadingTask = pdfjsLib.getDocument({
+          const loadingTask = pdfjsLib.getDocument({
             data,
             useSystemFonts: true,
             isEvalSupported: false,
           });
           docInstance = await loadingTask.promise;
         } catch (workerErr) {
-          console.warn('[ClinicalPdfViewer] Reintentando carga de PDF con fallback de worker...', workerErr);
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.0.379'}/build/pdf.worker.min.mjs`;
-          loadingTask = pdfjsLib.getDocument({
-            data,
-            useSystemFonts: true,
-            isEvalSupported: false,
-          });
-          docInstance = await loadingTask.promise;
+          console.warn('[ClinicalPdfViewer] El worker local no pudo procesar el PDF.', workerErr);
+          try {
+            const workerResponse = await fetch(workerSrc, { method: 'HEAD', cache: 'no-store' });
+            if (
+              (workerResponse.status === 404 || workerResponse.status === 410)
+              && shouldReloadForMissingAsset(workerSrc, window.sessionStorage)
+            ) {
+              window.location.reload();
+              return;
+            }
+          } catch {
+            // Conserva el error original de PDF.js; no se depende de CDNs externos.
+          }
+          throw workerErr;
         }
         if (!alive) return;
         setPdfDoc(docInstance);
@@ -342,7 +354,7 @@ export default function ClinicalPdfViewer({
       alive = false;
       try { docInstance?.destroy(); } catch {}
     };
-  }, [fileUrl, retryCount]);
+  }, [fileData, fileUrl, retryCount]);
 
   // Cargar / guardar anotaciones
   useEffect(() => {
@@ -547,7 +559,7 @@ export default function ClinicalPdfViewer({
           <a href={fileUrl} download={downloadName} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" title="Descargar PDF original">
             <FiDownload />
           </a>
-          <button type="button" onClick={() => window.open(fileUrl, '_blank')} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" title="Imprimir (abre diálogo del navegador)">
+          <button type="button" onClick={() => openNamedPdfPreview(window.open('about:blank', '_blank'), fileUrl, downloadName)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" title="Abrir vista para imprimir">
             <FiPrinter />
           </button>
           <button type="button" onClick={() => setExpanded((v) => !v)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" title={expanded ? 'Salir de pantalla completa' : 'Pantalla completa'}>
@@ -632,9 +644,8 @@ export default function ClinicalPdfViewer({
                   <a href={fileUrl} download={downloadName} className="px-3 py-2 rounded-lg bg-slate-100 font-bold text-slate-700">Descargar</a>
                   {onOpenNewTab && <button type="button" onClick={onOpenNewTab} className="px-3 py-2 rounded-lg bg-slate-100 font-bold text-slate-700">Abrir fuera</button>}
                 </div>
-                <p className="mt-2 text-[10px] text-slate-400">Abajo lo mostramos con el visor del navegador para no bloquearte. Las anotaciones requieren el visor nativo.</p>
+                <p className="mt-2 text-[10px] text-slate-400">El documento original sigue disponible para descargar o abrir fuera. Las anotaciones requieren el visor clínico.</p>
               </div>
-              <iframe src={fileUrl} className="w-full h-[560px] border border-slate-200 rounded-xl bg-white" title={title} />
             </div>
           )}
           {!loading && !loadError && pdfDoc && Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (

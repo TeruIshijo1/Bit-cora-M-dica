@@ -94,6 +94,13 @@ class P0AuthorizationRegressionTests(unittest.TestCase):
         os.chdir(cls.original_cwd)
 
     def setUp(self):
+        # The synthetic read probes explicitly opt into authentication-only
+        # access. Production routes without a module policy now fail closed.
+        original_policy = main.route_modules
+        probe_paths = {"/api/_p0/probe", "/ehr/_p0/probe", "/api/_p0/admin", "/api/_p0/rh", "/api/_p0/sistemas"}
+        policy_patch = patch.object(main, "route_modules", side_effect=lambda method, path: () if method == "GET" and path in probe_paths else original_policy(method, path))
+        policy_patch.start()
+        self.addCleanup(policy_patch.stop)
         for key in SIDE_EFFECTS:
             SIDE_EFFECTS[key] = 0
 

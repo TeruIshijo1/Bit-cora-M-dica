@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { 
@@ -21,9 +22,20 @@ import AllergiesModal from '../features/ehr/modals/AllergiesModal';
 const ClinicalPdfViewer = React.lazy(() => import('../components/ClinicalPdfViewer'));
 import { FirmantesEpisodioModal } from '../features/biometrics/FirmantesEpisodioModal';
 import FormatoClinicoDetalle from '../components/FormatoClinicoDetalle';
+import AuthenticatedPdfButton from '../components/AuthenticatedPdfButton';
 import { BiometricPatientSignModal } from '../features/biometrics/BiometricPatientSignModal';
+import SpecialSignerBiometricSignModal from '../features/biometrics/SpecialSignerBiometricSignModal';
+import { useDocumentSignaturesQuery } from '../hooks/useQueries';
 import { isConfirmedClinicalSync, pendingClinicalSyncMessage } from '../utils/clinicalSyncResult';
 import { friendlyBiometricError, friendlyReaderStatus } from '../utils/userMessages';
+import { patientCanAuthorize } from '../utils/biometricSigners';
+import { getStudyPdfDownloadName } from '../utils/pdfFilename';
+import { openNamedPdfPreview } from '../utils/namedPdfPreview';
+import PatientDirectory from '../components/PatientDirectory';
+import Button from '../components/ui/Button';
+import ClinicalFormatHeader from '../features/ehr/ClinicalFormatHeader';
+import ClinicalFormatEditor from '../features/ehr/ClinicalFormatEditor';
+import { PatientRecordHeader, PatientRecordNavigation, PatientVitalsPanel, RecordDisclosure } from '../features/ehr/PatientRecordChrome';
 
 const FamiliarSelectorSection = ({
   label = "Nombre del Familiar, Tutor o Representante Legal Responsable:",
@@ -284,8 +296,12 @@ const TestigosSelectorSection = ({
 
 export default function PatientDashboard() {
   const { pt_num } = useParams();
-  const patientId = pt_num || '5704';
+  if (!pt_num) return <PatientDirectory />;
+  return <PatientRecordDashboard key={pt_num} patientId={pt_num} />;
+}
 
+function PatientRecordDashboard({ patientId }) {
+  const { hasFormat } = useAuth();
   const [activeTab, setActiveTab] = useState('Timeline'); // DEFAULT TAB IS TIMELINE
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -331,6 +347,8 @@ export default function PatientDashboard() {
   };
 
   const handleOpenLabPdfNewTab = async (lab) => {
+    const preview = window.open('about:blank', '_blank');
+    if (preview?.document?.body) preview.document.body.textContent = 'Cargando estudio clínico…';
     let blobUrl = labPdfBlobs[lab.id];
     const cleanPath = getCleanPdfPath(lab);
     if (!blobUrl && cleanPath) {
@@ -340,10 +358,13 @@ export default function PatientDashboard() {
         setLabPdfBlobs(prev => ({ ...prev, [lab.id]: blobUrl }));
       } catch (err) {
         console.error("Error abriendo PDF:", err);
+        if (preview && !preview.closed) preview.close();
       }
     }
     if (blobUrl) {
-      window.open(blobUrl, '_blank');
+      openNamedPdfPreview(preview, blobUrl, getStudyPdfDownloadName(lab));
+    } else if (preview && !preview.closed) {
+      preview.close();
     }
   };
 
@@ -370,6 +391,8 @@ export default function PatientDashboard() {
   };
 
   const handleOpenImgPdfNewTab = async (img) => {
+    const preview = window.open('about:blank', '_blank');
+    if (preview?.document?.body) preview.document.body.textContent = 'Cargando estudio clínico…';
     let blobUrl = imgPdfBlobs[img.id];
     const cleanPath = getCleanPdfPath(img);
     if (!blobUrl && cleanPath) {
@@ -379,10 +402,13 @@ export default function PatientDashboard() {
         setImgPdfBlobs(prev => ({ ...prev, [img.id]: blobUrl }));
       } catch (err) {
         console.error("Error abriendo PDF:", err);
+        if (preview && !preview.closed) preview.close();
       }
     }
     if (blobUrl) {
-      window.open(blobUrl, '_blank');
+      openNamedPdfPreview(preview, blobUrl, getStudyPdfDownloadName(img));
+    } else if (preview && !preview.closed) {
+      preview.close();
     }
   };
   
@@ -397,9 +423,23 @@ export default function PatientDashboard() {
   const [selectedFirmanteForModal, setSelectedFirmanteForModal] = useState(null);
   const [firmantesList, setFirmantesList] = useState([]);
   const [patientSignModal, setPatientSignModal] = useState({ open: false, documentInfo: {} });
+  const [specialSignatureModal, setSpecialSignatureModal] = useState({ open: false, documentInfo: {} });
+  const [signatureRepairQueue, setSignatureRepairQueue] = useState([]);
+  const signatureRepairNavigationPending = useRef(false);
+  const signatureRepairTarget = useRef(null);
   const [selectedFormatArea, setSelectedFormatArea] = useState('Todos');
   const [searchFormatoQuery, setSearchFormatoQuery] = useState('');
-  const [selectedFormat, setSelectedFormat] = useState(null); // FORMATO SELECCIONADO EN PESTAÑA FORMATOS
+  const [recordReference, setRecordReference] = useState({ patientId, panel: 'vitals' });
+  const [recordMenuOpen, setRecordMenuOpen] = useState(false);
+  const openRecordReference = recordReference.patientId === patientId ? recordReference.panel : 'vitals';
+  const toggleRecordReference = (panel) => setRecordReference({ patientId, panel: openRecordReference === panel ? null : panel });
+  const [selectedFormatValue, setSelectedFormatValue] = useState(null);
+  const setSelectedFormat = useCallback((format) => {
+    setRecordReference({ patientId, panel: format ? null : 'vitals' });
+    setRecordMenuOpen(false);
+    setSelectedFormatValue(format);
+  }, [patientId]);
+  const selectedFormat = selectedFormatValue && hasFormat(selectedFormatValue.codigo) ? selectedFormatValue : null; // FORMATO SELECCIONADO EN PESTAÑA FORMATOS
   const [consentForm3201, setConsentForm3201] = useState({
     tipo_interrogatorio: 'Directo',
     testigo1: '',
@@ -513,6 +553,60 @@ export default function PatientDashboard() {
   const [selectedMrnum11, setSelectedMrnum11] = useState(null);
   const [selectedMrnum19, setSelectedMrnum19] = useState(null);
   const [selectedMrnum07, setSelectedMrnum07] = useState(null);
+  const [selectedMrnum09, setSelectedMrnum09] = useState(null);
+  const [selectedMrnum16, setSelectedMrnum16] = useState(null);
+
+  const [egresoResumenModal16, setEgresoResumenModal16] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
+    mrnum: null,
+    diagnostico_ingreso: '',
+    diagnostico_egreso: '',
+    ta: '',
+    ta_dis: '',
+    pulso: '',
+    fr_respi: '',
+    temperatura: '',
+    sat_oxi: '',
+    reingreso: 'NO',
+    reea: '',
+    mdeh: '',
+    pmq: '',
+    elg: '',
+    pmt: '',
+    complicaciones: 'NINGUNA',
+    meg: 'MEJORADO',
+    df: '',
+    pcpcpe: '',
+    rvais: 'SE DA DE ALTA CON CITA ABIERTA A URGENCIAS Y CONSULTA EXTERNA',
+    afr: '',
+    edu_pact: 'CUIDADOS GENERALES DE LA SALUD, HIGIENE Y NUTRICIÓN',
+    cmep: '',
+    c_muerte: '',
+    enecropsia: 'NO',
+    dr_elaboro: '',
+    dr_tratante: '',
+    cedula_elaboro: '',
+    cedula_tratante: '',
+    saving: false
+  });
+
+  const [consentModal09, setConsentModal09] = useState({
+    open: false,
+    isEdit: false,
+    isNew: true,
+    mrnum: null,
+    n_medico: '',
+    expediente: '',
+    acepto_y_autorizo_transfusion_de: 'PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO',
+    testigo_1: '',
+    testigo_2: '',
+    paciente_capaz: true,
+    pariente: '',
+    parentesco: 'Paciente',
+    saving: false
+  });
 
   const [consentModal07, setConsentModal07] = useState({
     open: false,
@@ -884,11 +978,25 @@ export default function PatientDashboard() {
     title: 'Nota de Evolución 1',
     content: '',
     submitting: false,
+    checking: false,
     successMsg: null,
-    errorMsg: null
+    errorMsg: null,
+    syncState: null,
+    syncOperationId: null
   });
   const signingVersion = useRef(0);
-  const signingCloseTimer = useRef(null);
+  const signingSending = useRef(false);
+  const medicalAutoStartPending = useRef(false);
+  const medicalSignatureQuery = useDocumentSignaturesQuery(
+    patientId, signingModal.codigoFormato, signingModal.slot, signingModal.open
+  );
+  const medicalSignatureExists = Boolean(medicalSignatureQuery.data?.medico_firmado);
+  const medicalSignatureUnverified = Boolean(medicalSignatureQuery.data?.medico_sync_unverified);
+  const medicalSyncState = medicalSignatureQuery.data?.medico_sync_state || signingModal.syncState;
+  const medicalSyncOperationId = medicalSignatureQuery.data?.medico_sync_operation_id || signingModal.syncOperationId;
+  const medicalSignatureLocked = medicalSignatureExists || medicalSignatureUnverified || Boolean(signingModal.successMsg || signingModal.syncOperationId);
+  const medicalSyncFailed = medicalSyncState === 'FAILED';
+  const medicalSyncIncomplete = medicalSignatureLocked && (medicalSignatureUnverified || (medicalSyncState && medicalSyncState !== 'SYNCED'));
 
   // Modal de Auditoría y Verificación de Sello Completo NOM
   const [auditModal, setAuditModal] = useState({
@@ -898,6 +1006,7 @@ export default function PatientDashboard() {
     verification: null,
     copied: null
   });
+  const [biometricEvidenceModal, setBiometricEvidenceModal] = useState(null);
 
   // Modal de Toma y Modificación de Signos Vitales (PTVS - SQL Server)
   const [vitalsHistoryModal, setVitalsHistoryModal] = useState({
@@ -1236,6 +1345,8 @@ export default function PatientDashboard() {
   useEscapeKey(consentModal11.open, () => setConsentModal11(prev => ({ ...prev, open: false })));
   useEscapeKey(consentModal19.open, () => setConsentModal19(prev => ({ ...prev, open: false })));
   useEscapeKey(modal15EV.open, () => setModal15EV(prev => ({ ...prev, open: false })));
+  useEscapeKey(egresoResumenModal16.open, () => setEgresoResumenModal16(prev => ({ ...prev, open: false })));
+  useEscapeKey(consentModal09.open, () => setConsentModal09(prev => ({ ...prev, open: false })));
   useEscapeKey(universalEditModal.open, () => setUniversalEditModal(prev => ({ ...prev, open: false })));
 
   const fetchPatientAllergies = async () => {
@@ -1295,22 +1406,80 @@ export default function PatientDashboard() {
   const [savingNota, setSavingNota] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
 
+  // Includes shortcuts that open an editor directly, without selecting a format first.
+  const clinicalFormatEditorOpen = notaModal.open || universalEditModal.open
+    || consentModal3201.open || consentModal25.open || consentModalEED.open
+    || consentModal3401.open || consentModal12.open || consentModal04.open
+    || consentModal15.open || consentModal02.open || consentModal43.open
+    || consentModal06.open || consentModal11.open || consentModal19.open
+    || consentModal07.open || consentModal08.open || consentModal09.open
+    || egresoResumenModal16.open || modal15EV.open;
+
+  useEffect(() => {
+    if (!clinicalFormatEditorOpen) return;
+    setRecordReference(current => current.patientId === patientId && current.panel === null
+      ? current : { patientId, panel: null });
+  }, [clinicalFormatEditorOpen, patientId]);
+
   useEscapeKey(notaModal.open, () => setNotaModal(prev => ({ ...prev, open: false })));
 
-  const fetchFirmas = async () => {
+  const fetchFirmas = async ({ refreshQueue = true } = {}) => {
     try {
       const res = await api.get(`/ehr/paciente/${patientId}/firmas`);
       if (res.data && Array.isArray(res.data)) {
         setFirmas(res.data);
+        if (refreshQueue) {
+          try {
+            await refreshSignatureRepairQueue();
+          } catch (_) {
+            // La bandeja conserva sus pendientes si la comprobación no responde.
+          }
+        }
       }
     } catch(e){
       console.warn("Could not load firmas:", e);
     }
   };
 
-  const fetchData = async () => {
+  const refreshSignatureRepairQueue = async (updatedDocument = null, queueOverride = null) => {
+    const completedKeys = new Set();
+    const queueKey = (item) => `${item.codigo}:${Number(item.slot ?? item.mrnum ?? 0)}`;
+    const updatedCode = updatedDocument?.documentInfo?.codigo_formato || updatedDocument?.codigo_formato;
+    const updatedSlot = updatedDocument?.documentInfo?.evolution_slot ?? updatedDocument?.documentInfo?.slot ?? updatedDocument?.evolution_slot ?? updatedDocument?.slot;
+    const updatedStatus = updatedDocument?.signatureStatus || updatedDocument?.status;
+    const statusIsComplete = (status) => Boolean(
+      status?.firmas_completas === true
+      && status?.evidencia_firmas_vigente !== false
+      && !status?.detalles?.source_unverified
+    );
+    if (updatedCode && updatedSlot != null && statusIsComplete(updatedStatus)) {
+      completedKeys.add(queueKey({ codigo: updatedCode, slot: updatedSlot }));
+    }
+
+    const queueSnapshot = queueOverride || signatureRepairQueue;
+    await Promise.all((queueSnapshot || []).map(async (item) => {
+      if (completedKeys.has(queueKey(item))) return;
+      try {
+        const response = await api.get(`/ehr/paciente/${encodeURIComponent(patientId)}/firmas-documento`, {
+          params: {
+            codigo_formato: item.codigo,
+            slot: item.slot || item.mrnum || 0,
+          },
+        });
+        if (statusIsComplete(response.data)) completedKeys.add(queueKey(item));
+      } catch (_) {
+        // Si no se puede comprobar, se conserva el pendiente y no se oculta.
+      }
+    }));
+
+    if (completedKeys.size > 0) {
+      setSignatureRepairQueue((current) => current.filter((item) => !completedKeys.has(queueKey(item))));
+    }
+  };
+
+  const fetchData = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const token = localStorage.getItem('token');
       const res = await api.get(`/ehr/paciente/${patientId}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -1333,14 +1502,59 @@ export default function PatientDashboard() {
           }));
         }
       } else {
-        setError(res.data?.error || res.data?.detail || "Error al obtener datos");
+        if (!silent) setError(res.data?.error || res.data?.detail || "Error al obtener datos");
       }
     } catch (err) {
       console.error("Error fetching EHR:", err);
-      setError("Error de conexión con el servidor. ¿Está el backend actualizado y ejecutándose?");
+      if (!silent) setError("Error de conexión con el servidor. ¿Está el backend actualizado y ejecutándose?");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const refreshMedicalSignatureView = async () => {
+    const [statusResult] = await Promise.allSettled([
+      medicalSignatureQuery.refetch(),
+      fetchFirmas({ refreshQueue: false }),
+      fetchData({ silent: true }),
+      selectedFormat?.codigo ? fetchGenericHistory(selectedFormat.codigo) : Promise.resolve(),
+    ]);
+    const status = statusResult.status === 'fulfilled' && !statusResult.value.isError
+      ? statusResult.value.data : null;
+    await refreshSignatureRepairQueue({
+      codigo_formato: signingModal.codigoFormato,
+      slot: signingModal.slot,
+      signatureStatus: status,
+    });
+    return status;
+  };
+
+  const requestPendingSpecialSignature = (status, sourceDocument = null) => {
+    const requiredRoles = status?.firmas_especiales_requeridas || [];
+    if (!requiredRoles.length
+      || status?.evidencia_firmas_vigente === false
+      || status?.detalles?.source_unverified) return false;
+    const roleStates = status?.firmas_especiales_estado || status?.detalles?.firmas_especiales || {};
+    const role = requiredRoles.find(item => !roleStates?.[item]?.firmado);
+    if (!role) return false;
+    const code = sourceDocument?.codigo_formato || signingModal.codigoFormato;
+    const title = sourceDocument?.title || (selectedFormat?.codigo === code ? selectedFormat.nombre : signingModal.title);
+    const roleLabel = roleStates?.[role]?.etiqueta
+      || selectedFormat?.firmas_especiales_requeridas_labels?.find(item => item.id === role)?.label
+      || role.replaceAll('_', ' ');
+    setSigningModal(prev => ({ ...prev, open: false, submitting: false, checking: false }));
+    setSpecialSignatureModal({
+      open: true,
+      documentInfo: {
+        codigo_formato: code,
+        tipo_documento: sourceDocument?.tipo_documento || signingModal.tipoDocumento || title,
+        title,
+        slot: sourceDocument?.slot ?? signingModal.slot ?? 0,
+        rol_firmante: role,
+        areaLabel: roleLabel,
+      },
+    });
+    return true;
   };
 
   const fetchFirmantes = async () => {
@@ -1395,6 +1609,11 @@ export default function PatientDashboard() {
       alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden firmar ni refirmar documentos en un episodio cerrado / paciente de alta.");
       return;
     }
+    if (!codigoFormato) {
+      alert('No se pudo identificar el formato de esta nota. Actualice el expediente e intente de nuevo.');
+      return;
+    }
+    medicalAutoStartPending.current = true;
     setSigningModal({
       open: true,
       slot,
@@ -1403,8 +1622,11 @@ export default function PatientDashboard() {
       codigoFormato,
       tipoDocumento,
       submitting: false,
+      checking: false,
       successMsg: null,
-      errorMsg: null
+      errorMsg: null,
+      syncState: null,
+      syncOperationId: null
     });
     dpResetFmd();
   };
@@ -1417,38 +1639,45 @@ export default function PatientDashboard() {
         firmaPaciente: null,
         firmaTestigo1: null,
         firmaTestigo2: null,
+        firmaBancoSangre: null,
         hasMedico: false,
         hasPaciente: false,
         hasTestigo1: false,
         hasTestigo2: false,
+        hasBancoSangre: false,
         isFullySigned: false,
         allFirmas: []
       };
     }
-    const cleanCodigo = codigoFormato.replace('HE-DIRMED-', '').replace('SINPRO-', '').replace('CONSUL-', '');
-    const docFirmas = firmas.filter(f => 
-      f.codigo_formato === codigoFormato &&
-      (
-        (slot && f.evolution_slot === slot) ||
-        (!slot && (f.evolution_slot === 0 || f.evolution_slot === null || f.evolution_slot === undefined))
-      )
-    );
+    const docFirmas = firmas.filter(f => {
+      const codeMatch = (f.codigo_formato === codigoFormato) ||
+        (codigoFormato === 'HE-DIRMED-SINPRO-PLT-16' && (f.codigo_formato === 'HE-DIRMED-SINPRO-PLT-16' || f.codigo_formato === 'SINPRO-PLT-16' || f.codigo_formato === 'PLT-16' || f.codigo_formato === 'MR_ERC_HOS'));
+      if (!codeMatch) return false;
+      if (slot && Number(slot) > 0) {
+        return Number(f.evolution_slot) === Number(slot);
+      }
+      return !f.evolution_slot || Number(f.evolution_slot) === 0;
+    });
     const firmaMedico = docFirmas.find(f => (f.rol_firmante || 'MEDICO').toUpperCase() === 'MEDICO');
-    const firmaPaciente = docFirmas.find(f => ['PACIENTE', 'REPRESENTANTE_LEGAL', 'TUTOR'].includes((f.rol_firmante || '').toUpperCase()));
+    const firmaPaciente = docFirmas.find(f => ['PACIENTE', 'REPRESENTANTE_LEGAL', 'TUTOR', 'FAMILIAR'].includes((f.rol_firmante || '').toUpperCase()));
     const firmaTestigo1 = docFirmas.find(f => ['TESTIGO_1', 'TESTIGO'].includes((f.rol_firmante || '').toUpperCase()));
     const firmaTestigo2 = docFirmas.find(f => (f.rol_firmante || '').toUpperCase() === 'TESTIGO_2');
+    const firmaBancoSangre = docFirmas.find(f => (f.rol_firmante || '').toUpperCase() === 'BANCO_SANGRE');
 
     return {
       firmaMedico,
       firmaPaciente,
       firmaTestigo1,
       firmaTestigo2,
+      firmaBancoSangre,
       hasMedico: Boolean(firmaMedico),
       hasPaciente: Boolean(firmaPaciente),
       hasTestigo1: Boolean(firmaTestigo1),
       hasTestigo2: Boolean(firmaTestigo2),
-      isFullySigned: Boolean(firmaMedico &&
-        (!docFirmas.some(f => f.requiere_testigos) || (firmaPaciente && firmaTestigo1 && firmaTestigo2))),
+      hasBancoSangre: Boolean(firmaBancoSangre),
+      // La política exacta de testigos la calcula /firmas-documento para cada
+      // formato y autorizante. Una lista de firmas no basta para inferirla.
+      isFullySigned: undefined,
       allFirmas: docFirmas
     };
   };
@@ -1466,32 +1695,103 @@ export default function PatientDashboard() {
     ? '✓ Paciente / familiar'
     : 'Firmar paciente / familiar';
 
-  const doctorSignatureLabel = (summary) => summary?.hasMedico
-    ? '✓ Firma médica'
-    : 'Firmar como médico';
+  const resolveSignatureRepairFormat = (item) => allFormatos.find((format) => format.codigo === item?.codigo) || {
+    codigo: item?.codigo,
+    nombre: item?.nombre || item?.codigo,
+    subtitulo: 'Revisar la versión vigente y completar las firmas pendientes.',
+    area: 'Revisión de firmas',
+    activo: true,
+  };
 
-  // La lectura comienza solo cuando el usuario pulsa "Leer huella".
+  const openSignatureRepairFormat = (item) => {
+    const selected = resolveSignatureRepairFormat(item);
+    signatureRepairNavigationPending.current = true;
+    signatureRepairTarget.current = `${item.codigo}:${Number(item.slot ?? item.mrnum ?? 0)}`;
+    setActiveTab('Formatos Clínicos');
+    setSelectedFormat(selected);
+  };
+
+  const handleSignatureRepair = (problem) => {
+    const formats = Array.isArray(problem?.formatos) ? problem.formatos : [];
+    setSignatureRepairQueue(formats);
+    void refreshSignatureRepairQueue(null, formats);
+    setActiveTab('Formatos Clínicos');
+    setSelectedFormatArea('Todos');
+    const first = formats[0];
+    if (!first) return;
+    openSignatureRepairFormat(first);
+  };
+
+  const handleSignatureReport = (report) => {
+    setSignatureRepairQueue(Array.isArray(report?.pendientes) ? report.pendientes : []);
+  };
+
+  const doctorSignatureLabel = () => 'Firmar como médico';
+
+  const startMedicalCapture = async () => {
+    if (!signingModal.open || signingModal.submitting || signingModal.checking || dpAcquiring || medicalSignatureLocked) return;
+    if (!signingModal.codigoFormato) {
+      setSigningModal(prev => ({ ...prev, errorMsg: 'No se pudo identificar el formato de este documento. Cierre la ventana y vuelva a abrirlo.' }));
+      return;
+    }
+    const version = signingVersion.current;
+    setSigningModal(prev => ({ ...prev, checking: true, errorMsg: null }));
+    try {
+      const latest = await medicalSignatureQuery.refetch();
+      if (version !== signingVersion.current) return;
+      if (latest.isError || !latest.data) {
+        setSigningModal(prev => ({ ...prev, errorMsg: 'No se pudo consultar si este documento ya está firmado. Intente de nuevo.' }));
+        return;
+      }
+      if (latest.data.medico_firmado || latest.data.medico_sync_unverified) return;
+      dpResetFmd();
+      void dpStartCapture({
+        action: 'FIRMA_MEDICA', patientRef: patientId,
+        documentCode: signingModal.codigoFormato,
+        documentRef: signingModal.slot || 0
+      });
+    } catch (_) {
+      if (version === signingVersion.current) {
+        setSigningModal(prev => ({ ...prev, errorMsg: 'No se pudo consultar el estado del documento. Intente de nuevo.' }));
+      }
+    } finally {
+      if (version === signingVersion.current) setSigningModal(prev => ({ ...prev, checking: false }));
+    }
+  };
+
+  // La lectura comienza sólo después de una acción explícita de firma.
   useEffect(() => {
     signingVersion.current += 1;
+    signingSending.current = false;
     if (signingModal.open) dpResetFmd();
+    else medicalAutoStartPending.current = false;
     return () => {
       signingVersion.current += 1;
-      clearTimeout(signingCloseTimer.current);
+      signingSending.current = false;
       if (signingModal.open) dpResetFmd();
     };
   }, [signingModal.open, patientId, signingModal.codigoFormato, signingModal.slot]);
 
   useEffect(() => {
-    if (signingModal.open && dpFmd && !signingModal.submitting && !signingModal.successMsg) {
+    if (!signingModal.open || !medicalAutoStartPending.current || !medicalSignatureQuery.isSuccess
+      || medicalSignatureLocked || signingModal.submitting || signingModal.checking) return;
+    medicalAutoStartPending.current = false;
+    void startMedicalCapture();
+  }, [signingModal.open, medicalSignatureQuery.isSuccess, medicalSignatureLocked, signingModal.submitting, signingModal.checking]);
+
+  useEffect(() => {
+    if (signingModal.open && dpFmd && medicalSignatureQuery.isSuccess
+      && !medicalSignatureLocked && !signingModal.submitting && !signingSending.current) {
       if (dpCaptureContext?.action !== 'FIRMA_MEDICA' || String(dpCaptureContext.patientRef) !== String(patientId)
-        || dpCaptureContext.documentCode !== (signingModal.codigoFormato || 'HE-DIRMED-SINPRO-PLT-87/01')
+        || dpCaptureContext.documentCode !== signingModal.codigoFormato
         || String(dpCaptureContext.documentRef ?? 0) !== String(signingModal.slot ?? 0)) return;
+      signingSending.current = true;
       const executeBiometricSign = async () => {
         const version = signingVersion.current;
         try {
           setSigningModal(prev => ({ ...prev, submitting: true, errorMsg: null }));
           const res = await api.post(`/ehr/paciente/${patientId}/firmar-biometrico`, {
-            codigo_formato: signingModal.codigoFormato || 'HE-DIRMED-SINPRO-PLT-87/01',
+            codigo_formato: signingModal.codigoFormato,
             tipo_documento: signingModal.tipoDocumento || `Nota de Evolución de Urgencias (Evolución ${signingModal.slot})`,
             evolution_slot: signingModal.slot,
             fmd_template: dpFmd,
@@ -1504,42 +1804,66 @@ export default function PatientDashboard() {
             setSigningModal(prev => ({
               ...prev,
               submitting: false,
-              successMsg: 'Firma guardada correctamente.'
+              successMsg: 'Firma guardada correctamente.',
+              syncState: 'SYNCED',
+              syncOperationId: res.data?.operation_id || null
             }));
-            await fetchFirmas();
-            await fetchData();
-            if (selectedFormat && selectedFormat.codigo) {
-              await fetchGenericHistory(selectedFormat.codigo);
-            }
-            if (version !== signingVersion.current) return;
-            signingCloseTimer.current = setTimeout(() => {
-              setSigningModal(prev => ({ ...prev, open: false }));
-              dpResetFmd();
-            }, 2500);
+            dpResetFmd();
+            const status = await refreshMedicalSignatureView();
+            requestPendingSpecialSignature(status);
+          } else if (res.data?.operation_id && res.data?.local_applied === true) {
+            // HTTP 202 significa que la firma ya existe en HES. Una nueva
+            // lectura crearía otra versión; sólo se consulta el mismo estado.
+            setSigningModal(prev => ({
+              ...prev,
+              submitting: false,
+              syncState: res.data.state || 'PENDING',
+              syncOperationId: res.data.operation_id,
+              errorMsg: null
+            }));
+            dpResetFmd();
+            const status = await refreshMedicalSignatureView();
+            requestPendingSpecialSignature(status);
           } else {
             setSigningModal(prev => ({ 
               ...prev, 
               submitting: false, 
-              errorMsg: res.status === 202
-                ? `Firma guardada localmente; sincronización pendiente (${res.data.operation_id}).`
-                : (res.data?.message || res.data?.error || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo.")
+              errorMsg: res.data?.message || res.data?.error || 'No se confirmó la firma. Consulte el estado del documento antes de reintentar.'
             }));
             dpResetFmd();
           }
         } catch (err) {
           if (version !== signingVersion.current) return;
-          console.error("No se confirmó la firma biométrica; consulte el mensaje de la interfaz.");
-          setSigningModal(prev => ({ 
-            ...prev, 
-            submitting: false, 
-            errorMsg: err.response?.data?.detail || "Huella dactilar no reconocida. Sensor reiniciado: limpie su dedo y colóquelo de nuevo." 
-          }));
+          const operation = err.response?.data;
+          if (operation?.operation_id && operation?.local_applied === true) {
+            // Un 502 del adaptador Vertical llega DESPUÉS del guardado local.
+            setSigningModal(prev => ({
+              ...prev,
+              submitting: false,
+              syncState: operation.state || 'FAILED',
+              syncOperationId: operation.operation_id,
+              errorMsg: null
+            }));
+            const status = await refreshMedicalSignatureView();
+            requestPendingSpecialSignature(status);
+          } else {
+            setSigningModal(prev => ({
+              ...prev,
+              submitting: false,
+              errorMsg: friendlyBiometricError(
+                operation?.detail || operation?.message || err.message,
+                'No se pudo confirmar la firma. Consulte el estado del documento antes de reintentar.'
+              )
+            }));
+          }
           dpResetFmd();
+        } finally {
+          if (version === signingVersion.current) signingSending.current = false;
         }
       };
       executeBiometricSign();
     }
-  }, [dpFmd, signingModal.open]);
+  }, [dpFmd, signingModal.open, medicalSignatureQuery.isSuccess, medicalSignatureLocked]);
 
   // Biometría para Prescripción Médica de Fármacos
   useEffect(() => {
@@ -1787,13 +2111,44 @@ export default function PatientDashboard() {
         'PLT-19',
         'HE-DIRMED-CONSUL-PLT-07',
         '07',
-        'PLT-07'
+        'PLT-07',
+        'HE-DIRMED-CONSUL-PLT-09',
+        'HE-DIRMED-CONSUL-PLT-9',
+        '09',
+        '9',
+        'PLT-09',
+        'PLT-9',
+        'CI_AUT_TRANS_HEMO',
+        'AUT_TRANS_HEMO',
+        'HE-DIRMED-SINPRO-PLT-16',
+        'HE-DIRMED-SINPRO-PLT-16/01',
+        'SINPRO-PLT-16',
+        '16',
+        'PLT-16',
+        'MR_ERC_HOS',
+        'ERC_HOS',
+        'EGRESO_RESUMEN_16'
       ];
       if (!customCodes.includes(selectedFormat.codigo)) {
         fetchGenericHistory(selectedFormat.codigo);
       }
     }
   }, [selectedFormat]);
+
+  useEffect(() => {
+    if (!signatureRepairNavigationPending.current || activeTab !== 'Formatos Clínicos' || !selectedFormat) return undefined;
+    signatureRepairNavigationPending.current = false;
+    const timer = window.setTimeout(() => {
+      const targetId = signatureRepairTarget.current;
+      signatureRepairTarget.current = null;
+      (document.getElementById(`signature-target-${targetId}`)
+        || document.getElementById('signature-repair-format-panel'))?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, selectedFormat]);
 
   if (loading) {
     return <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-slate-50 text-slate-500 font-semibold">Cargando expediente clínico...</div>;
@@ -1810,21 +2165,15 @@ export default function PatientDashboard() {
     formatos_disponibles = [], cargos_solicitudes = {} 
   } = data;
 
-  const getVitalIcon = (label) => {
-    if (label.includes('Cardíaca')) return <MdOutlineMonitorHeart className="text-hes-blue-main text-2xl" />;
-    if (label.includes('Arterial')) return <MdOutlineWaterDrop className="text-blue-500 text-2xl" />;
-    if (label.includes('O2')) return <FiActivity className="text-teal-500 text-2xl" />;
-    if (label.includes('Temp')) return <FaTemperatureHalf className="text-orange-500 text-2xl" />;
-    return <FiActivity className="text-slate-400 text-2xl" />;
+  const evolutionContext = patient?.evolution_context || {
+    tipo_atencion: 'URGENCIAS',
+    label: 'Urgencias',
+    formato_codigo: 'HE-DIRMED-SINPRO-PLT-87/01',
+    formato_label: 'Nota de Evolución de Urgencias',
   };
-
-  const getVitalColor = (label) => {
-    if (label.includes('Cardíaca')) return 'bg-blue-50 text-hes-blue-main';
-    if (label.includes('Arterial')) return 'bg-blue-50 text-blue-600';
-    if (label.includes('O2')) return 'bg-teal-50 text-teal-600';
-    if (label.includes('Temp')) return 'bg-orange-50 text-orange-600';
-    return 'bg-slate-50 text-slate-600';
-  };
+  const isHospitalizationContext = evolutionContext.tipo_atencion === 'HOSPITALIZACION';
+  const evolutionActionLabel = `Nueva Evolución · ${evolutionContext.label}`;
+  const evolutionActionTitle = `Abrir ${evolutionContext.formato_label} (${evolutionContext.formato_codigo})`;
 
   // Abrir modal para nueva evolución
   const handleOpenNewEvol = (slotNum = 1, formatoCodigo = 'HE-DIRMED-SINPRO-PLT-87/01') => {
@@ -1870,6 +2219,13 @@ export default function PatientDashboard() {
       has_mip: false,
       mip: ''
     });
+  };
+
+  const handleOpenNewActiveEvolution = () => {
+    const nextSlot = isHospitalizationContext
+      ? (data?.evoluciones_hospitalizacion_list?.length || 0) + 1
+      : (data?.evoluciones_list?.length || 0) + 1;
+    handleOpenNewEvol(nextSlot, evolutionContext.formato_codigo);
   };
 
   // Abrir modal para editar evolución existente
@@ -2913,7 +3269,7 @@ export default function PatientDashboard() {
       tipo_anestesia: c.tipo_anestesia || '',
       beneficios_anestesia: c.beneficios_anestesia || '',
       alternativas_anestesia: c.alternativas_anestesia || '',
-      paciente_capaz: c.paciente_capaz !== undefined ? Boolean(c.paciente_capaz) : isAdult,
+      paciente_capaz: patientCanAuthorize(c.paciente_capaz, isAdult),
       pariente: savedPariente || (isAdult ? '' : (defFirm.tutor || '')),
       parentesco: c.parentesco || (isAdult ? 'Paciente' : (defFirm.parentesco_tutor || 'Representante Legal')),
       testigo1: c.testigo1 || c.testigo_1 || defFirm.testigo1 || '',
@@ -3013,7 +3369,7 @@ export default function PatientDashboard() {
       beneficios_y_riesgos_de_nr: c.beneficios_y_riesgos_de_nr || '',
       riesgos_de_no_aplicar: c.riesgos_de_no_aplicar || '',
       alternativa_nr: c.alternativa_nr || '',
-      paciente_capaz: c.paciente_capaz !== undefined ? Boolean(c.paciente_capaz) : isAdult,
+      paciente_capaz: patientCanAuthorize(c.paciente_capaz, isAdult),
       pariente: savedPariente || (isAdult ? '' : (defFirm.tutor || '')),
       parentesco: c.parentesco || (isAdult ? 'Paciente' : (defFirm.parentesco_tutor || 'Representante Legal')),
       testigo1: c.testigo1 || c.testigo_1 || defFirm.testigo1 || '',
@@ -3117,7 +3473,7 @@ export default function PatientDashboard() {
       intervencion_complementaria: c.intervencion_complementaria || '',
       alternativas_terapeuticas: c.alternativas_terapeuticas || c.alternativas || '',
       motivo_de_no_autorizacion: c.motivo_de_no_autorizacion || c.motivo_no_acepto || '',
-      paciente_capaz: c.paciente_capaz !== undefined ? Boolean(c.paciente_capaz) : isAdult,
+      paciente_capaz: patientCanAuthorize(c.paciente_capaz, isAdult),
       pariente: savedPariente || (isAdult ? '' : (defFirm.tutor || '')),
       parentesco: c.parentesco || (isAdult ? 'Paciente' : (defFirm.parentesco_tutor || 'Representante Legal')),
       testigo1: c.testigo1 || c.testigo_1 || defFirm.testigo1 || '',
@@ -3166,6 +3522,139 @@ export default function PatientDashboard() {
   // ==========================================
   // FORMATO 07: PROCEDIMIENTOS QUIRÚRGICOS
   // ==========================================
+  
+  // =========================================================================
+  // HANDLERS PARA FORMATO 16: EGRESO Y RESUMEN CLÍNICO (HE-DIRMED-SINPRO-PLT-16)
+  // =========================================================================
+  const handleOpenNewEgresoResumen16 = () => {
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden crear notas en un paciente dado de alta.");
+      return;
+    }
+    const p = data?.patient || patient || {};
+    const lastVital = vitals && vitals.length > 0 ? vitals[0] : {};
+    setEgresoResumenModal16({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      mrnum: null,
+      diagnostico_ingreso: p.diagnostico || '',
+      diagnostico_egreso: p.diagnostico || '',
+      ta: lastVital.bp ? lastVital.bp.split('/')[0] : '',
+      ta_dis: lastVital.bp && lastVital.bp.includes('/') ? lastVital.bp.split('/')[1] : '',
+      pulso: lastVital.hr || '',
+      fr_respi: lastVital.rr || '',
+      temperatura: lastVital.temp || '',
+      sat_oxi: lastVital.spo2 || '',
+      reingreso: 'NO',
+      reea: '',
+      mdeh: '',
+      pmq: '',
+      elg: '',
+      pmt: '',
+      complicaciones: 'NINGUNA',
+      meg: 'MEJORADO',
+      df: p.diagnostico || '',
+      pcpcpe: 'BUENO PARA LA VIDA Y LA FUNCIÓN CON APEGO A INDICACIONES',
+      rvais: 'SE DA DE ALTA CON CITA ABIERTA A URGENCIAS Y CONSULTA EXTERNA',
+      afr: 'CONOCIDOS EN EXPEDIENTE CLÍNICO',
+      edu_pact: 'CUIDADOS GENERALES DE LA SALUD, HIGIENE Y NUTRICIÓN',
+      cmep: '',
+      c_muerte: '',
+      enecropsia: 'NO',
+      dr_elaboro: currentDoctorName || p.attending || '',
+      dr_tratante: currentDoctorName || p.attending || '',
+      cedula_elaboro: currentDoctorCedula || p.cedula || '',
+      cedula_tratante: currentDoctorCedula || p.cedula || '',
+      saving: false
+    });
+  };
+
+  const handleOpenEditEgresoResumen16 = (item) => {
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden editar notas en un paciente dado de alta.");
+      return;
+    }
+    const c = item || data?.egreso_resumen_16 || {};
+    const p = data?.patient || patient || {};
+    setEgresoResumenModal16({
+      open: true,
+      isEdit: true,
+      isNew: false,
+      mrnum: c.mrnum || null,
+      diagnostico_ingreso: c.diagnostico_ingreso || p.diagnostico || '',
+      diagnostico_egreso: c.diagnostico_egreso || c.df || p.diagnostico || '',
+      ta: c.ta || '',
+      ta_dis: c.ta_dis || '',
+      pulso: c.pulso || '',
+      fr_respi: c.fr_respi || '',
+      temperatura: c.temperatura || '',
+      sat_oxi: c.sat_oxi || '',
+      reingreso: c.reingreso || 'NO',
+      reea: c.reea || '',
+      mdeh: c.mdeh || '',
+      pmq: c.pmq || '',
+      elg: c.elg || '',
+      pmt: c.pmt || '',
+      complicaciones: c.complicaciones || 'NINGUNA',
+      meg: c.meg || 'MEJORADO',
+      df: c.df || c.diagnostico_egreso || p.diagnostico || '',
+      pcpcpe: c.pcpcpe || '',
+      rvais: c.rvais || 'SE DA DE ALTA CON CITA ABIERTA A URGENCIAS Y CONSULTA EXTERNA',
+      afr: c.afr || '',
+      edu_pact: c.edu_pact || 'CUIDADOS GENERALES DE LA SALUD, HIGIENE Y NUTRICIÓN',
+      cmep: c.cmep || '',
+      c_muerte: c.c_muerte || '',
+      enecropsia: c.enecropsia || 'NO',
+      dr_elaboro: c.dr_elaboro || currentDoctorName || p.attending || '',
+      dr_tratante: c.dr_tratante || currentDoctorName || p.attending || '',
+      cedula_elaboro: c.cedula_elaboro || currentDoctorCedula || p.cedula || '',
+      cedula_tratante: c.cedula_tratante || currentDoctorCedula || p.cedula || '',
+      saving: false
+    });
+  };
+
+  const handleSaveEgresoResumenModal16 = async (e) => {
+    e.preventDefault();
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden guardar cambios en un paciente de alta.");
+      return;
+    }
+    setEgresoResumenModal16(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = {
+        ...egresoResumenModal16,
+        dr_elaboro: currentDoctorName || egresoResumenModal16.dr_elaboro || data?.patient?.attending || '',
+        dr_tratante: currentDoctorName || egresoResumenModal16.dr_tratante || data?.patient?.attending || '',
+        cedula_elaboro: currentDoctorCedula || egresoResumenModal16.cedula_elaboro || data?.patient?.cedula || '',
+        cedula_tratante: currentDoctorCedula || egresoResumenModal16.cedula_tratante || data?.patient?.cedula || '',
+        usuario: storedUser?.username || storedMedico?.username || currentUser?.username || 'sistemas',
+        created_by: storedUser?.username || storedMedico?.username || currentUser?.username || 'sistemas',
+        expediente: data?.patient?.mrn || `PT-${patientId}`
+      };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const res = await api.post(`/ehr/paciente/${patientId}/egreso-resumen-16`, payload);
+      if (isConfirmedClinicalSync(res)) {
+        if (res.data?.mrnum) {
+          setSelectedMrnum16(res.data.mrnum);
+        }
+        setEgresoResumenModal16(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        alert('¡Formato 16 (Egreso y Resumen Clínico) guardado con éxito en SQL Server y Bóveda Institucional!');
+      } else {
+        alert(pendingClinicalSyncMessage(res) || res.data?.error || 'Error al guardar el formato de egreso.');
+        setEgresoResumenModal16(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al conectar con el servidor.');
+      setEgresoResumenModal16(prev => ({ ...prev, saving: false }));
+    }
+  };
+
   const handleOpenNewConsent07 = () => {
     if (isPatientDischarged) {
       alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden crear consentimientos en un paciente dado de alta.");
@@ -3217,7 +3706,7 @@ export default function PatientDashboard() {
       riesgos_inherentes: c.riesgos_inherentes || c.riesgos || '',
       beneficios: c.beneficios || '',
       alternativas: c.alternativas || '',
-      paciente_capaz: c.paciente_capaz !== undefined ? Boolean(c.paciente_capaz) : isAdult,
+      paciente_capaz: patientCanAuthorize(c.paciente_capaz, isAdult),
       representante_legal: savedPariente || (isAdult ? '' : (defFirm.tutor || '')),
       parentesco: c.parentesco || (isAdult ? 'El Paciente' : (defFirm.parentesco_tutor || 'Representante Legal')),
       testigo1: c.testigo1 || c.testigo_1 || defFirm.testigo1 || '',
@@ -3368,6 +3857,104 @@ export default function PatientDashboard() {
   };
 
   // =========================================================================
+  // HANDLERS PARA FORMATO 09: TRANSFUSIÓN DE HEMOCOMPONENTES (HE-DIRMED-CONSUL-PLT-09)
+  // =========================================================================
+  const handleOpenNewConsent09 = () => {
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden crear consentimientos en un paciente dado de alta.");
+      return;
+    }
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const defFirm = getDefaultFirmantesForConsent(firmantesList);
+    setConsentModal09({
+      open: true,
+      isEdit: false,
+      isNew: true,
+      mrnum: null,
+      n_medico: currentDoctorName || data?.patient?.attending || '',
+      expediente: p.mrn || `PT-${patientId}`,
+      acepto_y_autorizo_transfusion_de: 'PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO',
+      testigo_1: defFirm.testigo1 || '',
+      testigo_2: defFirm.testigo2 || '',
+      paciente_capaz: isAdult,
+      pariente: isAdult ? '' : (defFirm.tutor || ''),
+      parentesco: isAdult ? 'Paciente' : (defFirm.parentesco_tutor || 'Representante Legal'),
+      saving: false
+    });
+  };
+
+  const handleOpenEditConsent09 = (item) => {
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden editar consentimientos en un paciente dado de alta.");
+      return;
+    }
+    const c = item || data?.consentimiento_09 || {};
+    const p = data?.patient || patient || {};
+    const isAdult = isPatientAdult(p);
+    const defFirm = getDefaultFirmantesForConsent(firmantesList);
+    const savedPariente = c.pariente || c.representante_legal || '';
+    const isCapaz = patientCanAuthorize(c.paciente_capaz, isAdult);
+
+    setConsentModal09({
+      open: true,
+      isEdit: true,
+      isNew: false,
+      mrnum: c.mrnum || null,
+      n_medico: c.n_medico || c.medico_tratante || currentDoctorName || data?.patient?.attending || '',
+      expediente: c.expediente || p.mrn || `PT-${patientId}`,
+      acepto_y_autorizo_transfusion_de: c.acepto_y_autorizo_transfusion_de || c.hemocomponentes || 'PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO',
+      testigo_1: c.testigo_1 || c.testigo1 || defFirm.testigo1 || '',
+      testigo_2: c.testigo_2 || c.testigo2 || defFirm.testigo2 || '',
+      paciente_capaz: isCapaz,
+      pariente: savedPariente || (isAdult ? '' : (defFirm.tutor || '')),
+      parentesco: c.parentesco || (isAdult ? 'Paciente' : (defFirm.parentesco_tutor || 'Representante Legal')),
+      saving: false
+    });
+  };
+
+  const handleSaveConsentModal09 = async (e) => {
+    e.preventDefault();
+    if (isPatientDischarged) {
+      alert("Expediente en Modo Solo Lectura: De conformidad con la NOM-004-SSA3-2012 y NOM-024-SSA3-2012, no se pueden guardar cambios en un paciente de alta.");
+      return;
+    }
+    setConsentModal09(prev => ({ ...prev, saving: true }));
+    try {
+      const payload = {
+        ...consentModal09,
+        medico_tratante: currentDoctorName || consentModal09.n_medico || data?.patient?.attending || '',
+        n_medico: currentDoctorName || consentModal09.n_medico || data?.patient?.attending || '',
+        expediente: consentModal09.expediente || data?.patient?.mrn || `PT-${patientId}`,
+        pariente: consentModal09.paciente_capaz ? '' : (consentModal09.pariente || ''),
+        representante_legal: consentModal09.paciente_capaz ? '' : (consentModal09.pariente || ''),
+        testigo_1: consentModal09.testigo_1 || '',
+        testigo_2: consentModal09.testigo_2 || ''
+      };
+      delete payload.open;
+      delete payload.isEdit;
+      delete payload.saving;
+      const res = await api.post(`/ehr/paciente/${patientId}/consentimiento-09`, payload);
+      if (isConfirmedClinicalSync(res)) {
+        setConsentModal09(prev => ({ ...prev, open: false, saving: false }));
+        await fetchData();
+        await fetchFirmas();
+        if (res.data?.mrnum) {
+          setSelectedMrnum09(res.data.mrnum);
+        }
+        alert('¡Consentimiento Formato 09 (Transfusión de Hemocomponentes) guardado con éxito en SQL Server!');
+      } else {
+        alert(pendingClinicalSyncMessage(res) || res.data?.error || 'Error al guardar el formato.');
+        setConsentModal09(prev => ({ ...prev, saving: false }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.detail || err.response?.data?.error || err.message || 'Error al conectar con el servidor.');
+      setConsentModal09(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  // =========================================================================
   // HANDLERS PARA FORMATO 15: EGRESO VOLUNTARIO (HE-DIRMED-SINPRO-PLT-15)
   // =========================================================================
   const handleOpenNew15EV = () => {
@@ -3417,7 +4004,7 @@ export default function PatientDashboard() {
     const isAdult = isPatientAdult(p);
     const defFirm = getDefaultFirmantesForConsent(firmantesList);
     const savedDeclarante = c.declarante || c.n_replegal || c.representante_legal || '';
-    const isCapaz = c.paciente_capaz !== undefined ? Boolean(c.paciente_capaz) : isAdult;
+    const isCapaz = patientCanAuthorize(c.paciente_capaz, isAdult);
 
     setModal15EV({
       open: true,
@@ -3549,7 +4136,7 @@ export default function PatientDashboard() {
     const isAdult = isPatientAdult(p);
     const defFirm = getDefaultFirmantesForConsent(firmantesList);
     const savedTutor = doc.tutor || doc.pariente || doc.representante_legal || '';
-    const isCapaz = doc.paciente_capaz !== undefined ? Boolean(doc.paciente_capaz) : isAdult;
+    const isCapaz = patientCanAuthorize(doc.paciente_capaz, isAdult);
 
     setUniversalEditModal({
       open: true,
@@ -3622,7 +4209,7 @@ export default function PatientDashboard() {
   // Filtrado de formatos (únicamente los formatos activos / desarrollados)
   const allFormatos = (formatos_disponibles || [])
     .flatMap(cat => (cat?.formatos || []).map(f => ({ ...f, area: cat?.area || 'General' })))
-    .filter(f => f && f.activo !== false);
+    .filter(f => f && f.activo !== false && hasFormat(f.codigo));
 
   const availableAreas = ['Todos', ...Array.from(new Set(allFormatos.map(f => f.area).filter(Boolean)))];
 
@@ -3633,94 +4220,51 @@ export default function PatientDashboard() {
 
   const tabsList = [
     { id: 'Timeline', label: 'Historial', icon: <FiClock /> },
-    { id: 'Formatos Clínicos', label: `Formatos Clínicos (${allFormatos.length})`, icon: <FiFileText /> },
+    { id: 'Formatos Clínicos', label: 'Formatos clínicos', count: allFormatos.length, icon: <FiFileText /> },
     { id: 'Medicamentos', label: 'Medicamentos', icon: <MdOutlineMedicalServices /> },
-    { id: 'Dietas y Cuidados', label: 'Dietas y Cuidados', icon: <MdOutlineRestaurant /> },
-    { id: 'Contactos y Responsables', label: `Contactos / Responsables (${firmantesList.length})`, icon: <FiUsers /> },
+    { id: 'Dietas y Cuidados', label: 'Dietas y cuidados', icon: <MdOutlineRestaurant /> },
+    { id: 'Contactos y Responsables', label: 'Contactos', accessibleLabel: 'Contactos y responsables', count: firmantesList.length, icon: <FiUsers /> },
     { id: 'Laboratorios', label: 'Laboratorios', icon: <MdOutlineBiotech /> },
     { id: 'Imagenología', label: 'Imagenología', icon: <FiImage /> },
-    { id: 'Agenda y Citas', label: 'Agenda y Citas', icon: <FiCalendar /> }
+    { id: 'Agenda y Citas', label: 'Agenda y citas', icon: <FiCalendar /> }
   ];
 
-  const pName = patient?.name || 'Paciente Sin Nombre';
-  const pInitial = (pName.trim().charAt(0) || 'P').toUpperCase();
-
-  // HES Premium: color e icono por área clínica (solo visual, reversible)
-  const getAreaStyle = (area = '') => {
-    const a = (area || '').toLowerCase();
-    if (a.includes('urgencia')) return { accent: 'linear-gradient(90deg,#dc2626,#f97316)', solid: '#dc2626', icon: '🚨' };
-    if (a.includes('hospital')) return { accent: 'linear-gradient(90deg,#004687,#0088c9)', solid: '#005fa9', icon: '🏥' };
-    if (a.includes('cirug') || a.includes('quir')) return { accent: 'linear-gradient(90deg,#7c3aed,#06b6d4)', solid: '#7c3aed', icon: '🔪' };
-    if (a.includes('expediente') || a.includes('integral')) return { accent: 'linear-gradient(90deg,#065f46,#00b48a)', solid: '#047857', icon: '📋' };
-    if (a.includes('auxiliar') || a.includes('diagn')) return { accent: 'linear-gradient(90deg,#0e7490,#22d3ee)', solid: '#0e7490', icon: '🧬' };
-    return { accent: 'linear-gradient(90deg,#334155,#64748b)', solid: '#475569', icon: '🩺' };
-  };
 
   return (
-    <div className="he-premium-scope flex-1 min-w-0 max-w-full min-h-screen p-4 md:p-8 flex flex-col gap-6 overflow-x-hidden">
+    <div className="he-premium-scope he-record-workspace flex-1 min-w-0 max-w-full min-h-screen flex flex-col overflow-x-hidden">
       
-      {/* TOP BAR / BREADCRUMB */}
-      <div className="he-top-patient flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-4 md:p-5 pl-5 md:pl-6">
-        <div className="flex items-center gap-3">
-          <div className="he-avatar w-12 h-12 rounded-2xl text-white flex items-center justify-center font-black text-xl shadow-sm">
-            {pInitial}
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">🩺 Expediente clínico</span>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">{pName}</h1>
-              {isPatientDischarged ? (
-                <span className="text-xs bg-slate-100 text-slate-700 font-bold px-2.5 py-0.5 rounded-lg border border-slate-300 flex items-center gap-1 shadow-2xs">
-                  <FiCheckCircle className="text-emerald-600 text-xs" /> ALTA / HISTÓRICO
-                </span>
-              ) : (
-                <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200">
-                  {patient?.cama || 'Cama Virtual'}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-500">
-              Expediente: <strong className="text-slate-700">{patient?.mrn || 'PT-' + patientId}</strong> • Ingreso: {patient?.fecha_ingreso || '—'} {patient?.hora_ingreso || ''}
-              {isPatientDischarged && patient?.fecha_egreso && patient?.fecha_egreso !== '___/___/___' && (
-                <> • <strong className="text-slate-700">Egreso:</strong> {patient.fecha_egreso} {patient.hora_egreso && patient.hora_egreso !== '__:__' ? patient.hora_egreso : ''}</>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 w-full md:w-auto flex-wrap">
+      <PatientRecordHeader
+        patient={patient}
+        patientId={patientId}
+        discharged={isPatientDischarged}
+        open={openRecordReference === 'patient'}
+        onToggle={() => toggleRecordReference('patient')}
+        onManageAllergies={handleOpenAllergyModal}
+      >
           {!isPatientDischarged ? (
-            <button
-              onClick={() => handleOpenNewEvol(evoluciones.evolucion2 ? 3 : (evoluciones.evolucion1 ? 2 : 1))}
-              className="he-btn-primary flex items-center justify-center gap-2 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer"
+            <Button
+              disabled={!hasFormat(evolutionContext.formato_codigo)}
+              onClick={handleOpenNewActiveEvolution}
+              className="he-evolution-action"
+              title={evolutionActionTitle}
             >
-              <FiEdit3 /> Nueva Evolución
-            </button>
+              <FiEdit3 aria-hidden="true" /> <span>{evolutionActionLabel}</span>
+            </Button>
           ) : (
             <div className="flex items-center gap-1.5 bg-slate-100 text-slate-700 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-bold shadow-2xs">
               <FiCheckCircle className="text-emerald-600 text-sm" /> Paciente Egresado (Vertical)
             </div>
           )}
-          <a 
-            href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-expediente-completo`} 
-            target="_blank" 
-            rel="noreferrer"
-            className="he-btn-expediente flex items-center justify-center gap-2 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+          {hasFormat('HE-DIRMED-EXPEDIENTE-COMPLETO') && <AuthenticatedPdfButton
+            endpoint={`/ehr/paciente/${patientId}/pdf-expediente-completo`}
+            className="he-record-pdf"
             title="Genera e imprime el Expediente Clínico Completo institucional (Carátula foliada, notas de evolución urgencias/hosp, consentimientos, recetas y paraclínicos)"
+            onSignatureRepair={handleSignatureRepair}
+            onSignatureReport={handleSignatureReport}
           >
-            <FiLayers className="text-base" /> Expediente Completo (PDF)
-          </a>
-          <a 
-            href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
-            target="_blank" 
-            rel="noreferrer"
-            className="hidden lg:flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-            title="Imprimir formato individual de Nota de Urgencias (87/01)"
-          >
-            <FiFileText className="text-slate-500" /> Nota 87/01
-          </a>
-        </div>
-      </div>
+            <FiLayers className="text-base" /> Expediente PDF
+          </AuthenticatedPdfButton>}
+      </PatientRecordHeader>
 
       {/* BANNER AVISO MODO SOLO LECTURA (NOM-004-SSA3-2012 / NOM-024-SSA3-2012) */}
       {isPatientDischarged && (
@@ -3744,159 +4288,65 @@ export default function PatientDashboard() {
         </div>
       )}
 
-      {/* PATIENT DEMOGRAPHICS & VITALS CARD */}
-      <div className="he-vitals-card bg-white p-5 md:p-6 shadow-sm">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-12 gap-3 pb-4 border-b border-slate-100 text-xs">
-          <div className="he-demo-box lg:col-span-2">
-            <span className="he-demo-label">Edad / Sexo</span>
-            <span className="he-demo-value">{patient.age} · {patient.gender}</span>
-          </div>
-          <div className="he-demo-box lg:col-span-2">
-            <span className="he-demo-label">Fecha nacimiento</span>
-            <span className="he-demo-value">{patient.dob}</span>
-          </div>
-          <div className="he-demo-box lg:col-span-2">
-            <span className="he-demo-label">Ubicación / Estado</span>
-            {isPatientDischarged ? (
-              <span className="he-demo-value flex items-center gap-1.5 text-slate-600">
-                <FiCheckCircle className="text-emerald-600" /> Dado de alta
-              </span>
-            ) : (
-              <span className="he-demo-value text-[#0f2a4e] truncate block" title={patient.cama}>{patient.cama}</span>
-            )}
-          </div>
-          <div className="col-span-2 md:col-span-2 lg:col-span-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="he-demo-label" style={{ marginBottom: 0 }}>Alergias</span>
-              {!isPatientDischarged && (
-                <button
-                  type="button"
-                  onClick={handleOpenAllergyModal}
-                  className="text-[11px] font-bold text-[#0f2a4e] hover:underline flex items-center gap-1 cursor-pointer"
-                  title="Gestionar alergias"
-                >
-                  <FiEdit3 className="text-[11px]" /> Gestionar
-                </button>
-              )}
+      {signatureRepairQueue.length > 0 && !isPatientDischarged && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 shadow-sm animate-in fade-in duration-200">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-amber-950 font-black text-sm">
+                <FiAlertTriangle className="text-amber-600" /> Revisión de firmas necesaria
+              </div>
+              <p className="text-xs text-amber-900/80 mt-1">
+                Selecciona un formato para completar las firmas pendientes de su versión vigente. Las firmas anteriores permanecen disponibles en el historial.
+              </p>
             </div>
-            <div
-              onClick={!isPatientDischarged ? handleOpenAllergyModal : undefined}
-              className={`px-2.5 py-2 rounded-[10px] text-xs font-bold block truncate ${patient.allergies && !/sin alergia/i.test(patient.allergies) ? 'he-allergy-alert' : 'he-allergy-ok'} ${!isPatientDischarged ? 'cursor-pointer' : ''}`}
-              title={`${patient.allergies || 'Sin alergias registradas'}${!isPatientDischarged ? ' — clic para gestionar' : ''}`}
-            >
-              {(patient.allergies && !/sin alergia/i.test(patient.allergies) ? '⚠ ' : '') + (patient.allergies || 'Sin alergias registradas')}
-            </div>
-          </div>
-          <div className="he-demo-box col-span-2 md:col-span-2 lg:col-span-3">
-            <span className="he-demo-label">Diagnóstico de ingreso</span>
-            <span className="he-demo-value block leading-snug" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={patient.diagnostico}>{patient.diagnostico}</span>
-          </div>
-        </div>
-
-        {/* VITALS SECTION HEADER */}
-        <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-[13px] font-bold text-slate-900">Signos vitales</span>
-            {data?.ptvs?.procedure_date && (
-              <span className="text-[11.5px] text-slate-400">
-                Última toma: <strong className="text-slate-600 font-semibold">{data.ptvs.procedure_date}</strong>
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleOpenVitalsHistory}
-              className="he-btn-ghost flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-all cursor-pointer"
-              title="Ver historial cronológico de todas las tomas"
+              onClick={() => setSignatureRepairQueue([])}
+              className="text-xs font-bold text-amber-800 hover:text-amber-950 underline self-start"
             >
-              <FiClock /> Historial
+              Ocultar
             </button>
-            {!isPatientDischarged && (
-              <button
-                type="button"
-                onClick={handleOpenVitalsModal}
-                className="he-btn-navy flex items-center gap-1.5 px-3.5 py-2 text-xs transition-all cursor-pointer"
-                title="Capturar o modificar signos vitales"
-              >
-                <FiEdit3 /> Nueva toma
-              </button>
-            )}
           </div>
-        </div>
-
-        {/* VITALS ROW */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mt-3">
-          {vitals.map((v, i) => {
-            const raw = String(v.value ?? '').replace(',', '.');
-            const num = parseFloat(raw);
-            let alert = null;
-            const lab = v.label || '';
-            if (/arteri|tensi|TA\b/i.test(lab)) {
-              const m = raw.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
-              if (m) {
-                const s = parseFloat(m[1]); const d = parseFloat(m[2]);
-                if (s >= 140 || d >= 90) alert = 'Alta';
-                else if (s < 90 || d < 60) alert = 'Baja';
-              }
-            } else if (/card[ií]aca|FC\b|pulso/i.test(lab)) {
-              if (!isNaN(num) && (num >= 100 || num < 60)) alert = num >= 100 ? 'Alta' : 'Baja';
-            } else if (/respirat|FR\b/i.test(lab)) {
-              if (!isNaN(num) && (num >= 22 || num < 12)) alert = num >= 22 ? 'Alta' : 'Baja';
-            } else if (/saturaci|O2|spo2/i.test(lab)) {
-              if (!isNaN(num) && num < 92) alert = 'Baja';
-            } else if (/temperatura/i.test(lab)) {
-              if (!isNaN(num) && (num >= 37.5 || num < 36)) alert = num >= 37.5 ? 'Fiebre' : 'Baja';
-            }
-            return (
-            <div
-              key={i}
-              onClick={!isPatientDischarged ? handleOpenVitalsModal : handleOpenVitalsHistory}
-              className={`he-vital-tile flex items-center gap-2.5 p-3 cursor-pointer group ${alert ? 'alert' : ''}`}
-              title={`${v.label}: ${v.value} ${v.unit || ''}${alert ? ` — ${alert}, revisar` : ''}${!isPatientDischarged ? ' (clic para nueva toma)' : ''}`}
-            >
-              <div className={`p-2 rounded-lg shrink-0 ${getVitalColor(v.label)}`}>
-                {getVitalIcon(v.label)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <div className="he-reg-label tracking-wide truncate flex-1" title={v.label}>{v.label}</div>
-                  {alert && <span className="he-vital-flag">{alert}</span>}
-                </div>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className={`text-[19px] font-extrabold tabular-nums ${alert ? 'he-vital-val-alert' : 'text-slate-900'}`}>{v.value}</span>
-                  <span className="text-[10.5px] text-slate-400 font-medium">{v.unit}</span>
-                </div>
-              </div>
-            </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* MAIN CONTENT AREA: TABS & SIDEBAR */}
-      <div className="flex flex-col xl:flex-row gap-6">
-        
-        {/* TABS CONTAINER */}
-        <div className="flex-1 min-w-0">
-          
-          {/* TABS NAVIGATION */}
-          <div className="he-tabs-bar flex w-full min-w-0 max-w-full gap-1.5 overflow-x-auto mb-5">
-            {tabsList.map(tab => (
-              <button 
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (tab.id !== 'Formatos Clínicos') {
-                    setSelectedFormat(null);
-                  }
-                }}
-                className={`he-tab ${activeTab === tab.id ? 'he-tab-active' : ''} flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-all`}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {signatureRepairQueue.map((item) => (
+              <button
+                key={`${item.codigo}:${item.slot ?? 0}`}
+                type="button"
+                onClick={() => openSignatureRepairFormat(item)}
+                className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-left text-xs font-bold text-slate-700 hover:border-amber-500 hover:bg-amber-100 transition-colors"
               >
-                {tab.icon} {tab.label}
+                {item.nombre || item.codigo}
+                {item.firmas_pendientes?.length > 0 && (
+                  <span className="block text-[10px] font-semibold text-amber-700 mt-0.5">{item.firmas_pendientes.join(' · ')}</span>
+                )}
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      <div className="he-record-layout">
+        <PatientRecordNavigation
+          tabs={tabsList}
+          activeTab={activeTab}
+          menuOpen={recordMenuOpen}
+          onToggleMenu={() => setRecordMenuOpen(previous => !previous)}
+          onSelect={(tab) => {
+            setActiveTab(tab);
+            setRecordMenuOpen(false);
+            if (tab !== 'Formatos Clínicos') setSelectedFormat(null);
+          }}
+        />
+        <div className="he-record-main">
+          <PatientVitalsPanel
+            vitals={vitals}
+            lastTaken={data?.ptvs?.procedure_date}
+            discharged={isPatientDischarged}
+            open={openRecordReference === 'vitals'}
+            onToggle={() => toggleRecordReference('vitals')}
+            onHistory={handleOpenVitalsHistory}
+            onNewReading={handleOpenVitalsModal}
+          />
 
           {/* TAB 1: TIMELINE (HISTORIAL CRONOLÓGICO) */}
           {activeTab === 'Timeline' && (
@@ -3982,9 +4432,9 @@ export default function PatientDashboard() {
                               </button>
                             )}
                             {evt.pdf_url && (
-                              <a href={`${api.defaults.baseURL}${evt.pdf_url}`} target="_blank" rel="noreferrer" className="he-tl-btn he-tl-btn-ghost">
+                              <AuthenticatedPdfButton endpoint={evt.pdf_url} className="he-tl-btn he-tl-btn-ghost">
                                 <FiDownload /> PDF
-                              </a>
+                              </AuthenticatedPdfButton>
                             )}
                             {evt.action_type === 'tab_medications' && (
                               <button onClick={() => setActiveTab('Medicamentos')} className="he-tl-btn he-tl-btn-ghost">
@@ -4037,7 +4487,7 @@ export default function PatientDashboard() {
             <div>
               {/* CASO A: CUANDO SE ABRIÓ UN FORMATO ESPECÍFICO (EJ. NOTA DE EVOLUCIÓN DE URGENCIAS) */}
               {selectedFormat ? (
-                <div className="space-y-6">
+                <div id="signature-repair-format-panel" data-clinical-document tabIndex="-1" className="space-y-6 outline-none">
                   
                   {/* BARRA DE NAVEGACIÓN COMPACTA (SIN DUPLICACIÓN DE TÍTULOS NI BOTONES) */}
                   <div className="he-det-nav flex items-center justify-between p-3 px-4">
@@ -4046,10 +4496,10 @@ export default function PatientDashboard() {
                       onClick={() => setSelectedFormat(null)}
                       className="he-btn-ghost inline-flex items-center gap-2 text-xs font-bold px-4 py-2 transition-all cursor-pointer"
                     >
-                      <FiArrowLeft className="text-sm" /> Volver al Catálogo de Formatos
+                      <FiArrowLeft className="text-sm" /> Cambiar formato
                     </button>
                     <span className="text-xs text-slate-400 font-medium hidden sm:inline-flex items-center gap-1.5">
-                      🩺 Expediente Clínico Electrónico • Folio <strong className="text-slate-700 font-mono">PT-{patientId}</strong>
+                      Expediente · <strong className="text-slate-700 font-mono">PT-{patientId}</strong>
                     </span>
                   </div>
 
@@ -4075,15 +4525,13 @@ export default function PatientDashboard() {
                             </p>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <a
-                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <AuthenticatedPdfButton
+                              endpoint={`/ehr/paciente/${patientId}/pdf-nota-urgencias`}
                               className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors"
                               title="Imprimir formato general con todas las evoluciones consecutivas"
                             >
                               <FiFileText className="text-sm" /> Imprimir Expediente Completo
-                            </a>
+                            </AuthenticatedPdfButton>
                             {!isPatientDischarged && (
                               <button
                                 onClick={() => handleOpenNewEvol(nextSlot)}
@@ -4121,10 +4569,10 @@ export default function PatientDashboard() {
                           <div className="grid grid-cols-1 gap-4">
                             {evolList.map((evolData) => {
                               const slot = evolData.num;
-                              const firmaSlot = firmas.find(f => f.evolution_slot === slot);
+                              const firmaSlot = firmas.find(f => f.codigo_formato === 'HE-DIRMED-SINPRO-PLT-87/01' && Number(f.evolution_slot) === slot && (f.rol_firmante || 'MEDICO') === 'MEDICO');
 
                               return (
-                                <div key={slot} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/60 transition-all">
+                                <div id={`signature-target-HE-DIRMED-SINPRO-PLT-87/01:${slot}`} key={slot} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/60 transition-all">
                                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 mb-3 border-b border-slate-200">
                                     <div className="flex items-center gap-3">
                                       <span className="w-8 h-8 rounded-lg font-bold flex items-center justify-center text-sm shadow-xs bg-hes-blue-main text-white">
@@ -4136,9 +4584,9 @@ export default function PatientDashboard() {
                                             Evolución y Observaciones {slot} {slot > 1 && <span className="text-xs text-hes-blue-main font-semibold">(Continuación)</span>}
                                           </div>
                                           {firmaSlot && (
-                                            <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200" title="Firmado conforme a la NOM-004-SSA3-2012 / NOM-024-SSA3-2012">
-                                              <MdVerifiedUser className="text-sm text-emerald-600" /> Firmado Biométricamente (NOM)
-                                            </span>
+                                            <button type="button" onClick={() => handleOpenAuditModal(firmaSlot)} className="he-fmt-st-ok inline-flex items-center gap-1 cursor-pointer transition-colors" title="Verificar integridad y sello digital">
+                                              <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                            </button>
                                           )}
                                         </div>
                                         <div className="text-xs text-slate-500">
@@ -4152,17 +4600,15 @@ export default function PatientDashboard() {
                                         canModifyOrSignDocument(evolData.medico) ? (
                                           <>
                                             {/* BOTÓN FIRMAR CON HUELLA BIOMÉTRICA */}
-                                            <button
-                                              onClick={() => handleOpenBiometricSign(slot, `Evolución ${slot}`, evolData.subjetivo || '')}
-                                              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
-                                                firmaSlot 
-                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100' 
-                                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                              }`}
-                                              title="Firmar este registro con su huella"
-                                            >
-                                              <MdFingerprint className="text-base" /> {firmaSlot ? 'Firmar de nuevo' : 'Firmar con huella'}
-                                            </button>
+                                            {!firmaSlot && (
+                                              <button
+                                                onClick={() => handleOpenBiometricSign(slot, `Evolución ${slot}`, evolData.subjetivo || '', 'HE-DIRMED-SINPRO-PLT-87/01', 'Nota Médica de Evolución de Urgencias')}
+                                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors bg-emerald-600 hover:bg-emerald-700 text-white"
+                                                title="Firmar este registro con su huella"
+                                              >
+                                                <MdFingerprint className="text-base" /> Firmar ahora
+                                              </button>
+                                            )}
 
                                             {!firmaSlot && (
                                               <button
@@ -4179,14 +4625,12 @@ export default function PatientDashboard() {
                                           </span>
                                         )
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias?evolucion=${slot}`}
-                                        target="_blank"
-                                        rel="noreferrer"
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-nota-urgencias?evolucion=${slot}`}
                                         className="flex items-center gap-1 bg-white hover:bg-blue-50 text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
                                       >
                                         <FiFileText /> Imprimir Nota {slot}
-                                      </a>
+                                      </AuthenticatedPdfButton>
                                     </div>
                                   </div>
 
@@ -4223,16 +4667,7 @@ export default function PatientDashboard() {
                                         Médico Responsable: <strong className="text-slate-800">{evolData.medico}</strong> (Céd. {evolData.cedula})
                                       </div>
                                       {firmaSlot && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenAuditModal(firmaSlot)}
-                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer text-left"
-                                          title="Ver los detalles de la firma"
-                                        >
-                                          <MdVerifiedUser className="text-emerald-600 shrink-0 text-xs" />
-                                          <span>Firma verificada • {firmaSlot.fecha_hora_firma}</span>
-                                          <span className="text-[9px] font-sans font-bold text-hes-blue-main bg-blue-50 px-1.5 py-0.5 rounded ml-1">Ver detalles</span>
-                                        </button>
+                                        null
                                       )}
                                     </div>
                                   </div>
@@ -4278,15 +4713,13 @@ export default function PatientDashboard() {
                             </p>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <a
-                              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-hospitalizacion`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <AuthenticatedPdfButton
+                              endpoint={`/ehr/paciente/${patientId}/pdf-nota-hospitalizacion`}
                               className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors"
                               title="Imprimir formato general con todas las evoluciones de hospitalización consecutivas"
                             >
                               <FiFileText className="text-sm" /> Imprimir Expediente Completo
-                            </a>
+                            </AuthenticatedPdfButton>
                             {!isPatientDischarged && (
                               <button
                                 onClick={() => handleOpenNewEvol(nextSlot, 'HE-DIRMED-CONSUL-PLT-24')}
@@ -4320,10 +4753,11 @@ export default function PatientDashboard() {
                           <div className="grid grid-cols-1 gap-4">
                             {evolList.map((evolData) => {
                               const slot = evolData.num;
-                              const firmaSlot = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-24' && f.evolution_slot === slot);
+                              const signatureSlot = Number(evolData.mrnum_24_hoja_evol || 0);
+                              const firmaSlot = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-24' && Number(f.evolution_slot) === signatureSlot && (f.rol_firmante || 'MEDICO') === 'MEDICO');
 
                               return (
-                                <div key={slot} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/60 transition-all">
+                                <div id={`signature-target-HE-DIRMED-CONSUL-PLT-24:${signatureSlot}`} key={slot} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/60 transition-all">
                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 mb-3 border-b border-slate-200">
                                     <div className="flex items-center gap-3">
                                       <span className="w-8 h-8 rounded-lg font-bold flex items-center justify-center text-sm shadow-xs bg-indigo-600 text-white">
@@ -4335,9 +4769,9 @@ export default function PatientDashboard() {
                                             Evolución y Observaciones {slot} {slot > 1 && <span className="text-xs text-indigo-600 font-semibold">(Continuación)</span>}
                                           </div>
                                           {firmaSlot && (
-                                            <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200" title="Firmado conforme a la NOM-004-SSA3-2012 / NOM-024-SSA3-2012">
-                                              <MdVerifiedUser className="text-sm text-emerald-600" /> Firmado Biométricamente (NOM)
-                                            </span>
+                                            <button type="button" onClick={() => handleOpenAuditModal(firmaSlot)} className="he-fmt-st-ok inline-flex items-center gap-1 cursor-pointer transition-colors" title="Verificar integridad y sello digital">
+                                              <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                            </button>
                                           )}
                                         </div>
                                         <div className="text-xs text-slate-500">
@@ -4347,19 +4781,17 @@ export default function PatientDashboard() {
                                     </div>
 
                                     <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
-                                      {!isPatientDischarged && canModifyOrSignDocument(evolData.medico) && (
+                                      {!isPatientDischarged && signatureSlot > 0 && canModifyOrSignDocument(evolData.medico) && (
                                         <>
-                                          <button
-                                            onClick={() => handleOpenBiometricSign(slot, `Evolución ${slot} Hosp`, evolData.subjetivo || '', 'HE-DIRMED-CONSUL-PLT-24', 'Nota Médica de Evolución de Hospitalización')}
-                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
-                                              firmaSlot 
-                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100' 
-                                                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                            }`}
-                                            title="Firmar este registro con su huella"
-                                          >
-                                            <MdFingerprint className="text-base" /> {firmaSlot ? 'Firmar de nuevo' : 'Firmar con huella'}
-                                          </button>
+                                          {!firmaSlot && (
+                                            <button
+                                              onClick={() => handleOpenBiometricSign(signatureSlot, `Evolución ${slot} Hosp`, evolData.subjetivo || '', 'HE-DIRMED-CONSUL-PLT-24', 'Nota Médica de Evolución de Hospitalización')}
+                                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors bg-emerald-600 hover:bg-emerald-700 text-white"
+                                              title="Firmar este registro con su huella"
+                                            >
+                                              <MdFingerprint className="text-base" /> Firmar ahora
+                                            </button>
+                                          )}
 
                                           <button
                                             onClick={() => handleOpenEditEvol(evolData, 'HE-DIRMED-CONSUL-PLT-24')}
@@ -4369,14 +4801,12 @@ export default function PatientDashboard() {
                                           </button>
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-hospitalizacion?evolucion=${slot}`}
-                                        target="_blank"
-                                        rel="noreferrer"
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-nota-hospitalizacion?evolucion=${slot}`}
                                         className="flex items-center gap-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
                                       >
                                         <FiFileText /> Imprimir Nota {slot}
-                                      </a>
+                                      </AuthenticatedPdfButton>
                                     </div>
                                   </div>
 
@@ -4412,16 +4842,7 @@ export default function PatientDashboard() {
                                         Médico Responsable: <strong className="text-slate-800">{evolData.medico}</strong> (Céd. {evolData.cedula})
                                       </div>
                                       {firmaSlot && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenAuditModal(firmaSlot)}
-                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer text-left"
-                                          title="Ver los detalles de la firma"
-                                        >
-                                          <MdVerifiedUser className="text-emerald-600 shrink-0 text-xs" />
-                                          <span>Firma verificada • {firmaSlot.fecha_hora_firma}</span>
-                                          <span className="text-[9px] font-sans font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded ml-1">Ver detalles</span>
-                                        </button>
+                                        null
                                       )}
                                     </div>
                                   </div>
@@ -4470,7 +4891,7 @@ export default function PatientDashboard() {
                                 <span className="font-bold text-slate-800 text-sm">Consentimiento Informado para Ecocardiograma Transesofágico</span>
                                 {(() => {
                                   const summary32 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-32/01', 0);
-                                  const isCapaz32 = consentForm3201.paciente_capaz !== undefined ? Boolean(consentForm3201.paciente_capaz) : isPatientAdult(data?.patient);
+                                  const isCapaz32 = patientCanAuthorize(consentForm3201.paciente_capaz, isPatientAdult(data?.patient));
                                   return (
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       {summary32.hasPaciente ? (
@@ -4549,7 +4970,7 @@ export default function PatientDashboard() {
 
                                       {/* FIRMA MÉDICO */}
                                       {canModifyOrSignDocument(data?.patient?.attending) && (
-                                        <button
+                                        !summary32.hasMedico && (<button
                                           onClick={() => handleDoctorSign(0, 'Consentimiento 32/01', JSON.stringify(consentForm3201), 'HE-DIRMED-CONSUL-PLT-32/01', 'Consentimiento Informado para Ecocardiograma Transesofágico')}
                                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
                                             summary32.hasMedico 
@@ -4559,7 +4980,7 @@ export default function PatientDashboard() {
                                           title="Firmar este documento con su huella"
                                         >
                                           <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary32)}
-                                        </button>
+                                        </button>)
                                       )}
                                     </>
                                   );
@@ -4572,14 +4993,12 @@ export default function PatientDashboard() {
                                     <FiEdit3 className="text-slate-500" /> Editar
                                   </button>
                                 )}
-                                <a
-                                  href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-32-01?tipo_interrogatorio=${encodeURIComponent(consentForm3201.tipo_interrogatorio)}&testigo1=${encodeURIComponent(consentForm3201.testigo1)}&testigo2=${encodeURIComponent(consentForm3201.testigo2)}&paciente_o_representante=${encodeURIComponent(consentForm3201.paciente_o_representante || data?.patient?.name || '')}&representante_legal=${encodeURIComponent(consentForm3201.representante_legal || '')}`}
-                                  target="_blank"
-                                  rel="noreferrer"
+                                <AuthenticatedPdfButton
+                                  endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-32-01?tipo_interrogatorio=${encodeURIComponent(consentForm3201.tipo_interrogatorio)}&testigo1=${encodeURIComponent(consentForm3201.testigo1)}&testigo2=${encodeURIComponent(consentForm3201.testigo2)}&paciente_o_representante=${encodeURIComponent(consentForm3201.paciente_o_representante || data?.patient?.name || '')}&representante_legal=${encodeURIComponent(consentForm3201.representante_legal || '')}`}
                                   className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
                                 >
                                   <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                </a>
+                                </AuthenticatedPdfButton>
                               </>
                             ) : (
                               !isPatientDischarged && (
@@ -4632,21 +5051,7 @@ export default function PatientDashboard() {
                               <div>
                                 Médico Responsable: <strong className="text-slate-800">{currentDoctorName || data?.patient?.attending || 'MÉDICO TRATANTE'}</strong>{(currentDoctorCedula || data?.patient?.cedula) ? ` (Céd. ${currentDoctorCedula || data?.patient?.cedula})` : ''}
                               </div>
-                              {(() => {
-                                const firmaConsent = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-32/01');
-                                return firmaConsent ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenAuditModal(firmaConsent)}
-                                    className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer text-left"
-                                    title="Ver los detalles de la firma"
-                                  >
-                                    <MdVerifiedUser className="text-emerald-600 shrink-0 text-xs" />
-                                    <span>Firma verificada • {firmaConsent.fecha_hora_firma}</span>
-                                    <span className="text-[9px] font-sans font-bold text-hes-blue-main bg-blue-50 px-1.5 py-0.5 rounded ml-1">Ver detalles</span>
-                                  </button>
-                                ) : null;
-                              })()}
+                              
                             </div>
                           </div>
                         ) : (
@@ -4680,13 +5085,12 @@ export default function PatientDashboard() {
                         const summary25 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-25', activeDoc25?.mrnum || 0);
                         const firmaDoc25 = summary25.firmaMedico || summary25.allFirmas[0];
                         const isSigned25 = Boolean(activeDoc25?.firmado || activeDoc25?.signed_by || summary25.hasMedico);
-                        const isCapaz25 = activeDoc25?.paciente_capaz !== undefined ? activeDoc25.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz25 = patientCanAuthorize(activeDoc25?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiFolder />
                                   </div>
@@ -4701,11 +5105,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE */}
                                       {summary25.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz25 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz25 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc25 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz25 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz25 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -4720,11 +5124,11 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary25.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                       {!isOwner25 && docDoctor25 && (
@@ -4734,16 +5138,47 @@ export default function PatientDashboard() {
                                       )}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
                                   {!isPatientDischarged && (
                                     <button
                                       onClick={handleOpenNewConsent25}
                                       className="flex items-center gap-1.5 he-fmt-btn-new px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                    >
-                                      <FiPlus /> Capturar Nuevo Consentimiento
-                                    </button>
+                                    ><FiPlus /> Nuevo formato</button>
+                                  )}
+
+                                  {activeDoc25 && (
+                                    <>
+                                      {isOwner25 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary25.hasMedico && (null)}
+                                              <button onClick={() => handleOpenEditConsent25(activeDoc25)} className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all">
+                                                <FiEdit3 className="text-slate-500" /> Editar
+                                              </button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        null
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-25${activeDoc25.mrnum ? `?mrnum=${activeDoc25.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  )}
+                                </>}
+                              signatureActions={<>
+                                  {!isPatientDischarged && (
+                                    null
                                   )}
 
                                   {activeDoc25 && (
@@ -4779,7 +5214,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary25.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc25.mrnum || 0, 'Consentimiento Revisión Ginecológica', JSON.stringify(activeDoc25), 'HE-DIRMED-CONSUL-PLT-25', 'Consentimiento Informado')}
                                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
                                                   isSigned25 
@@ -4788,10 +5223,8 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary25)}
-                                              </button>
-                                              <button onClick={() => handleOpenEditConsent25(activeDoc25)} className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all">
-                                                <FiEdit3 className="text-slate-500" /> Editar
-                                              </button>
+                                              </button>)}
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -4800,19 +5233,11 @@ export default function PatientDashboard() {
                                           <FiLock /> Solo Lectura
                                         </span>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-25${activeDoc25.mrnum ? `?mrnum=${activeDoc25.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                      >
-                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                      </a>
+                                      {null}
                                     </>
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES / DOCUMENTOS PREVIOS */}
@@ -4867,9 +5292,7 @@ export default function PatientDashboard() {
                                   </div>
                                   <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
                                      {firmaDoc25 ? (
-                                          <button onClick={() => handleOpenAuditModal(firmaDoc25)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors">
-                                              <MdVerifiedUser /> Sello: {firmaDoc25.sello_digital ? `${firmaDoc25.sello_digital.slice(0, 20)}...` : 'Verificado'}
-                                          </button>
+                                          null
                                      ) : (activeDoc25?.signed_by || activeDoc25?.signed_on) ? (
                                           <span className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
                                               <MdVerifiedUser /> Firmado en Vertical: {activeDoc25.signed_by} ({activeDoc25.signed_on})
@@ -4894,9 +5317,8 @@ export default function PatientDashboard() {
                     </div>
 ) : selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-EED' ? (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full ring-1 ring-slate-100">
-                      <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex items-center gap-3">
+                      <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
                               <FiActivity />
                             </div>
@@ -4905,16 +5327,16 @@ export default function PatientDashboard() {
                               <div className="flex items-center gap-2 mt-1">
                                 {(() => {
                                   const summaryEED = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-EED', 0);
-                                  const isCapazEED = data?.consentimiento_eed?.paciente_capaz !== undefined ? data.consentimiento_eed.paciente_capaz : isPatientAdult(data?.patient);
+                                  const isCapazEED = patientCanAuthorize(data?.consentimiento_eed?.paciente_capaz, isPatientAdult(data?.patient));
                                   return (
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       {summaryEED.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-emerald-300">
-                                          <FiCheck className="text-emerald-600" /> {isCapazEED ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapazEED ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : data?.consentimiento_eed ? (
                                         <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-amber-200">
-                                          1. {isCapazEED ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapazEED ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -4928,11 +5350,11 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-extrabold text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summaryEED.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-blue-200 animate-pulse">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
@@ -4940,14 +5362,52 @@ export default function PatientDashboard() {
                                 })()}
                               </div>
                             </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                          </div>}
+                              actions={<>
                             {(() => {
                               const docDoctorEED = data?.consentimiento_eed?.medico || data?.patient?.attending || '';
                               const isOwnerEED = canModifyOrSignDocument(docDoctorEED);
                               const summaryEED = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-EED', 0);
-                              const isCapazEED = data?.consentimiento_eed?.paciente_capaz !== undefined ? data.consentimiento_eed.paciente_capaz : isPatientAdult(data?.patient);
+                              const isCapazEED = patientCanAuthorize(data?.consentimiento_eed?.paciente_capaz, isPatientAdult(data?.patient));
+                              const isSignedEED = Boolean(summaryEED.hasMedico);
+
+                              return data?.consentimiento_eed ? (
+                                <>
+                                  {isOwnerEED ? (
+                                    <>
+                                      {!isPatientDischarged && (
+                                        <>
+                                          {/* FIRMA PACIENTE / TESTIGO */}
+                                          {null}
+
+                                          {/* FIRMA MÉDICO */}
+                                          {!summaryEED.hasMedico && (null)}
+                                          <button onClick={handleOpenEditConsentEED} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                            <FiEdit3 /> Editar
+                                          </button>
+                                        </>
+                                      )}
+                                    </>
+                                  ) : (
+                                    null
+                                  )}
+                                  <AuthenticatedPdfButton endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-eed`} className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                                    <FiFileText /> Imprimir PDF Oficial
+                                  </AuthenticatedPdfButton>
+                                </>
+                              ) : (
+                                !isPatientDischarged && (
+                                  <button onClick={handleOpenNewConsentEED} className="he-fmt-btn-new flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold"><FiPlus /> Nuevo formato</button>
+                                )
+                              );
+                            })()}
+                          </>}
+                              signatureActions={<>
+                            {(() => {
+                              const docDoctorEED = data?.consentimiento_eed?.medico || data?.patient?.attending || '';
+                              const isOwnerEED = canModifyOrSignDocument(docDoctorEED);
+                              const summaryEED = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-EED', 0);
+                              const isCapazEED = patientCanAuthorize(data?.consentimiento_eed?.paciente_capaz, isPatientAdult(data?.patient));
                               const isSignedEED = Boolean(summaryEED.hasMedico);
 
                               return data?.consentimiento_eed ? (
@@ -4983,7 +5443,7 @@ export default function PatientDashboard() {
                                           </button>
 
                                           {/* FIRMA MÉDICO */}
-                                          <button
+                                          {!summaryEED.hasMedico && (<button
                                             onClick={() => handleDoctorSign(0, 'Ecocardiograma Estrés', JSON.stringify(data.consentimiento_eed), 'HE-DIRMED-CONSUL-PLT-EED', 'Consentimiento Informado')}
                                             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                               isSignedEED 
@@ -4992,10 +5452,8 @@ export default function PatientDashboard() {
                                             }`}
                                           >
                                             <MdFingerprint className="text-base" /> {doctorSignatureLabel(summaryEED)}
-                                          </button>
-                                          <button onClick={handleOpenEditConsentEED} className="flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
-                                            <FiEdit3 /> Editar
-                                          </button>
+                                          </button>)}
+                                          {null}
                                         </>
                                       )}
                                     </>
@@ -5004,21 +5462,16 @@ export default function PatientDashboard() {
                                       <FiLock /> Solo Lectura
                                     </span>
                                   )}
-                                  <a href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-eed`} target="_blank" rel="noreferrer" className="flex items-center gap-1 bg-white text-hes-blue-main border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
-                                    <FiFileText /> Imprimir PDF Oficial
-                                  </a>
+                                  {null}
                                 </>
                               ) : (
                                 !isPatientDischarged && (
-                                  <button onClick={handleOpenNewConsentEED} className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">
-                                    <FiPlus /> Capturar EED
-                                  </button>
+                                  null
                                 )
                               );
                             })()}
-                          </div>
-                        </div>
-                      </div>
+                          </>}
+                            />
                       
                       <div className="p-4 sm:p-5 bg-white grow flex flex-col">
                         {data?.consentimiento_eed ? (
@@ -5035,9 +5488,7 @@ export default function PatientDashboard() {
                                {(() => {
                                 const firma = firmas.find(f => f.codigo_formato === 'HE-DIRMED-CONSUL-PLT-EED');
                                 return firma ? (
-                                    <button onClick={() => handleOpenAuditModal(firma)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
-                                        <MdVerifiedUser /> Sello: {firma.sello_digital.slice(0, 20)}...
-                                    </button>
+                                    null
                                 ) : <div/>;
                                })()}
                             </div>
@@ -5070,13 +5521,12 @@ export default function PatientDashboard() {
                         const summary34 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-34', activeDoc34?.mrnum || 0);
                         const firmaDoc34 = summary34.firmaMedico || summary34.allFirmas[0];
                         const isSigned34 = Boolean(activeDoc34?.firmado || activeDoc34?.signed_by || summary34.hasMedico);
-                        const isCapaz34 = activeDoc34?.paciente_capaz !== undefined ? activeDoc34.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz34 = patientCanAuthorize(activeDoc34?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiActivity />
                                   </div>
@@ -5091,11 +5541,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE */}
                                       {summary34.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz34 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz34 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc34 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz34 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz34 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -5110,18 +5560,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary34.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc34 ? (
+                                    <>
+                                      {isOwner34 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary34.hasMedico && (null)}
+                                              <button
+                                                onClick={() => handleOpenEditConsent3401(activeDoc34)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+                                              <button
+                                                onClick={handleOpenNewConsent3401}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent3401}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-34-01${activeDoc34.mrnum ? `?mrnum=${activeDoc34.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent3401}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc34 ? (
                                     <>
                                       {isOwner34 ? (
@@ -5155,7 +5656,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary34.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc34.mrnum || 0, 'Mesa Inclinada (Tilt Test)', JSON.stringify(activeDoc34), 'HE-DIRMED-CONSUL-PLT-34', 'Consentimiento Informado')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned34 
@@ -5164,19 +5665,9 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary34)}
-                                              </button>
-                                              <button
-                                                onClick={() => handleOpenEditConsent3401(activeDoc34)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
-                                              <button
-                                                onClick={handleOpenNewConsent3401}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Capturar Nuevo Consentimiento
-                                              </button>
+                                              </button>)}
+                                              {null}
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -5186,37 +5677,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent3401}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Capturar Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-34-01${activeDoc34.mrnum ? `?mrnum=${activeDoc34.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent3401}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Mesa Inclinada
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES / DOCUMENTOS PREVIOS */}
@@ -5283,9 +5756,7 @@ export default function PatientDashboard() {
                                   </div>
                                   <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
                                      {firmaDoc34 ? (
-                                          <button onClick={() => handleOpenAuditModal(firmaDoc34)} className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors">
-                                              <MdVerifiedUser /> Sello: {firmaDoc34.sello_digital ? `${firmaDoc34.sello_digital.slice(0, 20)}...` : 'Verificado'}
-                                          </button>
+                                          null
                                      ) : (activeDoc34?.signed_by || activeDoc34?.signed_on) ? (
                                           <span className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1">
                                               <MdVerifiedUser /> Firmado en Vertical: {activeDoc34.signed_by} ({activeDoc34.signed_on})
@@ -5324,13 +5795,12 @@ export default function PatientDashboard() {
                         const summary12 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-12', activeDoc12?.mrnum || 0);
                         const firmaDoc12 = summary12.firmaMedico || summary12.allFirmas[0];
                         const isSigned12 = Boolean(activeDoc12?.firmado || activeDoc12?.signed_by || summary12.hasMedico);
-                        const isCapaz12 = activeDoc12?.paciente_capaz !== undefined ? activeDoc12.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz12 = patientCanAuthorize(activeDoc12?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiFileText />
                                   </div>
@@ -5345,11 +5815,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE */}
                                       {summary12.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz12 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz12 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc12 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz12 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz12 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -5364,18 +5834,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary12.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc12 ? (
+                                    <>
+                                      {isOwner12 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary12.hasMedico && (null)}
+                                              <button
+                                                onClick={() => handleOpenEditConsent12(activeDoc12)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+                                              <button
+                                                onClick={handleOpenNewConsent12}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent12}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-12${activeDoc12.mrnum ? `?mrnum=${activeDoc12.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent12}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc12 ? (
                                     <>
                                       {isOwner12 ? (
@@ -5409,7 +5930,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary12.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc12.mrnum || 0, 'Consentimiento Gineco y Obstetricia (Hosp/Urg)', JSON.stringify(activeDoc12), 'HE-DIRMED-CONSUL-PLT-12', 'Consentimiento Informado')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned12 
@@ -5418,19 +5939,9 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary12)}
-                                              </button>
-                                              <button
-                                                onClick={() => handleOpenEditConsent12(activeDoc12)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
-                                              <button
-                                                onClick={handleOpenNewConsent12}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Capturar Nuevo Consentimiento
-                                              </button>
+                                              </button>)}
+                                              {null}
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -5440,37 +5951,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent12}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Capturar Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-12${activeDoc12.mrnum ? `?mrnum=${activeDoc12.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent12}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Consentimiento 12
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES */}
@@ -5541,28 +6034,7 @@ export default function PatientDashboard() {
                                     </div>
                                   </div>
 
-                                  {isSigned12 && (
-                                    <div className="pt-2 flex items-center justify-between border-t border-slate-100">
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                                          <MdVerifiedUser /> Firmado Digitalmente
-                                        </span>
-                                        {activeDoc12.signed_on && (
-                                          <span className="text-[11px] text-slate-500 font-mono">
-                                            {activeDoc12.signed_on}
-                                          </span>
-                                        )}
-                                      </div>
-                                      {firmaDoc12 && (
-                                        <button 
-                                          onClick={() => handleOpenAuditModal(firmaDoc12)} 
-                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors"
-                                        >
-                                          <FiLock /> Sello: {firmaDoc12.sello_digital?.substring(0, 10)}... (Auditar)
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
+                                  
                                 </div>
                               ) : (
                                 <div className="py-8 text-center text-xs text-slate-400 space-y-3">
@@ -5595,13 +6067,12 @@ export default function PatientDashboard() {
                         const summary04 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-04', activeDoc04?.mrnum || 0);
                         const firmaDoc04 = summary04.firmaMedico || summary04.allFirmas[0];
                         const isSigned04 = Boolean(activeDoc04?.firmado || activeDoc04?.signed_by || summary04.hasMedico);
-                        const isCapaz04 = activeDoc04?.paciente_capaz !== undefined ? activeDoc04.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz04 = patientCanAuthorize(activeDoc04?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiFileText />
                                   </div>
@@ -5616,11 +6087,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE */}
                                       {summary04.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz04 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz04 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc04 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz04 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz04 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -5635,18 +6106,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary04.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc04 ? (
+                                    <>
+                                      {isOwner04 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary04.hasMedico && (null)}
+                                              <button
+                                                onClick={() => handleOpenEditConsent04(activeDoc04)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+                                              <button
+                                                onClick={handleOpenNewConsent04}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent04}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-04${activeDoc04.mrnum ? `?mrnum=${activeDoc04.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent04}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc04 ? (
                                     <>
                                       {isOwner04 ? (
@@ -5680,7 +6202,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary04.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc04.mrnum || 0, 'Consentimiento Colocación de Catéter Venoso Central', JSON.stringify(activeDoc04), 'HE-DIRMED-CONSUL-PLT-04', 'Consentimiento Informado')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned04 
@@ -5689,19 +6211,9 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary04)}
-                                              </button>
-                                              <button
-                                                onClick={() => handleOpenEditConsent04(activeDoc04)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
-                                              <button
-                                                onClick={handleOpenNewConsent04}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Capturar Nuevo Consentimiento
-                                              </button>
+                                              </button>)}
+                                              {null}
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -5711,37 +6223,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent04}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Capturar Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-04${activeDoc04.mrnum ? `?mrnum=${activeDoc04.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent04}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Consentimiento Formato 04
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES */}
@@ -5791,28 +6285,7 @@ export default function PatientDashboard() {
                                     </p>
                                   </div>
 
-                                  {isSigned04 && (
-                                    <div className="pt-2 flex items-center justify-between border-t border-slate-100">
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                                          <MdVerifiedUser /> Firmado Digitalmente
-                                        </span>
-                                        {activeDoc04.signed_on && (
-                                          <span className="text-[11px] text-slate-500 font-mono">
-                                            {activeDoc04.signed_on}
-                                          </span>
-                                        )}
-                                      </div>
-                                      {firmaDoc04 && (
-                                        <button 
-                                          onClick={() => handleOpenAuditModal(firmaDoc04)} 
-                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors"
-                                        >
-                                          <FiLock /> Sello: {firmaDoc04.sello_digital?.substring(0, 10)}... (Auditar)
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
+                                  
                                 </div>
                               ) : (
                                 <div className="py-8 text-center text-xs text-slate-400 space-y-3">
@@ -5846,13 +6319,12 @@ export default function PatientDashboard() {
                         const firmaDoc15 = summary15.firmaMedico || summary15.allFirmas[0];
                         const isSigned15 = Boolean(activeDoc15?.firmado || activeDoc15?.signed_by || summary15.hasMedico);
                         const isNoAutorizado = Boolean(activeDoc15?.no_autorizo || activeDoc15?.tipo === 'no_autorizo');
-                        const isCapaz15 = activeDoc15?.paciente_capaz !== undefined ? activeDoc15.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz15 = patientCanAuthorize(activeDoc15?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiFileText />
                                   </div>
@@ -5872,11 +6344,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE */}
                                       {summary15.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz15 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz15 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc15 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz15 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz15 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -5891,18 +6363,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary15.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc15 ? (
+                                    <>
+                                      {isOwner15 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary15.hasMedico && (null)}
+                                              <button
+                                                onClick={() => handleOpenEditConsent15(activeDoc15)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+                                              <button
+                                                onClick={handleOpenNewConsent15}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent15}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-15${activeDoc15.mrnum ? `?mrnum=${activeDoc15.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent15}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc15 ? (
                                     <>
                                       {isOwner15 ? (
@@ -5936,7 +6459,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary15.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc15.mrnum || 0, 'Consentimiento / Disentimiento para Cesárea', JSON.stringify(activeDoc15), 'HE-DIRMED-CONSUL-PLT-15', 'Consentimiento Informado')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned15 
@@ -5945,19 +6468,9 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary15)}
-                                              </button>
-                                              <button
-                                                onClick={() => handleOpenEditConsent15(activeDoc15)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
-                                              <button
-                                                onClick={handleOpenNewConsent15}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Capturar Nuevo Formato (Cesárea)
-                                              </button>
+                                              </button>)}
+                                              {null}
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -5967,37 +6480,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent15}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Capturar Nuevo Formato (Cesárea)
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-15${activeDoc15.mrnum ? `?mrnum=${activeDoc15.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent15}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Formato 15 (Cesárea)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES */}
@@ -6062,28 +6557,7 @@ export default function PatientDashboard() {
                                     </div>
                                   )}
 
-                                  {isSigned15 && (
-                                    <div className="pt-2 flex items-center justify-between border-t border-slate-100">
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                                          <MdVerifiedUser /> Firmado Digitalmente
-                                        </span>
-                                        {activeDoc15.signed_on && (
-                                          <span className="text-[11px] text-slate-500 font-mono">
-                                            {activeDoc15.signed_on}
-                                          </span>
-                                        )}
-                                      </div>
-                                      {firmaDoc15 && (
-                                        <button 
-                                          onClick={() => handleOpenAuditModal(firmaDoc15)} 
-                                          className="text-emerald-700 font-mono text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 flex items-center gap-1 transition-colors"
-                                        >
-                                          <FiLock /> Sello: {firmaDoc15.sello_digital?.substring(0, 10)}... (Auditar)
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
+                                  
                                 </div>
                               ) : (
                                 <div className="py-8 text-center text-xs text-slate-400 space-y-3">
@@ -6116,16 +6590,13 @@ export default function PatientDashboard() {
                         const summary07 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-07', activeDoc07?.mrnum || 0);
                         const firmaDoc07 = summary07.firmaMedico || summary07.allFirmas[0];
                         const isSigned07 = Boolean(activeDoc07?.firmado || activeDoc07?.signed_by || summary07.hasMedico);
-                        const isCapaz07 = activeDoc07?.paciente_capaz !== undefined ? activeDoc07.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz07 = patientCanAuthorize(activeDoc07?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
                             {/* HEADER REDISEÑADO ELEGANTE Y COMPACTO */}
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                                
-                                {/* LADO IZQUIERDO: ICONO + TÍTULO + BADGES EN LÍNEA */}
-                                <div className="flex items-center gap-3.5">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3.5">
                                   <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-hes-blue-dark to-hes-blue-main text-white flex items-center justify-center text-xl font-bold shadow-sm shrink-0">
                                     <FiFileText />
                                   </div>
@@ -6145,11 +6616,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE / TUTOR */}
                                       {summary07.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz07 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz07 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc07 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz07 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz07 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -6162,19 +6633,68 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-emerald-300 transition-colors cursor-pointer"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser className="text-emerald-600" /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser className="text-emerald-600" /> Médico: firmado
                                         </button>
                                       ) : summary07.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                {/* LADO DERECHO: TOOLBAR DE ACCIONES AGRUPADAS */}
-                                <div className="flex items-center gap-2 flex-wrap self-stretch sm:self-auto justify-end">
+                                </div>}
+                              actions={<>
+                                  {activeDoc07 ? (
+                                    <>
+                                      {/* FIRMA PACIENTE / TESTIGO */}
+                                      {!isPatientDischarged && (
+                                        null
+                                      )}
+
+                                      {/* FIRMA MÉDICO */}
+                                      {!isPatientDischarged && (isOwner07 ? (
+                                        !summary07.hasMedico && (null)
+                                      ) : (
+                                        null
+                                      ))}
+
+                                      {/* EDITAR */}
+                                      {!isPatientDischarged && isOwner07 && (
+                                        <button
+                                          onClick={() => handleOpenEditConsent07(activeDoc07)}
+                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                        >
+                                          <FiEdit3 className="text-slate-500" /> Editar
+                                        </button>
+                                      )}
+
+                                      {/* IMPRIMIR PDF */}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-07${activeDoc07?.mrnum ? `?mrnum=${activeDoc07.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    /* IMPRIMIR PDF PREVIA SI NO HAY DOC GUARDADO */
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-07`}
+                                      className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                    >
+                                      <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                    </AuthenticatedPdfButton>
+                                  )}
+
+                                  {/* NUEVO CONSENTIMIENTO */}
+                                  {!isPatientDischarged && (
+                                    <button
+                                      onClick={handleOpenNewConsent07}
+                                      className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                    ><FiPlus /> Nuevo formato</button>
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc07 ? (
                                     <>
                                       {/* FIRMA PACIENTE / TESTIGO */}
@@ -6207,7 +6727,7 @@ export default function PatientDashboard() {
 
                                       {/* FIRMA MÉDICO */}
                                       {!isPatientDischarged && (isOwner07 ? (
-                                        <button
+                                        !summary07.hasMedico && (<button
                                           onClick={() => handleDoctorSign(activeDoc07.mrnum || 0, 'Consentimiento Quirúrgico (Formato 07)', JSON.stringify(activeDoc07), 'HE-DIRMED-CONSUL-PLT-07', 'Consentimiento Informado')}
                                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
                                             isSigned07 
@@ -6216,7 +6736,7 @@ export default function PatientDashboard() {
                                           }`}
                                         >
                                           <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary07)}
-                                        </button>
+                                        </button>)
                                       ) : (
                                         <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold" title="Documento elaborado por otro médico">
                                           <FiLock /> {docDoctor07 ? `Médico: ${docDoctor07}` : 'Bloqueado'}
@@ -6225,48 +6745,23 @@ export default function PatientDashboard() {
 
                                       {/* EDITAR */}
                                       {!isPatientDischarged && isOwner07 && (
-                                        <button
-                                          onClick={() => handleOpenEditConsent07(activeDoc07)}
-                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                        >
-                                          <FiEdit3 className="text-slate-500" /> Editar
-                                        </button>
+                                        null
                                       )}
 
                                       {/* IMPRIMIR PDF */}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-07${activeDoc07?.mrnum ? `?mrnum=${activeDoc07.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                      >
-                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     /* IMPRIMIR PDF PREVIA SI NO HAY DOC GUARDADO */
-                                    <a
-                                      href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-07`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                    >
-                                      <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                    </a>
+                                    null
                                   )}
 
                                   {/* NUEVO CONSENTIMIENTO */}
                                   {!isPatientDischarged && (
-                                    <button
-                                      onClick={handleOpenNewConsent07}
-                                      className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
-                                    >
-                                      <FiPlus /> Nuevo Formato (07)
-                                    </button>
+                                    null
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
 
                             {/* CONTENIDO DEL CONSENTIMIENTO 07 */}
                             <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
@@ -6345,14 +6840,607 @@ export default function PatientDashboard() {
                                         <FiPlus /> Capturar Formato 07 (Quirúrgico)
                                       </button>
                                     )}
-                                    <a
-                                      href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-07`}
-                                      target="_blank"
-                                      rel="noreferrer"
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-07`}
                                       className="inline-flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-4 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-all"
                                     >
                                       <FiPrinter className="text-slate-500" /> Vista Previa PDF
-                                    </a>
+                                    </AuthenticatedPdfButton>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                  ) : (selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-09' || selectedFormat?.codigo === 'HE-DIRMED-CONSUL-PLT-9' || selectedFormat?.codigo === '09' || selectedFormat?.codigo === '9' || selectedFormat?.codigo === 'PLT-09' || selectedFormat?.codigo === 'PLT-9' || selectedFormat?.codigo === 'CI_AUT_TRANS_HEMO' || selectedFormat?.codigo === 'AUT_TRANS_HEMO') ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial09 = (data?.historial_09 && data.historial_09.length > 0)
+                          ? data.historial_09
+                          : (data?.consentimiento_09 ? [data.consentimiento_09] : []);
+
+                        const activeDoc09 = (selectedMrnum09 ? historial09.find(h => h.mrnum === selectedMrnum09) : null)
+                          || (historial09.length > 0 ? historial09[0] : null)
+                          || data?.consentimiento_09;
+
+                        const docDoctor09 = activeDoc09?.n_medico || activeDoc09?.medico_tratante || '';
+                        const isOwner09 = canModifyOrSignDocument(docDoctor09);
+                        const summary09 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-09', activeDoc09?.mrnum || 0);
+                        const firmaDoc09 = summary09.firmaMedico;
+                        const isSigned09 = Boolean(summary09.hasMedico);
+                        const isCapaz09 = patientCanAuthorize(activeDoc09?.paciente_capaz, isPatientAdult(data?.patient));
+
+                        return (
+                          <>
+                            {/* HEADER REDISEÑADO ELEGANTE Y COMPACTO */}
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3.5">
+                                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-rose-700 to-red-500 text-white flex items-center justify-center text-xl font-bold shadow-sm shrink-0">
+                                    <MdOutlineMedicalServices />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <h3 className="font-bold text-slate-900 text-sm sm:text-base leading-tight">
+                                      {selectedFormat.nombre}
+                                    </h3>
+                                    
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                                        PLT-09
+                                      </span>
+                                      <span className="text-[10px] font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-md border border-red-200">
+                                        {historial09.length} {historial09.length === 1 ? 'registro' : 'registros'}
+                                      </span>
+                                      
+                                      {/* BADGE PACIENTE / TUTOR */}
+                                      {summary09.hasPaciente ? (
+                                        <span className="inline-flex items-center gap-1 he-fmt-st-ok">
+                                          <FiCheck className="text-emerald-600" /> {isCapaz09 ? 'Paciente' : 'Tutor / Rep.'}: firmado
+                                        </span>
+                                      ) : activeDoc09 ? (
+                                        <span className="inline-flex items-center gap-1 he-fmt-st-pend">
+                                          {isCapaz09 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
+                                        </span>
+                                      ) : null}
+
+                                      {/* BADGE MÉDICO */}
+                                      {isSigned09 ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenAuditModal(firmaDoc09)}
+                                          className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-emerald-300 transition-colors cursor-pointer"
+                                          title="Ver verificación de integridad y sello digital"
+                                        >
+                                          <MdVerifiedUser className="text-emerald-600" /> Médico: firmado
+                                        </button>
+                                      ) : summary09.hasPaciente ? (
+                                        <span className="inline-flex items-center gap-1 he-fmt-st-next">
+                                          Firma médica pendiente
+                                        </span>
+                                      ) : null}
+
+                                      {(selectedFormat?.firmas_especiales_requeridas || []).map(role => {
+                                        const label = selectedFormat?.firmas_especiales_requeridas_labels?.find(item => item.id === role)?.label || role.replaceAll('_', ' ');
+                                        const signed = summary09.allFirmas.some(item => (item.rol_firmante || '').toUpperCase() === role);
+                                        return activeDoc09 && <span key={role} className={`inline-flex items-center gap-1 ${signed ? 'he-fmt-st-ok' : 'he-fmt-st-pend'}`}>
+                                          {signed ? <><FiCheck className="text-emerald-600" /> {label}: firmado</> : `${label}: pendiente`}
+                                        </span>;
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>}
+                              actions={<>
+                                  {activeDoc09 ? (
+                                    <>
+                                      {/* FIRMA PACIENTE / TESTIGO */}
+                                      {!isPatientDischarged && (
+                                        null
+                                      )}
+
+                                      {(selectedFormat?.firmas_especiales_requeridas || []).map(role => {
+                                        const label = selectedFormat?.firmas_especiales_requeridas_labels?.find(item => item.id === role)?.label || role.replaceAll('_', ' ');
+                                        const signature = summary09.allFirmas.find(item => (item.rol_firmante || '').toUpperCase() === role);
+                                        return null;
+                                      })}
+
+                                      {/* FIRMA MÉDICO */}
+                                      {!isPatientDischarged && (isOwner09 ? (
+                                        !summary09.hasMedico && (null)
+                                      ) : (
+                                        null
+                                      ))}
+
+                                      {/* EDITAR */}
+                                      {!isPatientDischarged && isOwner09 && (
+                                        <button
+                                          onClick={() => handleOpenEditConsent09(activeDoc09)}
+                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                        >
+                                          <FiEdit3 className="text-slate-500" /> Editar
+                                        </button>
+                                      )}
+
+                                      {/* IMPRIMIR PDF */}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-09${activeDoc09?.mrnum ? `?mrnum=${activeDoc09.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    /* IMPRIMIR PDF PREVIA SI NO HAY DOC GUARDADO */
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-09`}
+                                      className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                    >
+                                      <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                    </AuthenticatedPdfButton>
+                                  )}
+
+                                  {/* NUEVO CONSENTIMIENTO */}
+                                  {!isPatientDischarged && (
+                                    <button
+                                      onClick={handleOpenNewConsent09}
+                                      className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                    ><FiPlus /> Nuevo formato</button>
+                                  )}
+                                </>}
+                              signatureActions={<>
+                                  {activeDoc09 ? (
+                                    <>
+                                      {/* FIRMA PACIENTE / TESTIGO */}
+                                      {!isPatientDischarged && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPatientSignModal({
+                                            open: true,
+                                            documentInfo: {
+                                              codigo_formato: 'HE-DIRMED-CONSUL-PLT-09',
+                                              tipo_documento: 'Consentimiento para Transfusión de Hemocomponentes (09)',
+                                              title: 'Consentimiento para Transfusión de Hemocomponentes (09)',
+                                              slot: activeDoc09.mrnum || 0,
+                                              paciente_capaz: isCapaz09,
+                                              representante_legal: activeDoc09?.representante_legal || activeDoc09?.pariente || activeDoc09?.nom_firmante,
+                                              parentesco: activeDoc09?.parentesco || (isCapaz09 ? 'El Paciente' : 'Representante Legal')
+                                            }
+                                          })}
+                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+                                            summary09.hasPaciente
+                                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                              : 'bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 hover:text-hes-blue-main hover:border-hes-blue-main'
+                                          }`}
+                                          title="Firma Dactilar del Paciente, Tutor o Testigos (NOM-004 / NOM-253)"
+                                        >
+                                          <MdFingerprint className={`text-base ${summary09.hasPaciente ? 'text-emerald-700' : 'text-hes-blue-main'}`} />
+                                          {patientSignatureLabel(summary09)}
+                                        </button>
+                                      )}
+
+                                      {(selectedFormat?.firmas_especiales_requeridas || []).map(role => {
+                                        const label = selectedFormat?.firmas_especiales_requeridas_labels?.find(item => item.id === role)?.label || role.replaceAll('_', ' ');
+                                        const signature = summary09.allFirmas.find(item => (item.rol_firmante || '').toUpperCase() === role);
+                                        return <button
+                                          key={role}
+                                          type="button"
+                                          onClick={() => signature
+                                            ? setBiometricEvidenceModal({
+                                              codigoFormato: 'HE-DIRMED-CONSUL-PLT-09',
+                                              slot: activeDoc09.mrnum || 0,
+                                              firmas: [signature],
+                                            })
+                                            : setSpecialSignatureModal({ open: true, documentInfo: {
+                                              codigo_formato: 'HE-DIRMED-CONSUL-PLT-09',
+                                              tipo_documento: 'Consentimiento Informado para Transfusión de Hemocomponentes',
+                                              title: 'Consentimiento Informado para Transfusión de Hemocomponentes',
+                                              slot: activeDoc09.mrnum || 0,
+                                              rol_firmante: role,
+                                              areaLabel: label,
+                                            } })}
+                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${signature ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' : 'bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 hover:text-hes-blue-main hover:border-hes-blue-main'}`}
+                                          title={signature ? `Ver evidencia biométrica de ${label}` : `Firma biométrica del área de ${label}`}
+                                        >
+                                          <MdFingerprint className="text-base" /> {signature ? `${label}: Firmado` : `Firma de ${label} requerida`}
+                                        </button>;
+                                      })}
+
+                                      {/* FIRMA MÉDICO */}
+                                      {!isPatientDischarged && (isOwner09 ? (
+                                        !summary09.hasMedico && (<button
+                                          onClick={() => handleDoctorSign(activeDoc09.mrnum || 0, 'Consentimiento Transfusión (Formato 09)', JSON.stringify(activeDoc09), 'HE-DIRMED-CONSUL-PLT-09', 'Consentimiento Informado')}
+                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+                                            isSigned09 
+                                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                                              : 'he-fmt-btn-sign'
+                                          }`}
+                                        >
+                                          <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary09)}
+                                        </button>)
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold" title="Documento elaborado por otro médico">
+                                          <FiLock /> {docDoctor09 ? `Médico: ${docDoctor09}` : 'Bloqueado'}
+                                        </span>
+                                      ))}
+
+                                      {/* EDITAR */}
+                                      {!isPatientDischarged && isOwner09 && (
+                                        null
+                                      )}
+
+                                      {/* IMPRIMIR PDF */}
+                                      {null}
+                                    </>
+                                  ) : (
+                                    /* IMPRIMIR PDF PREVIA SI NO HAY DOC GUARDADO */
+                                    null
+                                  )}
+
+                                  {/* NUEVO CONSENTIMIENTO */}
+                                  {!isPatientDischarged && (
+                                    null
+                                  )}
+                                </>}
+                            />
+
+                            {/* CONTENIDO DEL CONSENTIMIENTO 09 */}
+                            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                              {/* SELECTOR DE VERSIONES */}
+                              {historial09.length > 1 && (
+                                <div className="flex items-center gap-2 pb-3 border-b border-slate-100 overflow-x-auto">
+                                  <span className="text-[11px] font-bold text-slate-500 shrink-0">Historial:</span>
+                                  <div className="flex gap-1.5">
+                                    {historial09.map((item, idx) => {
+                                      const isSelected = (activeDoc09?.mrnum === item.mrnum) || (!selectedMrnum09 && idx === 0);
+                                      return (
+                                        <button
+                                          key={item.mrnum || idx}
+                                          onClick={() => setSelectedMrnum09(item.mrnum)}
+                                          className={`he-reg-tab ${isSelected ? 'he-reg-tab-active' : ''}`}
+                                        >
+                                          <span>Doc #{historial09.length - idx}</span>
+                                          <span className="he-reg-date">
+                                            {item.created_on ? item.created_on.split(' ')[0] : 'S/F'}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {activeDoc09 ? (
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="he-reg-box p-3">
+                                      <span className="he-reg-label">Médico Tratante / Prescriptor</span>
+                                      <p className="font-bold text-slate-800 text-xs mt-0.5">{docDoctor09 || currentDoctorName || data?.patient?.attending || 'MÉDICO TRATANTE'}</p>
+                                    </div>
+                                    <div className="he-reg-box p-3">
+                                      <span className="he-reg-label">Expediente Clínico</span>
+                                      <p className="font-bold text-slate-800 text-xs mt-0.5">{activeDoc09.expediente || data?.patient?.mrn || `PT-${patientId}`}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="he-reg-box p-3 bg-red-50/40 border-red-100">
+                                    <span className="he-reg-label text-rose-800 font-bold">Hemocomponentes Autorizados para Transfusión</span>
+                                    <p className="text-slate-800 text-xs mt-1 font-semibold leading-relaxed">
+                                      {activeDoc09.acepto_y_autorizo_transfusion_de || activeDoc09.hemocomponentes || 'PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO'}
+                                    </p>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="he-reg-box p-3">
+                                      <span className="he-reg-label">Testigo 1</span>
+                                      <p className="text-slate-700 text-xs mt-1">{activeDoc09.testigo_1 || activeDoc09.testigo1 || 'No especificado'}</p>
+                                    </div>
+                                    <div className="he-reg-box p-3">
+                                      <span className="he-reg-label">Testigo 2</span>
+                                      <p className="text-slate-700 text-xs mt-1">{activeDoc09.testigo_2 || activeDoc09.testigo2 || 'No especificado'}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="py-8 text-center space-y-3">
+                                  <div className="w-12 h-12 rounded-full bg-red-50 text-red-400 flex items-center justify-center mx-auto text-xl font-bold">
+                                    <MdOutlineMedicalServices />
+                                  </div>
+                                  <h4 className="font-bold text-slate-700 text-sm">Sin registro de Consentimiento para Transfusión (Formato 09)</h4>
+                                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                    Capture la autorización para transfusión de hemocomponentes para generar el documento oficial conforme a la NOM-004-SSA3-2012 y NOM-253-SSA1-2012.
+                                  </p>
+                                  <div className="flex items-center justify-center gap-2">
+                                    {!isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent09}
+                                        className="inline-flex items-center gap-1.5 he-fmt-btn-sign px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                                      >
+                                        <FiPlus /> Capturar Formato 09 (Transfusión)
+                                      </button>
+                                    )}
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-09`}
+                                      className="inline-flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-4 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                    >
+                                      <FiPrinter className="text-slate-500" /> Vista Previa PDF
+                                    </AuthenticatedPdfButton>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                                    ) : (selectedFormat?.codigo === 'HE-DIRMED-SINPRO-PLT-16' || selectedFormat?.codigo === 'HE-DIRMED-SINPRO-PLT-16/01' || selectedFormat?.codigo === 'SINPRO-PLT-16' || selectedFormat?.codigo === '16' || selectedFormat?.codigo === 'PLT-16' || selectedFormat?.codigo === 'MR_ERC_HOS' || selectedFormat?.codigo === 'ERC_HOS' || selectedFormat?.codigo === 'EGRESO_RESUMEN_16') ? (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full animate-fadeIn">
+                      {(() => {
+                        const historial16 = (data?.historial_16 && data.historial_16.length > 0)
+                          ? data.historial_16
+                          : (data?.egreso_resumen_16 ? [data.egreso_resumen_16] : []);
+
+                        const activeDoc16 = (selectedMrnum16 ? historial16.find(h => h.mrnum === selectedMrnum16) : null)
+                          || (historial16.length > 0 ? historial16[0] : null)
+                          || data?.egreso_resumen_16;
+
+                        const docDoctor16 = activeDoc16?.dr_elaboro || activeDoc16?.dr_tratante || activeDoc16?.n_medico || '';
+                        const isOwner16 = canModifyOrSignDocument(docDoctor16);
+                        const summary16 = getDocumentSignaturesSummary('HE-DIRMED-SINPRO-PLT-16', activeDoc16?.mrnum || 0);
+                        const firmaDoc16 = summary16.firmaMedico;
+                        const isSigned16 = Boolean(summary16.hasMedico);
+
+                        return (
+                          <>
+                            {/* HEADER FORMATO 16 */}
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3.5">
+                                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-teal-700 to-emerald-600 text-white flex items-center justify-center text-xl font-bold shadow-sm shrink-0">
+                                    <MdOutlineMedicalServices />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <h3 className="font-bold text-slate-900 text-sm sm:text-base leading-tight">
+                                      {selectedFormat.nombre}
+                                    </h3>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                                        PLT-16
+                                      </span>
+                                      <span className="text-[10px] font-bold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-md border border-teal-200">
+                                        NOM-004-SSA3-2012
+                                      </span>
+                                      <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
+                                        Resumen Clínico Hospitalario
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>}
+                              actions={<>
+                                  {!isPatientDischarged && (
+                                    <button
+                                      onClick={handleOpenNewEgresoResumen16}
+                                      className="he-fmt-btn-new inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all active:scale-95"
+                                    ><FiPlus /> Nuevo formato</button>
+                                  )}
+
+                                  {activeDoc16 ? (
+                                    <div className="flex items-center gap-2">
+                                      {/* FIRMA ELECTRÓNICA MÉDICA */}
+                                      {isSigned16 ? (
+                                        null
+                                      ) : isOwner16 ? (
+                                        null
+                                      ) : (
+                                        null
+                                      )}
+
+                                      {!isPatientDischarged && (
+                                        <button
+                                          onClick={() => handleOpenEditEgresoResumen16(activeDoc16)}
+                                          className="inline-flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+                                        >
+                                          <FiEdit3 className="text-slate-500" /> Editar
+                                        </button>
+                                      )}
+
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-egreso-resumen-16${activeDoc16?.mrnum ? `?mrnum=${activeDoc16.mrnum}` : ''}`}
+                                        className="inline-flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+                                    </div>
+                                  ) : null}
+                                </>}
+                              signatureActions={<>
+                                  {!isPatientDischarged && (
+                                    null
+                                  )}
+
+                                  {activeDoc16 ? (
+                                    <div className="flex items-center gap-2">
+                                      {/* FIRMA ELECTRÓNICA MÉDICA */}
+                                      {isSigned16 ? (
+                                        <button
+                                          onClick={() => handleOpenAuditModal(firmaDoc16)}
+                                          className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
+                                          title="Verificar integridad y sello digital"
+                                        >
+                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                        </button>
+                                      ) : isOwner16 ? (
+                                        <button
+                                          onClick={() => handleDoctorSign(activeDoc16.mrnum || 0, 'Egreso y Resumen Clínico (Formato 16)', JSON.stringify(activeDoc16), 'HE-DIRMED-SINPRO-PLT-16', 'Resumen Clínico')}
+                                          className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all active:scale-95"
+                                        >
+                                          <MdFingerprint className="text-sm" /> Firmar Nota
+                                        </button>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg text-xs font-semibold border border-slate-200">
+                                          <FiLock /> Firma de otro médico
+                                        </span>
+                                      )}
+
+                                      {!isPatientDischarged && (
+                                        null
+                                      )}
+
+                                      {null}
+                                    </div>
+                                  ) : null}
+                                </>}
+                            />
+
+                            {/* CONTENIDO DEL FORMATO 16 */}
+                            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
+                              {activeDoc16 ? (
+                                <div className="max-w-4xl mx-auto space-y-6">
+                                  
+                                  {/* SIGNOS VITALES AL EGRESO */}
+                                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                                    <h4 className="text-xs font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
+                                      <FiActivity /> Signos Vitales al Egreso
+                                    </h4>
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-2xs">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase block">T/A</span>
+                                        <span className="text-sm font-black text-slate-800">{activeDoc16.ta ? `${activeDoc16.ta}${activeDoc16.ta_dis ? `/${activeDoc16.ta_dis}` : ''} mmHg` : 'N/R'}</span>
+                                      </div>
+                                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-2xs">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Pulso / FC</span>
+                                        <span className="text-sm font-black text-slate-800">{activeDoc16.pulso ? `${activeDoc16.pulso} lpm` : 'N/R'}</span>
+                                      </div>
+                                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-2xs">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Frec. Resp.</span>
+                                        <span className="text-sm font-black text-slate-800">{activeDoc16.fr_respi ? `${activeDoc16.fr_respi} rpm` : 'N/R'}</span>
+                                      </div>
+                                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-2xs">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Temperatura</span>
+                                        <span className="text-sm font-black text-slate-800">{activeDoc16.temperatura ? `${activeDoc16.temperatura} °C` : 'N/R'}</span>
+                                      </div>
+                                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-2xs">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Sat. O₂</span>
+                                        <span className="text-sm font-black text-slate-800">{activeDoc16.sat_oxi ? `${activeDoc16.sat_oxi} %` : 'N/R'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* DIAGNÓSTICOS Y ESTANCIA */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-2 shadow-2xs">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Diagnóstico de Ingreso</span>
+                                      <p className="font-bold text-slate-800 text-xs">{activeDoc16.diagnostico_ingreso || data?.patient?.diagnostico || 'No especificado'}</p>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-2 shadow-2xs">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Diagnóstico de Egreso / Definitivo</span>
+                                      <p className="font-bold text-teal-900 text-xs">{activeDoc16.df || activeDoc16.diagnostico_egreso || data?.patient?.diagnostico || 'No especificado'}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* RESUMEN CLÍNICO, EVOLUCIÓN Y TERAPÉUTICA */}
+                                  <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-2xs">
+                                    <div>
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Resumen de la Evolución y Estado Actual</span>
+                                      <p className="text-slate-800 text-xs leading-relaxed mt-1 whitespace-pre-wrap">{activeDoc16.reea || 'Sin capturar'}</p>
+                                    </div>
+                                    {activeDoc16.mdeh && (
+                                      <div className="pt-3 border-t border-slate-100">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Manejo Durante la Estancia Hospitalaria</span>
+                                        <p className="text-slate-800 text-xs leading-relaxed mt-1 whitespace-pre-wrap">{activeDoc16.mdeh}</p>
+                                      </div>
+                                    )}
+                                    {activeDoc16.pmq && (
+                                      <div className="pt-3 border-t border-slate-100">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Procedimientos Médico-Quirúrgicos Realizados</span>
+                                        <p className="text-slate-800 text-xs leading-relaxed mt-1 whitespace-pre-wrap">{activeDoc16.pmq}</p>
+                                      </div>
+                                    )}
+                                    {activeDoc16.elg && (
+                                      <div className="pt-3 border-t border-slate-100">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Exámenes de Laboratorio y Gabinete Relevantes</span>
+                                        <p className="text-slate-800 text-xs leading-relaxed mt-1 whitespace-pre-wrap">{activeDoc16.elg}</p>
+                                      </div>
+                                    )}
+                                    {activeDoc16.pmt && (
+                                      <div className="pt-3 border-t border-slate-100">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Plan de Manejo y Tratamiento Hospitalario</span>
+                                        <p className="text-slate-800 text-xs leading-relaxed mt-1 whitespace-pre-wrap">{activeDoc16.pmt}</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* MEDICACIÓN DOMICILIARIA Y RECOMENDACIONES */}
+                                  <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-2xs">
+                                    <h4 className="text-xs font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
+                                      <FiFileText /> Indicaciones de Egreso y Medicación Domiciliaria
+                                    </h4>
+                                    {activeDoc16.cmep && (
+                                      <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Medicamentos Prescritos al Egreso (Dosis, Vía, Horario)</span>
+                                        <p className="text-slate-800 text-xs leading-relaxed mt-1 font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-wrap">{activeDoc16.cmep}</p>
+                                      </div>
+                                    )}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Recomendaciones y Citas de Seguimiento</span>
+                                        <p className="text-slate-800 text-xs mt-1">{activeDoc16.rvais || 'Cita abierta a Urgencias'}</p>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Pronóstico</span>
+                                        <p className="text-slate-800 text-xs mt-1">{activeDoc16.pcpcpe || 'Bueno para la vida y función'}</p>
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-100">
+                                      <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Motivo y Estado de Egreso</span>
+                                        <p className="text-slate-800 text-xs mt-1 font-bold">{activeDoc16.meg || 'MEJORADO'}</p>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Complicaciones</span>
+                                        <p className="text-slate-800 text-xs mt-1 font-bold">{activeDoc16.complicaciones || 'NINGUNA'}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* MÉDICOS RESPONSABLES */}
+                                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Médico que Elaboró el Resumen</span>
+                                      <p className="font-bold text-slate-800 text-xs mt-0.5">{activeDoc16.dr_elaboro || currentDoctorName || data?.patient?.attending || 'No especificado'}</p>
+                                      <p className="text-[11px] text-slate-500 font-mono">Cédula: {activeDoc16.cedula_elaboro || currentDoctorCedula || data?.patient?.cedula || 'En trámite'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Médico Tratante</span>
+                                      <p className="font-bold text-slate-800 text-xs mt-0.5">{activeDoc16.dr_tratante || currentDoctorName || data?.patient?.attending || 'No especificado'}</p>
+                                      <p className="text-[11px] text-slate-500 font-mono">Cédula: {activeDoc16.cedula_tratante || currentDoctorCedula || data?.patient?.cedula || 'En trámite'}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-center py-12 space-y-4 max-w-md mx-auto">
+                                  <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-3xl flex items-center justify-center text-3xl mx-auto shadow-xs">
+                                    <FiFileText />
+                                  </div>
+                                  <h4 className="font-bold text-slate-700 text-sm">Sin registro de Egreso y Resumen Clínico (Formato 16)</h4>
+                                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                    Capture el resumen clínico y nota de egreso hospitalario para generar el documento oficial conforme a la NOM-004-SSA3-2012.
+                                  </p>
+                                  <div className="flex items-center justify-center gap-2">
+                                    {!isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewEgresoResumen16}
+                                        className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors"
+                                      >
+                                        <FiPlus /> Capturar Resumen de Egreso (PLT-16)
+                                      </button>
+                                    )}
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/ehr/paciente/${patientId}/pdf-egreso-resumen-16`}
+                                      className="inline-flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-4 py-2 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                    >
+                                      <FiPrinter className="text-slate-500" /> Vista Previa PDF
+                                    </AuthenticatedPdfButton>
                                   </div>
                                 </div>
                               )}
@@ -6379,16 +7467,13 @@ export default function PatientDashboard() {
                         const firmaDoc02 = summary02.firmaMedico || summary02.allFirmas[0];
                         const isSigned02 = Boolean(activeDoc02?.firmado || activeDoc02?.signed_by || summary02.hasMedico);
                         const isNoAutorizado = Boolean(activeDoc02?.no_autorizo || activeDoc02?.tipo === 'no_autorizo' || activeDoc02?.motivo_de_no_autorizacion);
-                        const isCapaz02 = activeDoc02?.paciente_capaz !== undefined ? activeDoc02.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz02 = patientCanAuthorize(activeDoc02?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
                             {/* HEADER REDISEÑADO ELEGANTE Y COMPACTO */}
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                                
-                                {/* LADO IZQUIERDO: ICONO + TÍTULO + BADGES EN LÍNEA */}
-                                <div className="flex items-center gap-3.5">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3.5">
                                   <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-hes-blue-dark to-hes-blue-main text-white flex items-center justify-center text-xl font-bold shadow-sm shrink-0">
                                     <FiFileText />
                                   </div>
@@ -6417,11 +7502,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE / TUTOR */}
                                       {summary02.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz02 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz02 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc02 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz02 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz02 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -6434,19 +7519,67 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-emerald-300 transition-colors cursor-pointer"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser className="text-emerald-600" /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser className="text-emerald-600" /> Médico: firmado
                                         </button>
                                       ) : summary02.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                {/* LADO DERECHO: TOOLBAR DE ACCIONES AGRUPADAS */}
-                                <div className="flex items-center gap-2 flex-wrap self-stretch sm:self-auto justify-end">
+                                </div>}
+                              actions={<>
+                                  {activeDoc02 ? (
+                                    <>
+                                      {/* FIRMA PACIENTE / TESTIGO */}
+                                      {!isPatientDischarged && (
+                                        null
+                                      )}
+
+                                      {/* FIRMA MÉDICO */}
+                                      {!isPatientDischarged && (isOwner02 ? (
+                                        !summary02.hasMedico && (null)
+                                      ) : (
+                                        null
+                                      ))}
+
+                                      {/* EDITAR */}
+                                      {!isPatientDischarged && isOwner02 && (
+                                        <button
+                                          onClick={() => handleOpenEditConsent02(activeDoc02)}
+                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                        >
+                                          <FiEdit3 className="text-slate-500" /> Editar
+                                        </button>
+                                      )}
+
+                                      {/* IMPRIMIR PDF */}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-02${activeDoc02.mrnum ? `?mrnum=${activeDoc02.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+
+                                      {/* CAPTURAR NUEVO */}
+                                      {!isPatientDischarged && (
+                                        <button
+                                          onClick={handleOpenNewConsent02}
+                                          className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                        ><FiPlus /> Nuevo formato</button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent02}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc02 ? (
                                     <>
                                       {/* FIRMA PACIENTE / TESTIGO */}
@@ -6479,7 +7612,7 @@ export default function PatientDashboard() {
 
                                       {/* FIRMA MÉDICO */}
                                       {!isPatientDischarged && (isOwner02 ? (
-                                        <button
+                                        !summary02.hasMedico && (<button
                                           onClick={() => handleDoctorSign(activeDoc02.mrnum || 0, 'Consentimiento / Disentimiento Quirúrgico', JSON.stringify(activeDoc02), 'HE-DIRMED-CONSUL-PLT-02', 'Consentimiento Informado')}
                                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
                                             isSigned02 
@@ -6488,7 +7621,7 @@ export default function PatientDashboard() {
                                           }`}
                                         >
                                           <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary02)}
-                                        </button>
+                                        </button>)
                                       ) : (
                                         <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold" title="Documento elaborado por otro médico">
                                           <FiLock /> Solo Lectura
@@ -6497,47 +7630,24 @@ export default function PatientDashboard() {
 
                                       {/* EDITAR */}
                                       {!isPatientDischarged && isOwner02 && (
-                                        <button
-                                          onClick={() => handleOpenEditConsent02(activeDoc02)}
-                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                        >
-                                          <FiEdit3 className="text-slate-500" /> Editar
-                                        </button>
+                                        null
                                       )}
 
                                       {/* IMPRIMIR PDF */}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-02${activeDoc02.mrnum ? `?mrnum=${activeDoc02.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                      >
-                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                      </a>
+                                      {null}
 
                                       {/* CAPTURAR NUEVO */}
                                       {!isPatientDischarged && (
-                                        <button
-                                          onClick={handleOpenNewConsent02}
-                                          className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
-                                        >
-                                          <FiPlus /> Nuevo Formato (02)
-                                        </button>
+                                        null
                                       )}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent02}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-all"
-                                      >
-                                        <FiPlus /> Capturar Formato 02 (Quirúrgico)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES */}
@@ -6646,16 +7756,13 @@ export default function PatientDashboard() {
                         const summary08 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-08', activeDoc08?.mrnum || 0);
                         const firmaDoc08 = summary08.firmaMedico || summary08.allFirmas[0];
                         const isSigned08 = Boolean(activeDoc08?.firmado || activeDoc08?.signed_by || summary08.hasMedico);
-                        const isCapaz08 = activeDoc08?.paciente_capaz !== undefined ? activeDoc08.paciente_capaz : isPatientAdult(data?.patient);
+                        const isCapaz08 = patientCanAuthorize(activeDoc08?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
                             {/* HEADER REDISEÑADO ELEGANTE Y COMPACTO */}
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                                
-                                {/* LADO IZQUIERDO: ICONO + TÍTULO + BADGES EN LÍNEA */}
-                                <div className="flex items-center gap-3.5">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3.5">
                                   <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-hes-blue-dark to-hes-blue-main text-white flex items-center justify-center text-xl font-bold shadow-sm shrink-0">
                                     <FiFileText />
                                   </div>
@@ -6675,11 +7782,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE / TUTOR */}
                                       {summary08.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz08 ? 'Paciente' : 'Tutor / Rep.'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz08 ? 'Paciente' : 'Tutor / Rep.'}: firmado
                                         </span>
                                       ) : activeDoc08 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz08 ? 'Paciente' : 'Tutor / Rep.'}: Pendiente Huella
+                                          {isCapaz08 ? 'Paciente' : 'Tutor / Rep.'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -6692,19 +7799,67 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-md border border-emerald-300 transition-colors cursor-pointer"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser className="text-emerald-600" /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser className="text-emerald-600" /> Médico: firmado
                                         </button>
                                       ) : summary08.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                {/* LADO DERECHO: TOOLBAR DE ACCIONES AGRUPADAS */}
-                                <div className="flex items-center gap-2 flex-wrap self-stretch sm:self-auto justify-end">
+                                </div>}
+                              actions={<>
+                                  {activeDoc08 ? (
+                                    <>
+                                      {/* FIRMA PACIENTE / TESTIGO */}
+                                      {!isPatientDischarged && (
+                                        null
+                                      )}
+
+                                      {/* FIRMA MÉDICO */}
+                                      {!isPatientDischarged && (isOwner08 ? (
+                                        !summary08.hasMedico && (null)
+                                      ) : (
+                                        null
+                                      ))}
+
+                                      {/* EDITAR */}
+                                      {!isPatientDischarged && isOwner08 && (
+                                        <button
+                                          onClick={() => handleOpenEditConsent08(activeDoc08)}
+                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                        >
+                                          <FiEdit3 className="text-slate-500" /> Editar
+                                        </button>
+                                      )}
+
+                                      {/* IMPRIMIR PDF */}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-08${activeDoc08.mrnum ? `?mrnum=${activeDoc08.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                      >
+                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
+                                      </AuthenticatedPdfButton>
+
+                                      {/* CAPTURAR NUEVO */}
+                                      {!isPatientDischarged && (
+                                        <button
+                                          onClick={handleOpenNewConsent08}
+                                          className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                        ><FiPlus /> Nuevo formato</button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent08}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-all"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc08 ? (
                                     <>
                                       {/* FIRMA PACIENTE / TESTIGO */}
@@ -6737,7 +7892,7 @@ export default function PatientDashboard() {
 
                                       {/* FIRMA MÉDICO */}
                                       {!isPatientDischarged && (isOwner08 ? (
-                                        <button
+                                        !summary08.hasMedico && (<button
                                           onClick={() => handleDoctorSign(activeDoc08.mrnum || 0, 'Consentimiento Informado para Admisión Continua', JSON.stringify(activeDoc08), 'HE-DIRMED-CONSUL-PLT-08', 'Consentimiento Informado')}
                                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs ${
                                             isSigned08 
@@ -6746,7 +7901,7 @@ export default function PatientDashboard() {
                                           }`}
                                         >
                                           <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary08)}
-                                        </button>
+                                        </button>)
                                       ) : (
                                         <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold" title="Documento elaborado por otro médico">
                                           <FiLock /> Solo Lectura
@@ -6755,47 +7910,24 @@ export default function PatientDashboard() {
 
                                       {/* EDITAR */}
                                       {!isPatientDischarged && isOwner08 && (
-                                        <button
-                                          onClick={() => handleOpenEditConsent08(activeDoc08)}
-                                          className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                        >
-                                          <FiEdit3 className="text-slate-500" /> Editar
-                                        </button>
+                                        null
                                       )}
 
                                       {/* IMPRIMIR PDF */}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-08${activeDoc08.mrnum ? `?mrnum=${activeDoc08.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-700 hover:text-hes-blue-main px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                                      >
-                                        <FiPrinter className="text-slate-500" /> Imprimir PDF
-                                      </a>
+                                      {null}
 
                                       {/* CAPTURAR NUEVO */}
                                       {!isPatientDischarged && (
-                                        <button
-                                          onClick={handleOpenNewConsent08}
-                                          className="flex items-center gap-1 he-fmt-btn-new px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
-                                        >
-                                          <FiPlus /> Nuevo Formato (08)
-                                        </button>
+                                        null
                                       )}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent08}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-all"
-                                      >
-                                        <FiPlus /> Capturar Formato 08 (Admisión Continua)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* SELECTOR DE HISTORIAL DE VERSIONES */}
@@ -6911,13 +8043,12 @@ export default function PatientDashboard() {
                         const summary43 = getDocumentSignaturesSummary('HE-DIRMED-SINPRO-PLT-43', activeDoc43?.mrnum || 0);
                         const firmaDoc43 = summary43.firmaMedico || summary43.allFirmas[0];
                         const isSigned43 = Boolean(activeDoc43?.firmado || activeDoc43?.signed_by || summary43.hasMedico);
-                        const isCapaz43 = activeDoc43?.paciente_capaz !== undefined ? Boolean(activeDoc43.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapaz43 = patientCanAuthorize(activeDoc43?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiActivity />
                                   </div>
@@ -6934,11 +8065,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE / DECLARANTE */}
                                       {summary43.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz43 ? 'Paciente' : 'Declarante'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz43 ? 'Paciente' : 'Declarante'}: firmado
                                         </span>
                                       ) : activeDoc43 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz43 ? 'Paciente' : 'Declarante'}: Pendiente Huella
+                                          {isCapaz43 ? 'Paciente' : 'Declarante'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -6951,18 +8082,73 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary43.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc43 ? (
+                                    <>
+                                      {isOwner43 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {/* FIRMA PACIENTE / TUTOR / TESTIGO */}
+                                              {null}
+
+                                              {/* FIRMA MÉDICO */}
+                                              {!summary43.hasMedico && (null)}
+
+                                              {/* EDITAR */}
+                                              <button
+                                                onClick={() => handleOpenEditConsent43(activeDoc43)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+
+                                              {/* NUEVO */}
+                                              <button
+                                                onClick={handleOpenNewConsent43}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent43}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-43${activeDoc43.mrnum ? `?mrnum=${activeDoc43.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent43}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc43 ? (
                                     <>
                                       {isOwner43 ? (
@@ -6996,7 +8182,7 @@ export default function PatientDashboard() {
                                               </button>
 
                                               {/* FIRMA MÉDICO */}
-                                              <button
+                                              {!summary43.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc43.mrnum || 0, 'Orden de Intubación Endotraqueal', JSON.stringify(activeDoc43), 'HE-DIRMED-SINPRO-PLT-43', 'Orden de Intubación')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned43 
@@ -7005,23 +8191,13 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary43)}
-                                              </button>
+                                              </button>)}
 
                                               {/* EDITAR */}
-                                              <button
-                                                onClick={() => handleOpenEditConsent43(activeDoc43)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
+                                              {null}
 
                                               {/* NUEVO */}
-                                              <button
-                                                onClick={handleOpenNewConsent43}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Capturar Nueva Orden
-                                              </button>
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -7031,37 +8207,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent43}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Capturar Nueva Orden
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-43${activeDoc43.mrnum ? `?mrnum=${activeDoc43.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent43}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Orden de Intubación
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {/* HISTORIAL DE VERSIONES */}
@@ -7177,13 +8335,12 @@ export default function PatientDashboard() {
                         const summary06 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-06', activeDoc06?.mrnum || 0);
                         const firmaDoc06 = summary06.firmaMedico || summary06.allFirmas[0];
                         const isSigned06 = Boolean(activeDoc06?.firmado || activeDoc06?.signed_by || summary06.hasMedico);
-                        const isCapaz06 = activeDoc06?.paciente_capaz !== undefined ? Boolean(activeDoc06.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapaz06 = patientCanAuthorize(activeDoc06?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiActivity />
                                   </div>
@@ -7199,11 +8356,11 @@ export default function PatientDashboard() {
                                     <div className="flex items-center gap-2 mt-1">
                                       {summary06.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz06 ? 'Paciente' : 'Declarante'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz06 ? 'Paciente' : 'Declarante'}: firmado
                                         </span>
                                       ) : activeDoc06 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz06 ? 'Paciente' : 'Declarante'}: Pendiente Huella
+                                          {isCapaz06 ? 'Paciente' : 'Declarante'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -7215,18 +8372,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary06.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc06 ? (
+                                    <>
+                                      {isOwner06 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {null}
+
+                                              {!summary06.hasMedico && (null)}
+
+                                              <button
+                                                onClick={() => handleOpenEditConsent06(activeDoc06)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar Consentimiento
+                                              </button>
+
+                                              <button
+                                                onClick={handleOpenNewConsent06}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent06}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-06${activeDoc06.mrnum ? `?mrnum=${activeDoc06.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent06}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc06 ? (
                                     <>
                                       {isOwner06 ? (
@@ -7258,7 +8466,7 @@ export default function PatientDashboard() {
                                                 {patientSignatureLabel(summary06)}
                                               </button>
 
-                                              <button
+                                              {!summary06.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc06.mrnum || 0, 'Procedimiento Anestésico', JSON.stringify(activeDoc06), 'HE-DIRMED-CONSUL-PLT-06', 'Procedimiento Anestésico')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned06 
@@ -7267,21 +8475,11 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary06)}
-                                              </button>
+                                              </button>)}
 
-                                              <button
-                                                onClick={() => handleOpenEditConsent06(activeDoc06)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar Consentimiento
-                                              </button>
+                                              {null}
 
-                                              <button
-                                                onClick={handleOpenNewConsent06}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Nuevo Consentimiento
-                                              </button>
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -7291,37 +8489,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent06}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-06${activeDoc06.mrnum ? `?mrnum=${activeDoc06.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent06}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Consentimiento Anestésico
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {historial06.length > 0 && (
@@ -7446,13 +8626,12 @@ export default function PatientDashboard() {
                         const summary11 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-11', activeDoc11?.mrnum || 0);
                         const firmaDoc11 = summary11.firmaMedico || summary11.allFirmas[0];
                         const isSigned11 = Boolean(activeDoc11?.firmado || activeDoc11?.signed_by || summary11.hasMedico);
-                        const isCapaz11 = activeDoc11?.paciente_capaz !== undefined ? Boolean(activeDoc11.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapaz11 = patientCanAuthorize(activeDoc11?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiActivity />
                                   </div>
@@ -7468,11 +8647,11 @@ export default function PatientDashboard() {
                                     <div className="flex items-center gap-2 mt-1">
                                       {summary11.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz11 ? 'Paciente' : 'Declarante'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz11 ? 'Paciente' : 'Declarante'}: firmado
                                         </span>
                                       ) : activeDoc11 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz11 ? 'Paciente' : 'Declarante'}: Pendiente Huella
+                                          {isCapaz11 ? 'Paciente' : 'Declarante'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -7484,18 +8663,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary11.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc11 ? (
+                                    <>
+                                      {isOwner11 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {null}
+
+                                              {!summary11.hasMedico && (null)}
+
+                                              <button
+                                                onClick={() => handleOpenEditConsent11(activeDoc11)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar Consentimiento
+                                              </button>
+
+                                              <button
+                                                onClick={handleOpenNewConsent11}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent11}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-11${activeDoc11.mrnum ? `?mrnum=${activeDoc11.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent11}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc11 ? (
                                     <>
                                       {isOwner11 ? (
@@ -7527,7 +8757,7 @@ export default function PatientDashboard() {
                                                 {patientSignatureLabel(summary11)}
                                               </button>
 
-                                              <button
+                                              {!summary11.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc11.mrnum || 0, 'Consentimiento No Reanimación', JSON.stringify(activeDoc11), 'HE-DIRMED-CONSUL-PLT-11', 'No Reanimación')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned11 
@@ -7536,21 +8766,11 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary11)}
-                                              </button>
+                                              </button>)}
 
-                                              <button
-                                                onClick={() => handleOpenEditConsent11(activeDoc11)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar Consentimiento
-                                              </button>
+                                              {null}
 
-                                              <button
-                                                onClick={handleOpenNewConsent11}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Nuevo Consentimiento
-                                              </button>
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -7560,37 +8780,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent11}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-11${activeDoc11.mrnum ? `?mrnum=${activeDoc11.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent11}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Formato 11 (No Reanimación)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {historial11.length > 0 && (
@@ -7699,14 +8901,13 @@ export default function PatientDashboard() {
                         const summary19 = getDocumentSignaturesSummary('HE-DIRMED-CONSUL-PLT-19', activeDoc19?.mrnum || 0);
                         const firmaDoc19 = summary19.firmaMedico || summary19.allFirmas[0];
                         const isSigned19 = Boolean(activeDoc19?.firmado || activeDoc19?.signed_by || summary19.hasMedico);
-                        const isCapaz19 = activeDoc19?.paciente_capaz !== undefined ? Boolean(activeDoc19.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapaz19 = patientCanAuthorize(activeDoc19?.paciente_capaz, isPatientAdult(data?.patient));
                         const isNoAutorizo = Boolean(activeDoc19?.no_autorizo || activeDoc19?.tipo === 'no_autorizo' || activeDoc19?.motivo_de_no_autorizacion);
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiActivity />
                                   </div>
@@ -7728,11 +8929,11 @@ export default function PatientDashboard() {
 
                                       {summary19.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz19 ? 'Paciente' : 'Declarante'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz19 ? 'Paciente' : 'Declarante'}: firmado
                                         </span>
                                       ) : activeDoc19 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz19 ? 'Paciente' : 'Declarante'}: Pendiente Huella
+                                          {isCapaz19 ? 'Paciente' : 'Declarante'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -7744,18 +8945,69 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary19.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                                </div>}
+                              actions={<>
+                                  {activeDoc19 ? (
+                                    <>
+                                      {isOwner19 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {null}
+
+                                              {!summary19.hasMedico && (null)}
+
+                                              <button
+                                                onClick={() => handleOpenEditConsent19(activeDoc19)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar Consentimiento
+                                              </button>
+
+                                              <button
+                                                onClick={handleOpenNewConsent19}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNewConsent19}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-consentimiento-19${activeDoc19.mrnum ? `?mrnum=${activeDoc19.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNewConsent19}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
                                   {activeDoc19 ? (
                                     <>
                                       {isOwner19 ? (
@@ -7787,7 +9039,7 @@ export default function PatientDashboard() {
                                                 {patientSignatureLabel(summary19)}
                                               </button>
 
-                                              <button
+                                              {!summary19.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc19.mrnum || 0, 'Consentimiento para Histerectomía', JSON.stringify(activeDoc19), 'HE-DIRMED-CONSUL-PLT-19', 'Histerectomía')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned19 
@@ -7796,21 +9048,11 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary19)}
-                                              </button>
+                                              </button>)}
 
-                                              <button
-                                                onClick={() => handleOpenEditConsent19(activeDoc19)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar Consentimiento
-                                              </button>
+                                              {null}
 
-                                              <button
-                                                onClick={handleOpenNewConsent19}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> Nuevo Consentimiento
-                                              </button>
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -7820,37 +9062,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNewConsent19}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> Nuevo Consentimiento
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-consentimiento-19${activeDoc19.mrnum ? `?mrnum=${activeDoc19.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNewConsent19}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Formato 19 (Histerectomía)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
                             
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {historial19.length > 0 && (
@@ -7971,13 +9195,12 @@ export default function PatientDashboard() {
                         const summary15 = getDocumentSignaturesSummary('HE-DIRMED-SINPRO-PLT-15', activeDoc15?.mrnum || 0);
                         const firmaDoc15EV = summary15.firmaMedico || summary15.allFirmas[0];
                         const isSigned15 = Boolean(activeDoc15?.firmado || activeDoc15?.signed_by || summary15.hasMedico);
-                        const isCapaz15 = activeDoc15?.paciente_capaz !== undefined ? Boolean(activeDoc15.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapaz15 = patientCanAuthorize(activeDoc15?.paciente_capaz, isPatientAdult(data?.patient));
 
                         return (
                           <>
-                            <div className="he-fmt-head p-4 sm:p-5 border-b border-slate-200">
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div className="flex items-center gap-3">
+                            <ClinicalFormatHeader key={selectedFormat.codigo}
+                              identity={<div className="he-clinical-document-identity flex items-center gap-3">
                                   <div className="he-fmt-head-icon w-10 h-10 text-lg font-bold">
                                     <FiFileText />
                                   </div>
@@ -7996,11 +9219,11 @@ export default function PatientDashboard() {
                                       {/* BADGE PACIENTE / DECLARANTE */}
                                       {summary15.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-ok">
-                                          <FiCheck className="text-emerald-600" /> {isCapaz15 ? 'Paciente' : 'Declarante'}: Huella ✔
+                                          <FiCheck className="text-emerald-600" /> {isCapaz15 ? 'Paciente' : 'Declarante'}: firmado
                                         </span>
                                       ) : activeDoc15 ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-pend">
-                                          1. {isCapaz15 ? 'Paciente' : 'Declarante'}: Pendiente Huella
+                                          {isCapaz15 ? 'Paciente' : 'Declarante'}: pendiente
                                         </span>
                                       ) : null}
 
@@ -8013,25 +9236,76 @@ export default function PatientDashboard() {
                                           className="inline-flex items-center gap-1 he-fmt-st-ok cursor-pointer transition-colors"
                                           title="Ver verificación de integridad y sello digital"
                                         >
-                                          <MdVerifiedUser /> 2. Médico: Sellado FEA
+                                          <MdVerifiedUser /> Médico: firmado
                                         </button>
                                       ) : summary15.hasPaciente ? (
                                         <span className="inline-flex items-center gap-1 he-fmt-st-next">
-                                          2. Listo para Cierre Médico
+                                          Firma médica pendiente
                                         </span>
                                       ) : null}
                                     </div>
                                   </div>
-                                </div>
-
-                                <div className="flex items-center gap-2 flex-wrap">
+                                </div>}
+                              actions={<>
                                   {activeDoc15 ? (
                                     <>
                                       {isOwner15 ? (
                                         <>
                                           {!isPatientDischarged && (
                                             <>
+                                              {!summary15.hasMedico && (null)}
+
+                                              {null}
+
                                               <button
+                                                onClick={() => handleOpenEdit15EV(activeDoc15)}
+                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                              >
+                                                <FiEdit3 /> Editar
+                                              </button>
+
+                                              <button
+                                                onClick={handleOpenNew15EV}
+                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                              ><FiPlus /> Nuevo formato</button>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          {null}
+                                          {!isPatientDischarged && (
+                                            <button
+                                              onClick={handleOpenNew15EV}
+                                              className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                            ><FiPlus /> Nuevo formato</button>
+                                          )}
+                                        </>
+                                      )}
+                                      <AuthenticatedPdfButton
+                                        endpoint={`/ehr/paciente/${patientId}/pdf-egreso-voluntario-15${activeDoc15.mrnum ? `?mrnum=${activeDoc15.mrnum}` : ''}`}
+                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      >
+                                        <FiFileText /> Imprimir PDF Oficial
+                                      </AuthenticatedPdfButton>
+                                    </>
+                                  ) : (
+                                    !isPatientDischarged && (
+                                      <button
+                                        onClick={handleOpenNew15EV}
+                                        className="he-fmt-btn-new flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
+                                      ><FiPlus /> Nuevo formato</button>
+                                    )
+                                  )}
+                                </>}
+                              signatureActions={<>
+                                  {activeDoc15 ? (
+                                    <>
+                                      {isOwner15 ? (
+                                        <>
+                                          {!isPatientDischarged && (
+                                            <>
+                                              {!summary15.hasMedico && (<button
                                                 onClick={() => handleDoctorSign(activeDoc15.mrnum || 0, 'Egreso Voluntario', JSON.stringify(activeDoc15), 'HE-DIRMED-SINPRO-PLT-15', 'Egreso Voluntario')}
                                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${
                                                   isSigned15 
@@ -8040,7 +9314,7 @@ export default function PatientDashboard() {
                                                 }`}
                                               >
                                                 <MdFingerprint className="text-base" /> {doctorSignatureLabel(summary15)}
-                                              </button>
+                                              </button>)}
 
                                               <button
                                                 type="button"
@@ -8062,19 +9336,9 @@ export default function PatientDashboard() {
                                                 <MdFingerprint className="text-base text-emerald-600" /> {patientSignatureLabel(summary15)}
                                               </button>
 
-                                              <button
-                                                onClick={() => handleOpenEdit15EV(activeDoc15)}
-                                                className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                              >
-                                                <FiEdit3 /> Editar
-                                              </button>
+                                              {null}
 
-                                              <button
-                                                onClick={handleOpenNew15EV}
-                                                className="flex items-center gap-1 he-fmt-btn-new px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                              >
-                                                <FiPlus /> + Nuevo Egreso Voluntario
-                                              </button>
+                                              {null}
                                             </>
                                           )}
                                         </>
@@ -8084,37 +9348,19 @@ export default function PatientDashboard() {
                                             <FiLock /> Solo Lectura
                                           </span>
                                           {!isPatientDischarged && (
-                                            <button
-                                              onClick={handleOpenNew15EV}
-                                              className="flex items-center gap-1.5 he-fmt-btn-sign px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                            >
-                                              <FiPlus /> + Nuevo Egreso Voluntario
-                                            </button>
+                                            null
                                           )}
                                         </>
                                       )}
-                                      <a
-                                        href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-egreso-voluntario-15${activeDoc15.mrnum ? `?mrnum=${activeDoc15.mrnum}` : ''}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 he-fmt-btn-plain px-3 py-1.5 rounded-lg text-xs font-semibold"
-                                      >
-                                        <FiFileText /> Imprimir PDF Oficial
-                                      </a>
+                                      {null}
                                     </>
                                   ) : (
                                     !isPatientDischarged && (
-                                      <button
-                                        onClick={handleOpenNew15EV}
-                                        className="flex items-center gap-1.5 he-fmt-btn-sign px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs"
-                                      >
-                                        <FiPlus /> Capturar Egreso Voluntario (Formato 15)
-                                      </button>
+                                      null
                                     )
                                   )}
-                                </div>
-                              </div>
-                            </div>
+                                </>}
+                            />
 
                             <div className="p-4 sm:p-5 bg-white grow flex flex-col space-y-4">
                               {historial15EV.length > 0 && (
@@ -8221,6 +9467,7 @@ export default function PatientDashboard() {
                   ) : (
                     /* TARJETA UNIVERSAL — PLANTILLA PREDEFINIDA FormatoClinicoDetalle (usar para TODOS los futuros formatos) */
                     <FormatoClinicoDetalle
+                      patientId={patientId}
                       formato={selectedFormat}
                       historial={genericFormatHistory}
                       selectedMrnum={selectedGenericMrnum}
@@ -8235,7 +9482,7 @@ export default function PatientDashboard() {
                         handleDoctorSign(mrnum, selectedFormat.nombre, JSON.stringify(d), selectedFormat.codigo, selectedFormat.nombre);
                       }}
                       onFirmaPaciente={(doc) => {
-                        const isCapazGeneric = doc?.paciente_capaz !== undefined ? Boolean(doc.paciente_capaz) : isPatientAdult(data?.patient);
+                        const isCapazGeneric = patientCanAuthorize(doc?.paciente_capaz, isPatientAdult(data?.patient));
                         setPatientSignModal({
                           open: true,
                           documentInfo: {
@@ -8249,11 +9496,23 @@ export default function PatientDashboard() {
                           }
                         });
                       }}
+                      onFirmaEspecial={(doc, role, label) => setSpecialSignatureModal({
+                        open: true,
+                        documentInfo: {
+                          codigo_formato: selectedFormat.codigo,
+                          tipo_documento: selectedFormat.nombre,
+                          title: selectedFormat.nombre,
+                          slot: doc?.mrnum || 0,
+                          rol_firmante: role,
+                          areaLabel: label,
+                        },
+                      })}
                       onVerificar={(doc) => {
                         const summaryUni = getDocumentSignaturesSummary(selectedFormat.codigo, doc?.mrnum || 0);
                         const fUni = summaryUni.firmaMedico || summaryUni.allFirmas[0] || firmas.find((f) => f.codigo_formato === selectedFormat.codigo);
                         handleOpenAuditModal(fUni || { codigo_formato: selectedFormat.codigo, slot: doc?.mrnum || 0, nombre_medico: doc?.signed_by || doc?.medico_tratante });
                       }}
+                      getSignatureStatus={(mrnum) => getDocumentSignaturesSummary(selectedFormat.codigo, mrnum)}
                       getPdfUrl={(doc) => {
                         if (!selectedFormat.url_pdf) return null;
                         if (selectedFormat.url_pdf.startsWith('http')) return selectedFormat.url_pdf;
@@ -8266,123 +9525,45 @@ export default function PatientDashboard() {
 
                 </div>
               ) : (
-                /* CASO B: VISTA GENERAL DE CATÁLOGO MAESTRO DE FORMATOS */
-                <div className="he-catalog p-6 space-y-6">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-100">
-                    <div className="flex items-start gap-3">
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl text-white shrink-0" style={{ background: 'linear-gradient(135deg,#004687,#0088c9)' , boxShadow: '0 8px 18px -8px rgba(0,70,135,0.7)' }}>📋</div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h2 className="he-catalog-title text-lg font-black text-slate-900">Catálogo de Formatos Clínicos</h2>
-                          <span className="he-count-badge text-xs font-bold px-2.5 py-0.5 rounded-full">{allFormatos.length} Formatos Activos</span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1">Expediente clínico conforme a la norma <strong>NOM-004-SSA3-2012</strong> y Calidad Institucional.</p>
-                      </div>
+                <section className="he-catalog" aria-label="Catálogo de formatos clínicos">
+                  <div className="he-record-catalog-heading">
+                    <div>
+                      <h2>Formatos clínicos</h2>
+                      <p>{allFormatos.length} formatos disponibles</p>
                     </div>
-
-                    {/* BUSCADOR Y FILTRO POR AREA */}
-                    <div className="flex flex-col md:items-end gap-2.5 w-full md:w-auto">
-                      <div className="relative w-full md:w-72">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <FiSearch className="text-slate-400" />
-                        </div>
-                        <input
-                          type="text"
-                          className="he-search block w-full pl-10 pr-3 py-2 text-sm"
-                          placeholder="🔍 Buscar formato o código..."
-                          value={searchFormatoQuery}
-                          onChange={(e) => setSearchFormatoQuery(e.target.value)}
-                        />
-                      </div>
-                      <div className="flex gap-1.5 overflow-x-auto w-full pb-1 md:justify-end md:flex-wrap">
-                        {availableAreas.map(area => (
-                          <button
-                            key={area}
-                            onClick={() => setSelectedFormatArea(area)}
-                            className={`he-area-pill ${selectedFormatArea === area ? 'he-area-pill-active' : ''} px-3 py-1.5 text-xs whitespace-nowrap transition-colors`}
-                          >
-                            {area}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <label className="he-record-catalog-search">
+                      <FiSearch aria-hidden="true" />
+                      <span className="sr-only">Buscar formato o código</span>
+                      <input
+                        type="search"
+                        placeholder="Buscar formato o código…"
+                        value={searchFormatoQuery}
+                        onChange={(event) => setSearchFormatoQuery(event.target.value)}
+                      />
+                    </label>
                   </div>
-
-                  {/* GRID DE TODOS LOS FORMATOS */}
-                  <div className="he-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {filteredFormatos.map((fmt, i) => {
-                      const areaStyle = getAreaStyle(fmt.area);
-                      return (
-                      <div 
-                        key={i} 
-                        className="he-fmt p-5 flex flex-col justify-between cursor-pointer"
-                        style={{ '--he-accent': areaStyle.accent, '--he-accent-solid': areaStyle.solid }}
-                        onClick={() => setSelectedFormat(fmt)}
-                      >
-                        <div>
-                          <div className="flex items-start justify-between gap-2 mb-3">
-                            <span className="he-fmt-code text-[11px] font-bold px-2 py-1 rounded-lg">
-                              {fmt.codigo}
-                            </span>
-                            {fmt.activo ? (
-                              <span className="he-fmt-status text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                                <span className="he-fmt-status-dot"></span> Activo / Imprimible
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
-                                En Integración
-                              </span>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-start gap-3 mb-2">
-                            <div className="he-fmt-icon" style={{ background: areaStyle.solid }}>{areaStyle.icon}</div>
-                            <h3 className="he-fmt-title font-black text-slate-900 text-[15px] flex-1">{fmt.nombre}</h3>
-                          </div>
-                          <p className="text-xs text-slate-500 leading-relaxed mb-3 pl-[48px]">{fmt.subtitulo}</p>
-                          
-                          <div className="he-fmt-meta flex items-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap ml-[48px]">
-                            <span className="inline-flex items-center gap-1">🏷️ Área: <strong className="text-slate-700">{fmt.area}</strong></span>
-                            <span className="text-slate-300">•</span>
-                            <span className="inline-flex items-center gap-1">📄 {fmt.paginas} Pág(s)</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="inline-flex items-center gap-1">🛡️ {fmt.norma}</span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 pl-[48px]" onClick={e => e.stopPropagation()}>
-                          {fmt.activo ? (
-                            <div className="flex items-center gap-2 w-full">
-                              <button
-                                onClick={() => setSelectedFormat(fmt)}
-                                className="he-btn-open flex-1 flex items-center justify-center gap-1.5 text-white px-3 py-2.5 text-xs shadow-xs"
-                              >
-                                <FiEdit3 /> Abrir Formato / Capturar
-                              </button>
-                              <a
-                                href={fmt.url_pdf?.startsWith('/api') ? fmt.url_pdf : `${api.defaults.baseURL}${fmt.url_pdf}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="he-btn-pdf flex items-center justify-center gap-1 text-white px-4 py-2.5 text-xs font-bold shadow-xs"
-                                title="Imprimir PDF oficial"
-                              >
-                                <FiDownload /> PDF
-                              </a>
-                            </div>
-                          ) : (
-                            <button 
-                              onClick={() => setSelectedFormat(fmt)}
-                              className="w-full text-center py-2 text-xs font-semibold text-slate-500 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
-                            >
-                              Ver Información del Formato
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      );
-                    })}
+                  <div className="he-record-catalog-filters" role="group" aria-label="Área del formato">
+                    {availableAreas.map(area => (
+                      <Button key={area} variant="ghost" size="sm" aria-pressed={selectedFormatArea === area} onClick={() => setSelectedFormatArea(area)}>
+                        {area}
+                      </Button>
+                    ))}
                   </div>
-                </div>
+                  <div className="he-record-format-list">
+                    {filteredFormatos.map(fmt => (
+                      <Button key={fmt.codigo} variant="ghost" className="he-record-format" onClick={() => setSelectedFormat(fmt)}>
+                        <FiFileText aria-hidden="true" />
+                        <span className="he-record-format-copy">
+                          <strong>{fmt.nombre}</strong>
+                          <small>{fmt.area} · {fmt.codigo}</small>
+                        </span>
+                        {!fmt.activo && <span className="he-record-format-state">En integración</span>}
+                        <FiChevronRight aria-hidden="true" />
+                      </Button>
+                    ))}
+                  </div>
+                  {!filteredFormatos.length && <p className="he-record-empty">No hay formatos que coincidan con la búsqueda.</p>}
+                </section>
               )}
             </div>
           )}
@@ -8865,7 +10046,7 @@ export default function PatientDashboard() {
                               {labPdfBlobs[lab.id] && (
                                 <a
                                   href={labPdfBlobs[lab.id]}
-                                  download={lab.nombre_archivo || `${lab.id}.pdf`}
+                                  download={getStudyPdfDownloadName(lab)}
                                   className="he-btn-download flex items-center gap-1.5 px-3.5 py-2.5 text-xs transition-all"
                                 >
                                   <FiDownload className="text-xs" />
@@ -8876,7 +10057,7 @@ export default function PatientDashboard() {
 
                             {lab.nombre_archivo && (
                               <span className="he-file-chip text-[11px] text-slate-500 truncate max-w-xs">
-                                📎 {lab.nombre_archivo}
+                                📎 {getStudyPdfDownloadName(lab)}
                               </span>
                             )}
                           </div>
@@ -8896,9 +10077,9 @@ export default function PatientDashboard() {
                               <ClinicalPdfViewer
                                 fileUrl={labPdfBlobs[lab.id]}
                                 docId={`lab-${lab.id}`}
-                                title={lab.nombre_archivo || lab.estudio}
+                                title={getStudyPdfDownloadName(lab)}
                                 meta={`PTMT #${lab.ptmt_num || lab.id} · ${lab.fecha_solicitud || ''}`}
-                                downloadName={lab.nombre_archivo || `${lab.id}.pdf`}
+                                downloadName={getStudyPdfDownloadName(lab)}
                                 onClose={() => setSelectedLabPdf(null)}
                                 onOpenNewTab={() => handleOpenLabPdfNewTab(lab)}
                               />
@@ -9021,7 +10202,7 @@ export default function PatientDashboard() {
                               {imgPdfBlobs[img.id] && (
                                 <a
                                   href={imgPdfBlobs[img.id]}
-                                  download={img.nombre_archivo || `${img.id}.pdf`}
+                                  download={getStudyPdfDownloadName(img)}
                                   className="he-btn-download flex items-center gap-1.5 px-3.5 py-2.5 text-xs transition-all"
                                 >
                                   <FiDownload className="text-xs" />
@@ -9032,7 +10213,7 @@ export default function PatientDashboard() {
 
                             {img.nombre_archivo && (
                               <span className="he-file-chip text-[11px] text-slate-500 truncate max-w-xs">
-                                📎 {img.nombre_archivo}
+                                📎 {getStudyPdfDownloadName(img)}
                               </span>
                             )}
                           </div>
@@ -9052,9 +10233,9 @@ export default function PatientDashboard() {
                               <ClinicalPdfViewer
                                 fileUrl={imgPdfBlobs[img.id]}
                                 docId={`img-${img.id}`}
-                                title={img.nombre_archivo || img.estudio}
+                                title={getStudyPdfDownloadName(img)}
                                 meta={`Imagenología · ${img.fecha_solicitud || ''}`}
-                                downloadName={img.nombre_archivo || `${img.id}.pdf`}
+                                downloadName={getStudyPdfDownloadName(img)}
                                 onClose={() => setSelectedImgPdf(null)}
                                 onOpenNewTab={() => handleOpenImgPdfNewTab(img)}
                               />
@@ -9114,16 +10295,16 @@ export default function PatientDashboard() {
             </div>
           )}
 
-        </div>
-
-        {/* RIGHT SIDEBAR: REAL-TIME PATIENT CHARGES & ORDERS SUMMARY */}
-        <div className="w-full xl:w-[340px] flex flex-col gap-5">
-          
+          <RecordDisclosure
+            title="Solicitudes y cargos"
+            icon={<FiLayers aria-hidden="true" />}
+            open={openRecordReference === 'orders'}
+            onToggle={() => toggleRecordReference('orders')}
+            className="he-record-orders"
+          >
           {/* CHARGES & ACTIVE REQUESTS CARD */}
           <div className="he-side-card p-5 space-y-4">
-            <h3 className="font-black text-slate-900 text-sm flex items-center gap-2 pb-3 border-b border-slate-100">
-              <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm" style={{ background: 'linear-gradient(135deg,#004687,#0088c9)' }}><FiLayers /></span> Resumen de Solicitudes y Cargos
-            </h3>
+
 
             {/* DIETA ACTIVA */}
             <div className="he-diet-box p-3.5 rounded-xl border border-slate-100">
@@ -9216,23 +10397,21 @@ export default function PatientDashboard() {
               </button>
             )}
 
-            <a 
-              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-expediente-completo`} 
-              target="_blank" 
-              rel="noreferrer"
+            <AuthenticatedPdfButton
+              endpoint={`/ehr/paciente/${patientId}/pdf-expediente-completo`}
               className="he-quick w-full flex items-center gap-3 p-3 border border-emerald-500/40 bg-gradient-to-r from-emerald-50/70 to-teal-50/70 hover:from-emerald-600 hover:to-teal-700 hover:text-white transition-all text-left group shadow-2xs"
+              onSignatureRepair={handleSignatureRepair}
+              onSignatureReport={handleSignatureReport}
             >
               <div className="p-2.5 bg-emerald-600 text-white rounded-xl group-hover:bg-white group-hover:text-emerald-700 transition-colors shadow-sm"><FiLayers className="text-lg" /></div>
               <div>
                 <div className="font-black text-emerald-900 text-[13px] group-hover:text-white">Expediente Completo (PDF)</div>
                 <div className="text-[11px] text-emerald-700 group-hover:text-emerald-100">Compilado Integral Oficial NOM-004</div>
               </div>
-            </a>
+            </AuthenticatedPdfButton>
 
-            <a 
-              href={`${api.defaults.baseURL}/ehr/paciente/${patientId}/pdf-nota-urgencias`} 
-              target="_blank" 
-              rel="noreferrer"
+            <AuthenticatedPdfButton
+              endpoint={`/ehr/paciente/${patientId}/pdf-nota-urgencias`}
               className="he-quick w-full flex items-center gap-3 p-3 border border-slate-200 bg-slate-50/50 hover:bg-slate-700 hover:text-white transition-all text-left group"
             >
               <div className="p-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl group-hover:bg-white group-hover:text-slate-800 transition-colors shadow-sm"><FiFileText className="text-lg" /></div>
@@ -9240,7 +10419,7 @@ export default function PatientDashboard() {
                 <div className="font-black text-slate-800 text-[13px] group-hover:text-white">Nota de Urgencias</div>
                 <div className="text-[11px] text-slate-500 group-hover:text-slate-200">Formato 87/01 Oficial</div>
               </div>
-            </a>
+            </AuthenticatedPdfButton>
 
             <button 
               onClick={() => {
@@ -9268,8 +10447,8 @@ export default function PatientDashboard() {
             </a>
           </div>
 
+          </RecordDisclosure>
         </div>
-
       </div>
 
       {/* MODAL DE FIRMA BIOMÉTRICA (NOM-004-SSA3-2012 / NOM-024-SSA3-2012) */}
@@ -9293,28 +10472,21 @@ export default function PatientDashboard() {
 
             <div>
               <h3 className="font-bold text-slate-800 text-base">{signingModal.title}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Presione el botón y coloque su dedo en el lector.</p>
+              <p className="text-xs text-slate-500 mt-0.5">La lectura inicia automáticamente; coloque su dedo cuando el lector esté listo.</p>
             </div>
 
             {/* SENSOR ANIMADO INTERACTIVO */}
             <div className="py-4 flex flex-col items-center justify-center">
               <button
                 type="button"
-                onClick={() => {
-                  if (!signingModal.submitting && !signingModal.successMsg) {
-                    dpResetFmd();
-                    dpStartCapture({
-                      action: 'FIRMA_MEDICA', patientRef: patientId,
-                      documentCode: signingModal.codigoFormato || 'HE-DIRMED-SINPRO-PLT-87/01',
-                      documentRef: signingModal.slot || 0
-                    });
-                  }
-                }}
-                disabled={signingModal.submitting || !!signingModal.successMsg}
-                title={dpAcquiring ? "Sensor activo: coloque su dedo sobre el lector" : "Haga clic para activar el sensor de huella"}
+                onClick={startMedicalCapture}
+                disabled={signingModal.submitting || signingModal.checking || dpAcquiring || !medicalSignatureQuery.isSuccess || medicalSignatureLocked}
+                title={medicalSignatureLocked ? 'La firma médica de esta versión ya está registrada' : 'Haga clic para activar el sensor de huella'}
                 className={`w-32 h-32 rounded-full border-4 flex items-center justify-center relative transition-all ${
-                  signingModal.successMsg 
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-600 cursor-default' 
+                  medicalSignatureLocked
+                    ? medicalSignatureUnverified
+                      ? 'border-amber-500 bg-amber-50 text-amber-700 cursor-default'
+                      : 'border-emerald-500 bg-emerald-50 text-emerald-600 cursor-default'
                     : dpAcquiring 
                     ? 'border-hes-blue-main bg-blue-50/60 text-hes-blue-main animate-pulse shadow-lg shadow-blue-200 cursor-pointer' 
                     : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-hes-blue-main hover:text-hes-blue-main cursor-pointer'
@@ -9323,23 +10495,29 @@ export default function PatientDashboard() {
                 {dpAcquiring && (
                   <div className="absolute inset-0 rounded-full border-2 border-hes-blue-main animate-ping opacity-25"></div>
                 )}
-                {signingModal.successMsg ? (
-                  <MdVerifiedUser className="text-6xl text-emerald-600" />
+                {medicalSignatureLocked ? (
+                  <MdVerifiedUser className={`text-6xl ${medicalSignatureUnverified ? 'text-amber-700' : 'text-emerald-600'}`} />
                 ) : (
                   <MdFingerprint className="text-6xl" />
                 )}
               </button>
 
               <div className="mt-4 w-full px-1 sm:px-2">
-                {signingModal.successMsg ? (
-                  <div className="w-full p-3 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm space-y-2">
-                    <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 text-center">
+                {medicalSignatureLocked ? (
+                  <div className={`w-full p-3 rounded-xl border shadow-sm space-y-2 ${medicalSignatureUnverified ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <div className={`flex items-center justify-center gap-1.5 text-xs font-bold text-center ${medicalSignatureUnverified ? 'text-amber-800' : 'text-emerald-700'}`}>
                       <FiCheckCircle className="shrink-0" />
-                      <span>Firma guardada correctamente</span>
+                      <span>{medicalSignatureUnverified ? 'Firma local pendiente de revisión' : 'Firma médica guardada en el expediente'}</span>
                     </div>
                   </div>
                 ) : signingModal.submitting ? (
                   <div className="text-xs font-bold text-hes-blue-main text-center animate-pulse">Guardando la firma...</div>
+                ) : signingModal.checking ? (
+                  <div className="text-xs font-bold text-hes-blue-main text-center">Revisando firmas del documento…</div>
+                ) : medicalSignatureQuery.isPending ? (
+                  <div className="text-xs font-bold text-slate-600 text-center">Consultando el estado del documento…</div>
+                ) : medicalSignatureQuery.isError ? (
+                  <div className="text-xs font-bold text-amber-800 text-center">No se pudo consultar si este documento ya está firmado.</div>
                 ) : dpAcquiring ? (
                   <div className="text-xs font-bold text-emerald-700 text-center animate-pulse">Coloque su dedo en el lector...</div>
                 ) : (
@@ -9347,12 +10525,22 @@ export default function PatientDashboard() {
                 )}
               </div>
 
+              {medicalSyncIncomplete && (
+                <div className={`mt-3 p-2.5 rounded-xl text-xs font-semibold border w-full break-words text-left ${medicalSyncFailed ? 'bg-red-50 text-red-800 border-red-200' : 'bg-amber-50 text-amber-900 border-amber-200'}`}>
+                  {medicalSignatureUnverified
+                    ? 'Hay una firma médica local, pero no se pudo comprobar el documento actual porque Vertical no respondió. Pida a Sistemas revisar el estado. No vuelva a leer la huella.'
+                    : medicalSyncFailed
+                    ? 'La firma está guardada en el expediente, pero el envío a Vertical falló. Pida a Sistemas revisar la sincronización. No necesita volver a poner la huella.'
+                    : 'La firma está guardada en el expediente. Su envío a Vertical sigue pendiente. No necesita volver a poner la huella.'}
+                  {medicalSyncOperationId && <div className="mt-1 text-[10px] font-normal">Folio de seguimiento: {medicalSyncOperationId}</div>}
+                </div>
+              )}
               {signingModal.errorMsg && (
                 <div className="mt-3 p-2.5 bg-red-50 text-red-700 rounded-xl text-xs font-semibold border border-red-200 w-full break-words text-left">
                   {friendlyBiometricError(signingModal.errorMsg)}
                 </div>
               )}
-              {dpError && !signingModal.errorMsg && (
+              {dpError && !signingModal.errorMsg && !medicalSignatureLocked && (
                 <div className="mt-3 p-2.5 bg-amber-50 text-amber-800 rounded-xl text-xs font-semibold border border-amber-200 w-full break-words text-left">
                   {friendlyBiometricError(dpError)}
                 </div>
@@ -9360,7 +10548,11 @@ export default function PatientDashboard() {
             </div>
 
             <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-left">
-              La firma quedará guardada en el expediente con la fecha, hora e identidad del médico.
+              {medicalSignatureLocked
+                ? medicalSignatureUnverified
+                  ? 'La firma local existe. Su vigencia para esta versión se confirmará cuando Vertical vuelva a responder.'
+                  : 'La firma de esta versión ya se registró con la fecha, hora e identidad del médico.'
+                : 'La firma quedará guardada en el expediente con la fecha, hora e identidad del médico.'}
             </div>
 
             <div className="pt-2 flex justify-center gap-3">
@@ -9371,22 +10563,35 @@ export default function PatientDashboard() {
                 }}
                 className="px-5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
-                Cerrar
+                {medicalSignatureLocked ? 'Aceptar' : 'Cerrar'}
               </button>
-              {!signingModal.successMsg && (
+              {medicalSignatureLocked && medicalSyncIncomplete && (
+                <button
+                  type="button"
+                  onClick={() => medicalSignatureQuery.refetch()}
+                  disabled={medicalSignatureQuery.isFetching}
+                  className="px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold disabled:opacity-50"
+                >
+                  {medicalSignatureQuery.isFetching ? 'Consultando…' : 'Actualizar estado'}
+                </button>
+              )}
+              {!medicalSignatureLocked && medicalSignatureQuery.isError && (
+                <button
+                  type="button"
+                  onClick={() => medicalSignatureQuery.refetch()}
+                  className="px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold"
+                >
+                  Consultar estado
+                </button>
+              )}
+              {!medicalSignatureLocked && !medicalSignatureQuery.isError && (
                 <button 
-                  onClick={() => {
-                    dpResetFmd();
-                    dpStartCapture({
-                      action: 'FIRMA_MEDICA', patientRef: patientId,
-                      documentCode: signingModal.codigoFormato || 'HE-DIRMED-SINPRO-PLT-87/01',
-                      documentRef: signingModal.slot || 0
-                    });
-                  }}
-                  className="px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  onClick={startMedicalCapture}
+                  disabled={signingModal.submitting || signingModal.checking || dpAcquiring || !medicalSignatureQuery.isSuccess}
+                  className="px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <MdFingerprint className="text-base" />
-                  {dpAcquiring ? 'Intentar de nuevo' : 'Leer huella'}
+                  {signingModal.checking ? 'Revisando…' : dpAcquiring ? 'Leyendo huella…' : 'Reintentar huella'}
                 </button>
               )}
             </div>
@@ -9396,31 +10601,17 @@ export default function PatientDashboard() {
 
       {/* MODAL DE CAPTURA / EDICIÓN DE NOTA DE EVOLUCIÓN (SOAP) */}
       {notaModal.open && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            
-            {/* MODAL HEADER */}
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-blue-50 text-hes-blue-main font-bold px-2.5 py-0.5 rounded border border-blue-100">
-                    {notaModal.formato_codigo || 'HE-DIRMED-SINPRO-PLT-87/01'}
-                  </span>
-                  <h3 className="text-lg font-bold text-slate-800">
-                    {notaModal.isEdit ? `Editar Evolución ${notaModal.evolution_num}` : `Capturar Nueva Evolución ${notaModal.evolution_num}`} {notaModal.formato_codigo === 'HE-DIRMED-CONSUL-PLT-24' ? '(Hospitalización)' : '(Urgencias)'}
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">Paciente: <strong>{patient.name}</strong> • Expediente: <strong>{patient.mrn}</strong></p>
-              </div>
-              <button 
-                onClick={() => setNotaModal(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1"
-              >
-                <FiX />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{notaModal.isEdit ? `Editar Evolución ${notaModal.evolution_num}` : `Capturar Nueva Evolución ${notaModal.evolution_num}`} {notaModal.formato_codigo === 'HE-DIRMED-CONSUL-PLT-24' ? '(Hospitalización)' : '(Urgencias)'}</>}
+          code={notaModal.formato_codigo || 'HE-DIRMED-SINPRO-PLT-87/01'}
+          patient={patient}
+          onClose={() => setNotaModal(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveNota}
+          isSaving={savingNota}
+          isEdit={notaModal.isEdit}
+        >
 
-            <form onSubmit={handleSaveNota} className="space-y-4">
+
               
               {/* SLOT, FECHA, HORA, TURNO */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -9662,27 +10853,12 @@ export default function PatientDashboard() {
               </div>
 
               {/* MODAL FOOTER */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button 
-                  type="button"
-                  onClick={() => setNotaModal(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  disabled={savingNota}
-                  className="px-6 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
-                >
-                  <FiSave /> {savingNota ? 'Guardando...' : (notaModal.isEdit ? 'Actualizar Evolución' : 'Guardar Evolución')}
-                </button>
-              </div>
 
-            </form>
 
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
@@ -9850,20 +11026,17 @@ export default function PatientDashboard() {
 
       {/* MODAL DE CAPTURA / EDICIÓN DE CONSENTIMIENTO INFORMADO (32/01) */}
       {consentModalEED.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setConsentModalEED({ ...consentModalEED, open: false })}></div>
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-hes-blue-main text-white px-5 py-4 flex items-center justify-between shrink-0">
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                <FiActivity />
-                {consentModalEED.isEdit ? 'Editar Ecocardiograma de Estrés' : 'Capturar Ecocardiograma de Estrés'}
-              </h3>
-              <button onClick={() => setConsentModalEED({ ...consentModalEED, open: false })} className="text-white/80 hover:text-white transition-colors">
-                <FiX size={24} />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModalEED.isEdit ? 'Editar Ecocardiograma de Estrés' : 'Capturar Ecocardiograma de Estrés'}</>}
+          code="HE-DIRMED-CONSUL-PLT-EED"
+          patient={patient}
+          onClose={() => setConsentModalEED({ ...consentModalEED, open: false })}
+          onSubmit={handleSaveConsentModalEED}
+          isSaving={consentModalEED.saving}
+          isEdit={consentModalEED.isEdit}
+        >
+
             
-            <form onSubmit={handleSaveConsentModalEED} className="overflow-y-auto p-5 grow bg-slate-50 space-y-6">
                 
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                     <h4 className="text-sm font-bold text-hes-blue-main mb-3">Datos Generales</h4>
@@ -9985,17 +11158,10 @@ export default function PatientDashboard() {
                     <textarea value={consentModalEED.comentarios} onChange={e => setConsentModalEED({...consentModalEED, comentarios: e.target.value})} rows="3" className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Escriba aquí los comentarios..."></textarea>
                 </div>
 
-                <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={() => setConsentModalEED({ ...consentModalEED, open: false })} className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200">
-                        Cancelar
-                    </button>
-                    <button type="submit" disabled={consentModalEED.saving} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold">
-                        {consentModalEED.saving ? 'Guardando...' : 'Guardar Formato'}
-                    </button>
-                </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
@@ -10162,27 +11328,15 @@ export default function PatientDashboard() {
       )}
 
       {consentModal3201.open && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            
-            {/* MODAL HEADER */}
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-blue-50 text-hes-blue-main font-bold px-2.5 py-0.5 rounded border border-blue-100">HE-DIRMED-CONSUL-PLT-32/01</span>
-                  <h3 className="text-lg font-bold text-slate-800">
-                    {consentModal3201.isEdit ? 'Editar Consentimiento Informado' : 'Capturar Consentimiento Informado'}
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">Paciente: <strong>{data?.patient?.name}</strong> • Expediente: <strong>{data?.patient?.mrn}</strong></p>
-              </div>
-              <button 
-                onClick={() => setConsentModal3201(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1"
-              >
-                <FiX />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal3201.isEdit ? 'Editar Consentimiento Informado' : 'Capturar Consentimiento Informado'}</>}
+          code="HE-DIRMED-CONSUL-PLT-32/01"
+          patient={patient}
+          onClose={() => setConsentModal3201(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal3201}
+          isSaving={consentModal3201.saving}
+          isEdit={consentModal3201.isEdit}
+        >
 
             {/* ADVERTENCIA NOM-024 SI ES EDICIÓN */}
             {consentModal3201.isEdit && (
@@ -10195,7 +11349,7 @@ export default function PatientDashboard() {
               </div>
             )}
 
-            <form onSubmit={handleSaveConsentModal3201} className="space-y-4">
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
                 <div className="sm:col-span-2 space-y-3">
                   {isPatientAdult(data?.patient || patient) ? (
@@ -10314,25 +11468,10 @@ export default function PatientDashboard() {
               </div>
 
               {/* MODAL FOOTER */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button 
-                  type="button"
-                  onClick={() => setConsentModal3201(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  disabled={consentModal3201.saving}
-                  className="px-6 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
-                >
-                  <FiSave /> {consentModal3201.saving ? 'Guardando en Vertical...' : 'Guardar en Expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL DE HISTORIAL DE SIGNOS VITALES */}
@@ -10494,6 +11633,40 @@ export default function PatientDashboard() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {biometricEvidenceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-hes-blue-main text-white p-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-base">Firmas registradas</h3>
+                <p className="text-xs text-blue-100">Consentimiento de transfusión · Documento {biometricEvidenceModal.slot}</p>
+              </div>
+              <button type="button" onClick={() => setBiometricEvidenceModal(null)} aria-label="Cerrar firmas registradas" className="p-2 rounded-lg hover:bg-white/10">
+                <FiX />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              {biometricEvidenceModal.firmas.map((firma) => (
+                <div key={firma.id} className="border border-slate-200 rounded-xl p-3 space-y-1 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-slate-800">
+                    <MdFingerprint className="text-hes-blue-main text-base" />
+                    {firma.nombre_medico || 'Firmante registrado'}
+                  </div>
+                  <p className="text-slate-600">{firma.rol_firmante?.replaceAll('_', ' ') || 'Firmante'} · {firma.fecha_hora_firma || 'Fecha no disponible'}</p>
+                  <p className="text-slate-500 break-all">Registro #{firma.id} · SHA-256: {firma.hash_sha256 || 'No disponible'}</p>
+                </div>
+              ))}
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                Estas huellas son evidencia biométrica del acto, no firmas electrónicas avanzadas personales. La verificación criptográfica de la firma médica estará disponible cuando el médico cierre este documento con su huella.
+              </p>
+            </div>
+            <div className="border-t border-slate-200 p-3 flex justify-end">
+              <button type="button" onClick={() => setBiometricEvidenceModal(null)} className="he-btn-navy px-5 py-2 text-xs">Cerrar</button>
+            </div>
           </div>
         </div>
       )}
@@ -10818,7 +11991,7 @@ export default function PatientDashboard() {
       {/* MODAL DE TOMA / MODIFICACIÓN DE SIGNOS VITALES (PTVS - SQL SERVER) */}
       {vitalsModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-scaleUp">
+          <div className="he-vitals-entry-modal bg-white rounded-3xl max-w-3xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto p-7 md:p-8 shadow-2xl border border-slate-100 space-y-5 animate-scaleUp">
             
             {/* CABECERA */}
             <div className="flex justify-between items-start border-b border-slate-100 pb-3">
@@ -10986,7 +12159,7 @@ export default function PatientDashboard() {
                 {/* IMC CALCULADO */}
                 <div className="bg-slate-100 p-2 rounded-xl flex flex-col justify-center items-center border border-slate-200">
                   <span className="text-[10px] font-bold uppercase text-slate-500">IMC Estimado</span>
-                  <span className="text-base font-extrabold text-slate-800">
+                  <span className="he-vitals-bmi-value text-lg font-extrabold text-slate-900">
                     {(() => {
                       const w = parseFloat(vitalsModal.weight);
                       let h = parseFloat(vitalsModal.height);
@@ -12307,25 +13480,17 @@ export default function PatientDashboard() {
 
       {/* MODAL DE EDICIÓN / CAPTURA DE CONSENTIMIENTO 25 */}
       {consentModal25.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-black text-slate-800">
-                  {consentModal25.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Revisión Ginecológica y Consulta Externa
-                </h3>
-                <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-25 • NOM-004-SSA3-2012</p>
-              </div>
-              <button 
-                type="button" 
-                onClick={() => setConsentModal25(prev => ({ ...prev, open: false }))} 
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal25.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Revisión Ginecológica y Consulta Externa</>}
+          code="HE-DIRMED-CONSUL-PLT-25"
+          patient={patient}
+          onClose={() => setConsentModal25(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal25}
+          isSaving={consentModal25.saving}
+          isEdit={consentModal25.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal25} className="space-y-4 text-xs">
+
               <div className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
@@ -12468,48 +13633,25 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal25(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal25.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {consentModal25.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL DE EDICIÓN / CAPTURA DE CONSENTIMIENTO 34/01: MESA INCLINADA (TILT TEST) */}
       {consentModal3401.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-5xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scaleUp max-h-[92vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-black text-slate-800">
-                  {consentModal3401.isEdit ? 'Editar' : 'Nuevo'} Consentimiento y Protocolo Mesa Inclinada (Tilt Test)
-                </h3>
-                <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-34 / PLT-36 • Protocolo INICICH Oficial</p>
-              </div>
-              <button 
-                type="button" 
-                onClick={() => setConsentModal3401(prev => ({ ...prev, open: false }))} 
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal3401.isEdit ? 'Editar' : 'Nuevo'} Consentimiento y Protocolo Mesa Inclinada (Tilt Test)</>}
+          code="HE-DIRMED-CONSUL-PLT-34/01"
+          patient={patient}
+          onClose={() => setConsentModal3401(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal3401}
+          isSaving={consentModal3401.saving}
+          isEdit={consentModal3401.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal3401} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS DEL PACIENTE, MÉDICO Y RESPONSABLES */}
               <div className="he-ed-sec p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -12911,52 +14053,25 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal3401(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal3401.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {consentModal3401.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 12 (CONSENTIMIENTO GINECO Y OBSTETRICIA HOSP/URG) */}
       {consentModal12.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal12.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Gineco y Obstetricia (Hosp/Urg)
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-12 • NOM-004-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setConsentModal12(prev => ({ ...prev, open: false }))}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition"
-              >
-                ✕
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal12.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Gineco y Obstetricia (Hosp/Urg)</>}
+          code="HE-DIRMED-CONSUL-PLT-12"
+          patient={patient}
+          onClose={() => setConsentModal12(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal12}
+          isSaving={consentModal12.saving}
+          isEdit={consentModal12.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal12} className="space-y-4">
+
               {/* SECCIÓN 1: DATOS PACIENTE Y SERVICIO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -13157,53 +14272,25 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal12(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal12.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {consentModal12.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 04 (CONSENTIMIENTO INFORMADO PARA COLOCACIÓN DE CATÉTER VENOSO CENTRAL) */}
       {consentModal04.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal04.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Colocación de Catéter Venoso Central
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-04 • NOM-004-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal04(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal04.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Colocación de Catéter Venoso Central</>}
+          code="HE-DIRMED-CONSUL-PLT-04"
+          patient={patient}
+          onClose={() => setConsentModal04(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal04}
+          isSaving={consentModal04.saving}
+          isEdit={consentModal04.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal04} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS CLÍNICOS Y MÉDICOS */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Datos del Consentimiento y Personal Responsable</h4>
@@ -13327,53 +14414,25 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal04(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal04.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-hes-blue-main hover:bg-hes-blue-dark text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {consentModal04.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 15 (CONSENTIMIENTO INFORMADO PARA CESÁREA / DISENTIMIENTO) */}
       {consentModal15.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal15.isEdit ? 'Editar' : 'Nuevo'} {consentModal15.tipo === 'no_autorizo' ? 'Disentimiento (No Autorizo)' : 'Consentimiento Informado'} para Cesárea
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-15 • NOM-004-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal15(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal15.isEdit ? 'Editar' : 'Nuevo'} {consentModal15.tipo === 'no_autorizo' ? 'Disentimiento (No Autorizo)' : 'Consentimiento Informado'} para Cesárea</>}
+          code="HE-DIRMED-CONSUL-PLT-15"
+          patient={patient}
+          onClose={() => setConsentModal15(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal15}
+          isSaving={consentModal15.saving}
+          isEdit={consentModal15.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal15} className="space-y-4 text-xs">
+
               {/* SELECTOR DE MODALIDAD: AUTORIZO VS NO AUTORIZO */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
                 <label className="block text-[11px] font-bold text-slate-600 uppercase mb-2">Decisión Informada del Paciente / Tutor</label>
@@ -13631,55 +14690,25 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal15(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal15.saving}
-                  className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 ${
-                    consentModal15.tipo === 'no_autorizo' ? 'bg-red-600 hover:bg-red-700' : 'bg-hes-blue-main hover:bg-hes-blue-dark'
-                  }`}
-                >
-                  <FiSave /> {consentModal15.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL FORMATO 08: CONSENTIMIENTO INFORMADO DIAGNÓSTICO EN ADMISIÓN CONTINUA */}
       {consentModal08.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-3xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal08.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Informado para Admisión Continua y Diagnóstico
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-08 • NOM-004-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal08(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal08.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Informado para Admisión Continua y Diagnóstico</>}
+          code="HE-DIRMED-CONSUL-PLT-08"
+          patient={patient}
+          onClose={() => setConsentModal08(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal08}
+          isSaving={consentModal08.saving}
+          isEdit={consentModal08.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal08} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS DEL MÉDICO Y DIAGNÓSTICO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Personal Responsable y Diagnóstico</h4>
@@ -13925,53 +14954,528 @@ export default function PatientDashboard() {
               </div>
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal08(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal08.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 bg-hes-blue-main hover:bg-hes-blue-dark"
-                >
-                  <FiSave /> {consentModal08.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
-            {/* MODAL FORMATO 07: CONSENTIMIENTO INFORMADO PARA PROCEDIMIENTOS QUIRÚRGICOS */}
-      {consentModal07.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-3xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal07.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Informado para Procedimientos Quirúrgicos
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-07 • NOM-004-SSA3-2012</p>
+            {/* MODAL FORMATO 09: CONSENTIMIENTO INFORMADO PARA TRANSFUSIÓN DE HEMOCOMPONENTES */}
+      {consentModal09.open && (
+        <ClinicalFormatEditor
+          title={<>{consentModal09.isEdit ? 'Editar' : 'Nuevo'} Consentimiento para Transfusión de Hemocomponentes</>}
+          code="HE-DIRMED-CONSUL-PLT-09"
+          patient={patient}
+          onClose={() => setConsentModal09(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal09}
+          isSaving={consentModal09.saving}
+          isEdit={consentModal09.isEdit}
+        >
+
+
+              {/* SECCIÓN 1: DATOS DEL MÉDICO */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Médico Responsable y Expediente</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center justify-between">
+                      <span>Médico Tratante / Prescriptor</span>
+                      <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                        <FiLock /> Bloqueado por sesión
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={currentDoctorName || consentModal09.n_medico || ''}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                      <span>Expediente Clínico</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={consentModal09.expediente || data?.patient?.mrn || `PT-${patientId}`}
+                      onChange={(e) => setConsentModal09({ ...consentModal09, expediente: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-hes-blue-main outline-none bg-white"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal07(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
 
-            <form onSubmit={handleSaveConsentModal07} className="space-y-4 text-xs">
+              {/* SECCIÓN 2: HEMOCOMPONENTES AUTORIZADOS */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold text-rose-700 uppercase tracking-wider">2. Hemocomponentes Autorizados</h4>
+                  <span className="text-[10px] text-slate-400">Seleccione opciones rápidas o escriba abajo</span>
+                </div>
+
+                {/* BOTONES DE SELECCIÓN RÁPIDA DE HEMOCOMPONENTES */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'PAQUETE GLOBULAR / CONCENTRADO ERITROCITARIO',
+                    'CONCENTRADO PLAQUETARIO',
+                    'PLASMA FRESCO CONGELADO',
+                    'CRIOPRECIPITADO',
+                    'PAQUETE GLOBULAR + PLASMA FRESCO CONGELADO',
+                    'PAQUETE GLOBULAR + CONCENTRADO PLAQUETARIO',
+                    'HEMOCOMPONENTES SEGÚN REQUERIMIENTO Y BALANCE TRANSOPERATORIO'
+                  ].map((hemo, hIdx) => {
+                    const isSelected = consentModal09.acepto_y_autorizo_transfusion_de === hemo;
+                    return (
+                      <button
+                        key={hIdx}
+                        type="button"
+                        onClick={() => setConsentModal09({ ...consentModal09, acepto_y_autorizo_transfusion_de: hemo })}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {hemo}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    Descripción / Especificación de Hemocomponentes a Transfundir:
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={consentModal09.acepto_y_autorizo_transfusion_de}
+                    onChange={(e) => setConsentModal09({ ...consentModal09, acepto_y_autorizo_transfusion_de: e.target.value })}
+                    placeholder="Ej. PAQUETE GLOBULAR (2 UNIDADES), CONCENTRADO PLAQUETARIO (1 AFERESIS)..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-rose-500 outline-none bg-white resize-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* SECCIÓN 3: CAPACIDAD LEGAL Y PACIENTE / TUTOR */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">3. Paciente o Representante Legal</h4>
+                {(() => {
+                  const p = data?.patient || patient || {};
+                  const isAdult = isPatientAdult(p);
+                  return (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <label className={`flex items-center gap-2 font-bold ${!isAdult ? 'cursor-not-allowed opacity-60 text-slate-400' : 'cursor-pointer text-slate-700'}`}>
+                          <input
+                            type="checkbox"
+                            disabled={!isAdult}
+                            checked={consentModal09.paciente_capaz}
+                            onChange={(e) => setConsentModal09({ ...consentModal09, paciente_capaz: e.target.checked, pariente: e.target.checked ? '' : consentModal09.pariente })}
+                            className="rounded border-slate-300 text-hes-blue-main focus:ring-hes-blue-main"
+                          />
+                          Paciente mayor de edad y con plena capacidad legal para autorizar/firmar
+                        </label>
+                        {!isAdult && (
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-extrabold px-2 py-0.5 rounded-md">
+                            Menor de edad (Requiere Tutor)
+                          </span>
+                        )}
+                      </div>
+
+                      {consentModal09.paciente_capaz ? (
+                        <div className="p-3 bg-white rounded-xl border border-slate-200 text-slate-600">
+                          <p className="text-[11px]">
+                            El documento será firmado autógrafamente por el paciente titular: <b>{p.name || 'PACIENTE REGISTRADO'}</b>.
+                          </p>
+                        </div>
+                      ) : (
+                        <FamiliarSelectorSection
+                          label="Nombre del Representante Legal, Tutor o Familiar Responsable:"
+                          value={consentModal09.pariente}
+                          onChangeValue={(val) => setConsentModal09(prev => ({ ...prev, pariente: val }))}
+                          firmantesList={firmantesList}
+                          required={!consentModal09.paciente_capaz}
+                          placeholder="Nombre completo del padre, madre, tutor o apoderado legal"
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* SECCIÓN 4: TESTIGOS PRESENCIALES */}
+              <TestigosSelectorSection
+                testigo1={consentModal09.testigo_1}
+                testigo2={consentModal09.testigo_2}
+                onUpdateTestigo1={({ testigo1 }) => {
+                  setConsentModal09(prev => ({ ...prev, testigo_1: testigo1 }));
+                }}
+                onUpdateTestigo2={({ testigo2 }) => {
+                  setConsentModal09(prev => ({ ...prev, testigo_2: testigo2 }));
+                }}
+                firmantesList={firmantesList}
+                showWitness2={true}
+              />
+
+              {/* BOTONES DE ACCIÓN */}
+
+
+
+        </ClinicalFormatEditor>
+      )}
+
+      
+      {/* MODAL FORMATO 16: EGRESO Y RESUMEN CLÍNICO (HE-DIRMED-SINPRO-PLT-16) */}
+      {egresoResumenModal16.open && (
+        <ClinicalFormatEditor
+          title={<>{egresoResumenModal16.isEdit ? 'Editar' : 'Nuevo'} Egreso y Resumen Clínico</>}
+          code="HE-DIRMED-SINPRO-PLT-16"
+          patient={patient}
+          onClose={() => setEgresoResumenModal16(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveEgresoResumenModal16}
+          isSaving={egresoResumenModal16.saving}
+          isEdit={egresoResumenModal16.isEdit}
+        >
+
+
+              
+              {/* SECCIÓN 1: SIGNOS VITALES AL EGRESO */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
+                  <FiActivity /> 1. Signos Vitales al Egreso y Reingreso
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">T/A Sistólica</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.ta}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, ta: e.target.value })}
+                      placeholder="120"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">T/A Diastólica</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.ta_dis}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, ta_dis: e.target.value })}
+                      placeholder="80"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Pulso / FC (lpm)</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.pulso}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, pulso: e.target.value })}
+                      placeholder="72"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">FR (rpm)</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.fr_respi}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, fr_respi: e.target.value })}
+                      placeholder="18"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Temp (°C)</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.temperatura}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, temperatura: e.target.value })}
+                      placeholder="36.5"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Sat O₂ (%)</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.sat_oxi}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, sat_oxi: e.target.value })}
+                      placeholder="98"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">¿Es Reingreso?</label>
+                    <select
+                      value={egresoResumenModal16.reingreso}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, reingreso: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    >
+                      <option value="NO">NO</option>
+                      <option value="SI">SÍ</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Motivo / Estado de Egreso</label>
+                    <select
+                      value={egresoResumenModal16.meg}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, meg: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    >
+                      <option value="MEJORADO">MEJORADO</option>
+                      <option value="CURADO">CURADO</option>
+                      <option value="VOLUNTARIO">ALTA VOLUNTARIA</option>
+                      <option value="TRASLADO">TRASLADO A OTRA UNIDAD</option>
+                      <option value="DEFUNCIÓN">DEFUNCIÓN</option>
+                      <option value="OTRO">OTRO</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Complicaciones</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.complicaciones}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, complicaciones: e.target.value })}
+                      placeholder="NINGUNA"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 2: DIAGNÓSTICOS */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">2. Diagnósticos Clínicos</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Diagnóstico de Ingreso</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.diagnostico_ingreso}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, diagnostico_ingreso: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Diagnóstico Final / Egreso</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.df}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, df: e.target.value, diagnostico_egreso: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 3: RESUMEN DE EVOLUCIÓN Y TERAPÉUTICA */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">3. Resumen Clínico, Procedimientos y Tratamiento Hospitalario</h4>
+                
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Resumen de la Evolución y Estado Actual</label>
+                  <textarea
+                    rows={3}
+                    value={egresoResumenModal16.reea}
+                    onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, reea: e.target.value })}
+                    placeholder="Descripción detallada de la evolución clínica del paciente durante la estancia hospitalaria..."
+                    className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Manejo Durante Estancia Hospitalaria</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.mdeh}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, mdeh: e.target.value })}
+                      placeholder="Manejo médico integral, soluciones, oxigenoterapia..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Procedimientos Médico-Quirúrgicos</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.pmq}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, pmq: e.target.value })}
+                      placeholder="Procedimientos invasivos, cirugías, colocación de accesos..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Exámenes de Laboratorio y Gabinete Relevantes</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.elg}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, elg: e.target.value })}
+                      placeholder="Resultados críticos de laboratorio, imagenología y gabinete..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Plan de Manejo y Tratamiento Hospitalario</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.pmt}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, pmt: e.target.value })}
+                      placeholder="Esquemas terapéuticos aplicados, antibióticos, infusiones..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 4: INDICACIONES AL ALTA Y MEDICACIÓN DOMICILIARIA */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">4. Medicación Domiciliaria, Pronóstico e Indicaciones al Alta</h4>
+                
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Medicación Domiciliaria / Prescripción al Egreso</label>
+                  <textarea
+                    rows={3}
+                    value={egresoResumenModal16.cmep}
+                    onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, cmep: e.target.value })}
+                    placeholder="Medicamentos, dosis, posología, horarios y días de tratamiento para el domicilio..."
+                    className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 font-mono focus:border-teal-600 outline-none resize-y"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Recomendaciones y Citas de Seguimiento</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.rvais}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, rvais: e.target.value })}
+                      placeholder="Cita abierta a Urgencias, cita a consulta externa..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Pronóstico</label>
+                    <textarea
+                      rows={2}
+                      value={egresoResumenModal16.pcpcpe}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, pcpcpe: e.target.value })}
+                      placeholder="Bueno para la vida y función con apego al tratamiento..."
+                      className="w-full border border-slate-200 bg-white rounded-xl p-3 text-xs text-slate-800 focus:border-teal-600 outline-none resize-y"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Educación y Cuidados al Paciente</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.edu_pact}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, edu_pact: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Factores de Riesgo</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.afr}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, afr: e.target.value })}
+                      placeholder="CONOCIDOS EN EXPEDIENTE CLÍNICO"
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 5: EN CASO DE DEFUNCIÓN */}
+              {egresoResumenModal16.meg === 'DEFUNCIÓN' && (
+                <div className="bg-red-50 p-4 rounded-2xl border border-red-200 space-y-3">
+                  <h4 className="text-[11px] font-bold text-red-800 uppercase tracking-wider">5. Datos de Defunción</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-red-700 uppercase mb-1">Causa de Muerte</label>
+                      <input
+                        type="text"
+                        value={egresoResumenModal16.c_muerte}
+                        onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, c_muerte: e.target.value })}
+                        className="w-full border border-red-300 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-red-600 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-red-700 uppercase mb-1">¿Se realizó Necropsia?</label>
+                      <select
+                        value={egresoResumenModal16.enecropsia}
+                        onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, enecropsia: e.target.value })}
+                        className="w-full border border-red-300 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-red-600 outline-none"
+                      >
+                        <option value="NO">NO</option>
+                        <option value="SI">SÍ</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SECCIÓN 6: MÉDICOS RESPONSABLES */}
+              <div className="he-ed-sec p-4 space-y-3">
+                <h4 className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">6. Médicos Responsables</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Médico que Elaboró el Resumen</label>
+                    <input
+                      type="text"
+                      value={currentDoctorName || egresoResumenModal16.dr_elaboro || ''}
+                      readOnly
+                      className="w-full border border-slate-200 bg-slate-100 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold cursor-not-allowed outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Médico Tratante</label>
+                    <input
+                      type="text"
+                      value={egresoResumenModal16.dr_tratante || currentDoctorName || ''}
+                      onChange={(e) => setEgresoResumenModal16({ ...egresoResumenModal16, dr_tratante: e.target.value })}
+                      className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:border-teal-600 outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* BOTONES DE ACCIÓN */}
+
+
+
+        </ClinicalFormatEditor>
+      )}
+
+
+      {/* MODAL FORMATO 07: CONSENTIMIENTO INFORMADO PARA PROCEDIMIENTOS QUIRÚRGICOS */}
+      {consentModal07.open && (
+        <ClinicalFormatEditor
+          title={<>{consentModal07.isEdit ? 'Editar' : 'Nuevo'} Consentimiento Informado para Procedimientos Quirúrgicos</>}
+          code="HE-DIRMED-CONSUL-PLT-07"
+          patient={patient}
+          onClose={() => setConsentModal07(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal07}
+          isSaving={consentModal07.saving}
+          isEdit={consentModal07.isEdit}
+        >
+
+
               {/* SECCIÓN 1: DATOS DEL MÉDICO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Médico Responsable</h4>
@@ -14133,54 +15637,26 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal07(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal07.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 bg-hes-blue-main hover:bg-hes-blue-dark"
-                >
-                  <FiSave /> {consentModal07.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
 
       {/* MODAL FORMATO 02: CONSENTIMIENTO QUIRÚRGICO / DISENTIMIENTO */}
       {consentModal02.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-3xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal02.isEdit ? 'Editar' : 'Nuevo'} {consentModal02.tipo === 'no_autorizo' ? 'Disentimiento (No Autorizo)' : 'Consentimiento Informado'} para Tratamiento Quirúrgico
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-02 • NOM-004-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal02(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal02.isEdit ? 'Editar' : 'Nuevo'} {consentModal02.tipo === 'no_autorizo' ? 'Disentimiento (No Autorizo)' : 'Consentimiento Informado'} para Tratamiento Quirúrgico</>}
+          code="HE-DIRMED-CONSUL-PLT-02"
+          patient={patient}
+          onClose={() => setConsentModal02(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal02}
+          isSaving={consentModal02.saving}
+          isEdit={consentModal02.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal02} className="space-y-4 text-xs">
+
               {/* SELECTOR DE MODALIDAD: AUTORIZO VS NO AUTORIZO */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
                 <label className="block text-[11px] font-bold text-slate-600 uppercase mb-2">Decisión Informada del Paciente / Tutor</label>
@@ -14485,55 +15961,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal02(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal02.saving}
-                  className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 ${
-                    consentModal02.tipo === 'no_autorizo' ? 'bg-red-600 hover:bg-red-700' : 'bg-hes-blue-main hover:bg-hes-blue-dark'
-                  }`}
-                >
-                  <FiSave /> {consentModal02.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 43 (ORDEN DE INTUBACIÓN ENDOTRAQUEAL / SOPORTE VENTILATORIO) */}
       {consentModal43.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiActivity />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal43.isEdit ? 'Editar' : 'Nueva'} Orden de Intubación Endotraqueal
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-SINPRO-PLT-43 • NOM-004-SSA3-2012 / NOM-024-SSA3-2012</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal43(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal43.isEdit ? 'Editar' : 'Nueva'} Orden de Intubación Endotraqueal</>}
+          code="HE-DIRMED-CONSUL-PLT-43"
+          patient={patient}
+          onClose={() => setConsentModal43(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal43}
+          isSaving={consentModal43.saving}
+          isEdit={consentModal43.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal43} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS DEL MÉDICO, SERVICIO Y DIAGNÓSTICO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Personal Responsable, Área y Diagnóstico</h4>
@@ -14707,53 +16153,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal43(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal43.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 bg-hes-blue-main hover:bg-hes-blue-dark"
-                >
-                  <FiSave /> {consentModal43.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 06 (PROCEDIMIENTO ANESTÉSICO) */}
       {consentModal06.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiActivity />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal06.isEdit ? 'Editar' : 'Nuevo'} Consentimiento para Procedimiento Anestésico
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-06 • NOM-004-SSA3-2012 / NOM-006-SSA3-2011</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal06(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal06.isEdit ? 'Editar' : 'Nuevo'} Consentimiento para Procedimiento Anestésico</>}
+          code="HE-DIRMED-CONSUL-PLT-06"
+          patient={patient}
+          onClose={() => setConsentModal06(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal06}
+          isSaving={consentModal06.saving}
+          isEdit={consentModal06.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal06} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS DEL MÉDICO ANESTESIÓLOGO Y SERVICIO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Médico Anestesiólogo y Servicio</h4>
@@ -14979,53 +16397,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal06(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal06.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 bg-hes-blue-main hover:bg-hes-blue-dark"
-                >
-                  <FiSave /> {consentModal06.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 11 (CONSENTIMIENTO DE NO REANIMACIÓN / VOLUNTAD ANTICIPADA) */}
       {consentModal11.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiActivity />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal11.isEdit ? 'Editar' : 'Nuevo'} Consentimiento de No Reanimación
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-11 • NOM-004-SSA3-2012 / Voluntad Anticipada</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal11(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal11.isEdit ? 'Editar' : 'Nuevo'} Consentimiento de No Reanimación</>}
+          code="HE-DIRMED-CONSUL-PLT-11"
+          patient={patient}
+          onClose={() => setConsentModal11(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal11}
+          isSaving={consentModal11.saving}
+          isEdit={consentModal11.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal11} className="space-y-4 text-xs">
+
               {/* SECCIÓN 1: DATOS DEL MÉDICO TRATANTE Y SERVICIO */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-hes-blue-main uppercase tracking-wider">1. Personal Médico y Área</h4>
@@ -15204,53 +16594,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal11(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal11.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 bg-hes-blue-main hover:bg-hes-blue-dark"
-                >
-                  <FiSave /> {consentModal11.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL CAPTURA / EDICIÓN FORMATO 19 (CONSENTIMIENTO PARA HISTERECTOMÍA) */}
       {consentModal19.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiActivity />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {consentModal19.isEdit ? 'Editar' : 'Nuevo'} Consentimiento para Histerectomía
-                  </h3>
-                  <p className="text-xs text-slate-500">HE-DIRMED-CONSUL-PLT-19 • NOM-004-SSA3-2012 / Ginecología</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConsentModal19(prev => ({ ...prev, open: false }))}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <FiX className="text-xl" />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{consentModal19.isEdit ? 'Editar' : 'Nuevo'} Consentimiento para Histerectomía</>}
+          code="HE-DIRMED-CONSUL-PLT-19"
+          patient={patient}
+          onClose={() => setConsentModal19(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveConsentModal19}
+          isSaving={consentModal19.saving}
+          isEdit={consentModal19.isEdit}
+        >
 
-            <form onSubmit={handleSaveConsentModal19} className="space-y-4 text-xs">
+
               {/* TIPO DE DECISIÓN: AUTORIZO / NO AUTORIZO */}
               <div className="flex items-center justify-center gap-4 p-2 bg-slate-100 rounded-2xl">
                 <button
@@ -15467,57 +16829,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConsentModal19(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={consentModal19.saving}
-                  className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 ${
-                    consentModal19.tipo === 'no_autorizo' ? 'bg-red-600 hover:bg-red-700' : 'bg-hes-blue-main hover:bg-hes-blue-dark'
-                  }`}
-                >
-                  <FiSave /> {consentModal19.saving ? 'Guardando...' : 'Guardar en el expediente'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL PARA FORMATO 15: EGRESO VOLUNTARIO (MR_EV_HOSP) */}
       {modal15EV.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiFileText />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-sm md:text-base">
-                    {modal15EV.isEdit ? 'Editar Formato 15: Egreso Voluntario' : 'Nuevo Formato 15: Egreso Voluntario'}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    NOM-004-SSA3-2012 • Tabla MR_EV_HOSP en SQL Server y expediente clínico
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModal15EV(prev => ({ ...prev, open: false }))}
-                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition"
-              >
-                <FiX />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{modal15EV.isEdit ? 'Editar Formato 15: Egreso Voluntario' : 'Nuevo Formato 15: Egreso Voluntario'}</>}
+          code="HE-DIRMED-SINPRO-PLT-15"
+          patient={patient}
+          onClose={() => setModal15EV(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveModal15EV}
+          isSaving={modal15EV.saving}
+          isEdit={modal15EV.isEdit}
+        >
 
-            <form onSubmit={handleSaveModal15EV} className="mt-4 space-y-4 overflow-y-auto pr-1">
+
               {/* SECCIÓN 1: DATOS MÉDICOS */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
@@ -15731,55 +17061,25 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setModal15EV(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={modal15EV.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold bg-hes-blue-main hover:bg-hes-blue-dark shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {modal15EV.saving ? 'Guardando...' : 'Guardar Egreso Voluntario'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       {/* MODAL UNIVERSAL PARA CUALQUIERA DE LOS 100+ FORMATOS CLÍNICOS */}
       {universalEditModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-hes-blue-main text-white flex items-center justify-center text-lg font-bold shadow-xs">
-                  <FiEdit3 />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-sm md:text-base">
-                    {universalEditModal.isNew ? 'Nuevo Registro Clínico' : 'Editar Registro Clínico'}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {universalEditModal.codigo} • {universalEditModal.nombre}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUniversalEditModal(prev => ({ ...prev, open: false }))}
-                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition"
-              >
-                <FiX />
-              </button>
-            </div>
+        <ClinicalFormatEditor
+          title={<>{universalEditModal.isNew ? 'Nuevo Registro Clínico' : 'Editar Registro Clínico'}</>}
+          code={universalEditModal.codigo}
+          patient={patient}
+          onClose={() => setUniversalEditModal(prev => ({ ...prev, open: false }))}
+          onSubmit={handleSaveUniversalModal}
+          isSaving={universalEditModal.saving}
+          isEdit={!universalEditModal.isNew}
+        >
 
-            <form onSubmit={handleSaveUniversalModal} className="mt-4 space-y-4 overflow-y-auto pr-1">
+
               {/* SECCIÓN 1: MÉDICO RESPONSABLE */}
               <div className="he-ed-sec p-4 space-y-3">
                 <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
@@ -15919,25 +17219,10 @@ export default function PatientDashboard() {
               />
 
               {/* BOTONES DE ACCIÓN */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setUniversalEditModal(prev => ({ ...prev, open: false }))}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={universalEditModal.saving}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-white text-xs font-bold bg-hes-blue-main hover:bg-hes-blue-dark shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                >
-                  <FiSave /> {universalEditModal.saving ? 'Guardando...' : 'Guardar Registro'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+
+
+
+        </ClinicalFormatEditor>
       )}
 
       <AllergiesModal
@@ -15980,12 +17265,19 @@ export default function PatientDashboard() {
           onClose={() => setPatientSignModal(prev => ({ ...prev, open: false }))}
           patientId={patientId}
           documentInfo={patientSignModal.documentInfo}
-          onSignSuccess={async () => {
-            await fetchFirmas();
-            await fetchData();
-            if (fetchGenericHistory && selectedFormat) {
-              await fetchGenericHistory(selectedFormat.codigo);
-            }
+          onSignatureSaved={async (update) => {
+            // El servidor ya confirmó la firma del autorizante o testigo.
+            // Reflejarla en las tarjetas sin esperar a cerrar este modal.
+            await fetchFirmas({ refreshQueue: false });
+            await refreshSignatureRepairQueue(update);
+          }}
+          onSignSuccess={async ({ documentInfo, signatureStatus } = {}) => {
+            await Promise.allSettled([
+              fetchFirmas({ refreshQueue: false }),
+              fetchData({ silent: true }),
+              selectedFormat?.codigo ? fetchGenericHistory(selectedFormat.codigo) : Promise.resolve(),
+            ]);
+            await refreshSignatureRepairQueue({ documentInfo, signatureStatus });
           }}
           onOpenEnrollModal={() => setFirmantesModalOpen(true)}
           onProceedToDoctorSign={() => {
@@ -15997,6 +17289,23 @@ export default function PatientDashboard() {
               docInfo.codigo_formato || 'HE-DIRMED-CONSUL-PLT-02',
               docInfo.tipo_documento || 'Consentimiento Informado'
             );
+          }}
+        />
+      )}
+
+      {specialSignatureModal.open && (
+        <SpecialSignerBiometricSignModal
+          open={specialSignatureModal.open}
+          onClose={() => setSpecialSignatureModal(prev => ({ ...prev, open: false }))}
+          patientId={patientId}
+          documentInfo={specialSignatureModal.documentInfo}
+          onSaved={async status => {
+            await Promise.allSettled([
+              fetchFirmas({ refreshQueue: false }),
+              fetchData({ silent: true }),
+              selectedFormat?.codigo ? fetchGenericHistory(selectedFormat.codigo) : Promise.resolve(),
+            ]);
+            requestPendingSpecialSignature(status, specialSignatureModal.documentInfo);
           }}
         />
       )}

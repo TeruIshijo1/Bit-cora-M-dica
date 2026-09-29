@@ -1,6 +1,8 @@
 import React from 'react';
 import { FiFileText, FiPlus, FiLock, FiEdit3, FiCheckCircle, FiPrinter } from 'react-icons/fi';
 import { MdFingerprint, MdVerifiedUser } from 'react-icons/md';
+import AuthenticatedPdfButton from './AuthenticatedPdfButton';
+import { useDocumentSignaturesQuery } from '../hooks/useQueries';
 
 /**
  * FormatoClinicoDetalle — PLANTILLA PREDEFINIDA HES
@@ -9,11 +11,13 @@ import { MdFingerprint, MdVerifiedUser } from 'react-icons/md';
  *
  * Props:
  *  formato: { codigo, nombre, subtitulo, area, url_pdf }
+ *  patientId: identificador del episodio actual
  *  historial: [] registros Vertical (con mrnum, firmado, medico_tratante, etc)
  *  selectedMrnum, onSelectMrnum(mrnum)
  *  loading
  *  isPatientDischarged, isOwner(doc), isAdminOrSistemas
  *  onNuevo(), onEditar(doc), onFirmarMedico(mrnum), onFirmaPaciente(doc), onVerificar(firmaInfo)
+ *  getSignatureStatus(mrnum) -> resumen de firmas locales vigentes
  *  getPdfUrl(doc) -> string
  *  emptyTitle, emptyDesc, emptyCtaLabel (opcionales para futuros formatos)
  */
@@ -37,6 +41,7 @@ function DetailItem({ label, children, mono = false }) {
 }
 
 export default function FormatoClinicoDetalle({
+  patientId = null,
   formato = {},
   historial = [],
   selectedMrnum = null,
@@ -48,7 +53,9 @@ export default function FormatoClinicoDetalle({
   onEditar = () => {},
   onFirmarMedico = () => {},
   onFirmaPaciente = () => {},
+  onFirmaEspecial = () => {},
   onVerificar = () => {},
+  getSignatureStatus = () => null,
   getPdfUrl = () => null,
   emptyTitle = null,
   emptyDesc = null,
@@ -57,7 +64,17 @@ export default function FormatoClinicoDetalle({
   const areaMeta = getAreaMeta(formato.area);
   const activeDoc = historial.find(d => d.mrnum === selectedMrnum) || historial[0] || null;
   const isDocSigned = Boolean(activeDoc?.firmado);
+  const signatureQuery = useDocumentSignaturesQuery(patientId, formato.codigo, activeDoc?.mrnum || 0, Boolean(patientId && activeDoc && formato.codigo));
+  const medicalSignatureInHes = activeDoc
+    ? Boolean(getSignatureStatus(activeDoc.mrnum)?.hasMedico || signatureQuery.data?.medico_firmado)
+    : false;
+  const medicalSyncUnverified = Boolean(signatureQuery.data?.medico_sync_unverified);
+  const medicalStatusUnavailable = Boolean(activeDoc && signatureQuery.isError);
+  const medicalSyncPending = medicalSignatureInHes && !isDocSigned;
   const owner = activeDoc ? isOwner(activeDoc) : false;
+  const requiredSpecialRoles = formato.firmas_especiales_requeridas || [];
+  const specialRoleLabels = Object.fromEntries((formato.firmas_especiales_requeridas_labels || []).map(item => [item.id, item.label]));
+  const specialStatus = signatureQuery.data?.firmas_especiales_estado || {};
 
   return (
     <div className="he-det-card">
@@ -117,20 +134,32 @@ export default function FormatoClinicoDetalle({
                 <div className={`he-det-sign-icon ${isDocSigned ? 'ok' : 'pend'}`}>{isDocSigned ? '✓' : '!'}</div>
                 <div className="min-w-0">
                   <h4 className="he-det-sign-title">
-                    {isDocSigned ? 'Documento Oficial Firmado (Vertical EHR & Bitácora)' : 'Registro Pendiente de Firma Biométrica'}
+                    {isDocSigned
+                      ? 'Documento firmado en Vertical y Bitácora'
+                      : medicalSyncUnverified
+                        ? 'Firma local pendiente de revisión'
+                      : medicalSyncPending
+                        ? 'Firma médica guardada; envío a Vertical pendiente'
+                        : medicalStatusUnavailable
+                          ? 'Estado de firma por confirmar'
+                        : 'Registro pendiente de firma médica'}
                   </h4>
                   <p className="he-det-sign-sub">
                     {isDocSigned
                       ? <>Firmado digitalmente por <strong>{activeDoc.signed_by || activeDoc.medico_tratante}</strong> el {activeDoc.signed_on || 'fecha registrada'} <span className="he-det-mono-inline">(MR_ST: {activeDoc.mr_st})</span></>
-                      : <>Generado el {activeDoc.created_on} por {activeDoc.created_by}. Requiere firma para validez legal NOM-004.</>}
+                      : medicalSyncUnverified
+                        ? <>Existe una firma médica local, pero Vertical no respondió para comprobar esta versión. Consulte el estado; no vuelva a leer la huella.</>
+                      : medicalSyncPending
+                        ? <>La firma ya se guardó en el expediente. Abra su estado para revisar el envío a Vertical; no vuelva a leer la huella.</>
+                        : medicalStatusUnavailable
+                          ? <>No se pudo consultar el estado de las firmas. Abra su estado antes de intentar firmar.</>
+                        : <>Generado el {activeDoc.created_on} por {activeDoc.created_by}. Falta la firma médica.</>}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                {!isPatientDischarged && (
-                  isDocSigned ? (
-                    <span className="he-det-chip-ok" title="Documento cerrado NOM-004 / NOM-024"><FiLock /> Firmado (Inmutable)</span>
-                  ) : !owner ? (
+                {!isPatientDischarged && !isDocSigned && (
+                  !owner ? (
                     <span className="he-det-chip-lock" title="Documento de otro médico"><FiLock /> Solo Lectura ({activeDoc.medico_tratante || 'Otro Médico'})</span>
                   ) : (
                     <button type="button" onClick={() => onEditar(activeDoc)} className="he-btn-ghost flex items-center gap-1.5 px-4 py-2 text-xs cursor-pointer">
@@ -138,15 +167,25 @@ export default function FormatoClinicoDetalle({
                     </button>
                   )
                 )}
-                {!isPatientDischarged && (
+                {!isPatientDischarged && !isDocSigned && !medicalSignatureInHes && (
                   <button
                     type="button"
                     disabled={!owner}
                     onClick={() => onFirmarMedico(activeDoc.mrnum)}
-                    className={`he-det-btn-sign ${!owner ? 'disabled' : isDocSigned ? 'refirm' : 'firm'}`}
+                    className={`he-det-btn-sign ${!owner ? 'disabled' : 'firm'}`}
                     title="Firma Electrónica Avanzada del Médico (NOM-024)"
                   >
-                    <FiCheckCircle /> {isDocSigned ? '✓ Firma médica' : 'Firmar como médico'}
+                    <FiCheckCircle /> {medicalStatusUnavailable ? 'Ver estado de firma' : 'Firmar ahora'}
+                  </button>
+                )}
+                {(isDocSigned || medicalSignatureInHes || medicalSyncUnverified) && (
+                  <button
+                    type="button"
+                    onClick={() => onVerificar(activeDoc)}
+                    className="he-fmt-st-ok inline-flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Verificar integridad y sello digital"
+                  >
+                    <MdVerifiedUser /> 2. Médico: Sellado FEA
                   </button>
                 )}
                 {!isPatientDischarged && (
@@ -154,15 +193,25 @@ export default function FormatoClinicoDetalle({
                     <MdFingerprint className="text-base" /> Paciente / familiar
                   </button>
                 )}
-                {isDocSigned && (
-                  <button type="button" onClick={() => onVerificar(activeDoc)} className="he-det-btn-verify" title="Verificar sello y auditoría NOM-024">
-                    <MdVerifiedUser className="text-base" /> Verificar Integridad y Sello
-                  </button>
-                )}
+                {requiredSpecialRoles.map(role => {
+                  const label = specialRoleLabels[role] || role.replaceAll('_', ' ');
+                  const roleStatus = specialStatus[role] || {};
+                  return !isPatientDischarged && <button
+                    key={role}
+                    type="button"
+                    disabled={signatureQuery.isError || signatureQuery.data?.detalles?.source_unverified}
+                    onClick={() => onFirmaEspecial(activeDoc, role, label)}
+                    className={`he-det-btn-patient ${roleStatus.firmado ? 'border border-emerald-300 bg-emerald-50 text-emerald-800' : ''}`}
+                    title={`Firma biométrica del área de ${label}`}
+                  >
+                    <MdFingerprint className="text-base" />
+                    {roleStatus.firmado ? `${label}: ${roleStatus.firmante || 'Firmado'}` : `Firma de ${label} requerida`}
+                  </button>;
+                })}
                 {getPdfUrl(activeDoc) && (
-                  <a href={getPdfUrl(activeDoc)} target="_blank" rel="noreferrer" className="he-btn-open flex items-center gap-1.5 px-4 py-2 text-white text-xs font-bold">
+                  <AuthenticatedPdfButton endpoint={getPdfUrl(activeDoc)} className="he-btn-open flex items-center gap-1.5 px-4 py-2 text-white text-xs font-bold">
                     <FiPrinter /> Imprimir PDF Oficial
-                  </a>
+                  </AuthenticatedPdfButton>
                 )}
               </div>
             </div>

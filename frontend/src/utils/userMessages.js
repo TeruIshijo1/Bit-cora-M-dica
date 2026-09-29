@@ -1,6 +1,9 @@
 const textOf = value => {
   if (typeof value === 'string') return value.trim();
   if (Array.isArray(value)) return value.map(item => item?.msg || item).filter(Boolean).join('. ');
+  if (value && typeof value === 'object') {
+    return textOf(value.message || value.detail || value.error || '');
+  }
   return '';
 };
 
@@ -9,8 +12,10 @@ export const friendlyBiometricError = (value, fallback = 'No se pudo leer la hue
   if (!original) return fallback;
   const message = original.toLowerCase();
 
-  if (message.includes('no corresponde') || message.includes('no coincide')) {
-    return 'La huella no coincide con la persona seleccionada. Verifique el nombre e intente nuevamente.';
+  // Only label an error as a fingerprint mismatch when the server explicitly
+  // identifies the huella. Role/context validation errors are not bad reads.
+  if (message.includes('huella') && (message.includes('no corresponde') || message.includes('no coincide'))) {
+    return 'La huella no coincide con la registrada para esta persona. No se guardó la firma. Use el mismo dedo que se registró e inténtelo de nuevo.';
   }
   if (message.includes('challenge') || message.includes('sesión actual') || message.includes('consumid') || message.includes('expirad') || message.includes('vencid')) {
     return 'La lectura tardó demasiado y venció. Pulse “Intentar de nuevo”.';
@@ -29,6 +34,9 @@ export const friendlyBiometricError = (value, fallback = 'No se pudo leer la hue
   }
   if (message.includes('actualización fea') || message.includes('firma criptográfica bloqueada')) {
     return 'La firma electrónica del médico aún está pendiente de activación por otro administrador.';
+  }
+  if (message.includes('perfil médico en vertical') || message.includes('médico vertical')) {
+    return 'Su huella fue reconocida, pero su perfil de firma en Vertical necesita revisión. Pida a Sistemas comprobar su cédula y autorización. No necesita registrar otra huella.';
   }
 
   return original

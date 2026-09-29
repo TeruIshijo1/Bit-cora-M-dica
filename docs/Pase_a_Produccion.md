@@ -24,7 +24,12 @@ relacionados:
 
 Plan de 50 estaciones: `Instalacion_Enfermeria/LEEME_PRIMERO.md` y
 `SERVIDOR_Y_LIBERACION.md`. El kit se genera localmente con
-`scripts/build_station_kit.ps1`. Dirección prevista: `https://192.168.254.249:8000`.
+`scripts/build_station_kit.ps1`. La dirección interna de las estaciones puede
+seguir siendo `https://192.168.254.249:8000`, pero no debe usarse en los QR:
+`PUBLIC_VERIFICATION_BASE_URL` debe apuntar a un dominio HTTPS público que
+resuelva desde Internet y desde la casa del paciente. La instalación actual
+conserva `VERIFICATION_BASE_URL` como alias compatible mientras se migra al
+nombre nuevo.
 La plantilla `deploy/nginx/hes-intranet-8000.conf.example` termina TLS en 8000
 y usa FastAPI privado en 8001; es alternativa al ejemplo 443/8000 existente.
 No se desplegó ni se contactó el servidor; aceptación de estaciones pendiente.

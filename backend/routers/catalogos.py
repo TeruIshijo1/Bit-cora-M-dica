@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
-from security import require_role
+from security import require_role, get_current_user
+from access_control import CATALOG, has_module, can_use_format
+from format_catalog import clinical_formats
 
 router = APIRouter(prefix="/api/catalogos", tags=["Catálogos"])
 
@@ -67,9 +69,25 @@ def delete_tipo(
     db.commit()
     return {"status": "ok", "message": "Tipo de atención desactivado"}
 
+def available_formats(db):
+    result = {item["codigo"]: dict(item, id=-(index + 1)) for index, item in enumerate(clinical_formats())}
+    for item in db.query(models.CatalogoFormato).filter(models.CatalogoFormato.activo == True).all():
+        result.setdefault(item.codigo, {"id": item.id, "codigo": item.codigo, "nombre": item.nombre, "activo": True, "area": "Otros formatos"})
+    return sorted(result.values(), key=lambda item: (item.get("area", ""), item["nombre"]))
+
+
+@router.get("/permisos")
+def get_permission_catalog(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return dict(CATALOG, formats=available_formats(db) if has_module(current_user, "usuarios", "directorio", "alta") else [])
+
+
 @router.get("/formatos", response_model=List[schemas.CatalogoFormatoResponse])
-def get_formatos(db: Session = Depends(get_db)):
-    return db.query(models.CatalogoFormato).filter(models.CatalogoFormato.activo == True).order_by(models.CatalogoFormato.nombre).all()
+def get_formatos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    formats = available_formats(db)
+    if has_module(current_user, "usuarios", "directorio", "alta", "catalogos"):
+        return formats
+    return [item for item in formats if can_use_format(current_user, item["codigo"])]
+
 
 @router.post("/formatos", response_model=schemas.CatalogoFormatoResponse)
 def create_formato(req: schemas.CatalogoFormatoCreate, db: Session = Depends(get_db)):

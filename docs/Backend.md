@@ -13,7 +13,7 @@ codigo_fuente:
   - backend/services/pdf_service.py
   - backend/kh_database.py
   - backend/requirements.txt
-actualizado: 2026-09-17
+actualizado: 2026-09-29
 relacionados:
   - "[[00_Inicio]]"
   - "[[Mapa_Proyecto]]"
@@ -29,6 +29,13 @@ relacionados:
 
 El Backend es el motor lógico del proyecto, encargado de procesar las peticiones del [[Frontend]], aplicar las reglas de negocio médico, gestionar la seguridad criptográfica y generar los documentos oficiales.
 
+## Permisos por área y usuario
+
+Ver [[Permisos-Acceso]]: catálogo compartido, selección explícita por usuario,
+RH limitado a cinco áreas, formatos activos integrados al selector y validación
+en API/SPA. El mínimo de contraseña es 8 caracteres con mayúscula, minúscula,
+número y símbolo. Las cuentas existentes conservan sus datos.
+
 ## Tecnologías Principales
 - **Framework:** FastAPI (Python 3.10+) con servidor asíncrono Uvicorn.
 - **Seguridad y Roles:** `security.py` con tokens JWT (HS256) y decoradores `require_role`. Ver [[Seguridad-FEA]] y [[API-Endpoints]].
@@ -43,7 +50,14 @@ El Backend es el motor lógico del proyecto, encargado de procesar las peticione
 - `kh_database.py`: adaptador explícito hacia SQL Server (`KH_HE`). Las lecturas
   permanecen directas; toda mutación falla explícitamente, acepta correlación
   por `operation_id` y participa en la máquina durable de sincronización de
-  `clinical_sync.py`.
+  `clinical_sync.py`. En `MR_ERC_HOS`, las ediciones por `MRNum_ERC_HOS`
+  verifican la fila exacta después del `UPDATE`; una versión inexistente no se
+  reporta como guardada.
+  La respuesta del expediente expone `patient.evolution_context`: `PC.PCType`
+  `ER` selecciona la nota de urgencias (`MR_NE_URG` / 87/01) y `IP` la nota de
+  hospitalización (`MR_24_HOJA_EVOL` / 24). Las camas de `UDR_AD_CENSO` y
+  `MR_NE_URG.CAMA` sólo funcionan como respaldo cuando el episodio no trae
+  tipo de atención.
 - `clinical_sync.py` + `clinical_sync_adapters.py`: intención PostgreSQL previa,
   idempotencia, estados `PENDING/PROCESSING/SYNCED/RETRYABLE_ERROR/FAILED/
   REQUIRES_RECONCILIATION`, backoff e intentos auditables. Cubre medicamentos,
@@ -69,6 +83,23 @@ El Backend es el motor lógico del proyecto, encargado de procesar las peticione
 - Provee los endpoints REST protegidos por autenticación global (`GlobalAuthMiddleware`), CORS estricto y `TrustedHostMiddleware` consumidos por el [[Frontend]].
 - Interactúa estrechamente con la [[Database]] para gestionar y persistir los datos clínicos y el historial de llaves asimétricas.
 - Su despliegue y scripts de arranque se asocian a la etapa de [[Pase_a_Produccion]].
+
+## Firmas biométricas especiales por formato
+
+- Cuentas activas de `usuarios` pueden guardar plantilla FMD. Las rutas de
+  enrolamiento usan challenges propios, requieren Administración/Sistemas,
+  motivo para reenrolamiento, vínculo de identidad exacto y auditoría sin FMD.
+- `formatos_firma_permitidos` es un permiso aparte de lectura y se valida contra
+  `firmas_especiales_requeridas` del catálogo y el rol del usuario. El formato
+  determina áreas requeridas y el operador clínico conserva su acceso al EHR;
+  Banco de Sangre consulta y firma documentos permitidos en `/firmas-area`,
+  sin acceso general a pacientes. `area_signatures.py` descubre registros ya
+  existentes, conserva el historial y resuelve vigencia contra la fuente actual.
+- El backend exige rol, cuenta enrolada, permiso por formato y digest de la
+  versión clínica al consultar el roster y guardar la firma. Cada evidencia
+  liga el usuario/rol con el documento y versión y se marca
+  `BIOMETRIC_EVIDENCE_V1` / `EVIDENCIA_BIOMETRICA_NO_FEA`; no entra en la FEA
+  del médico ni en su sello TSA.
 
 ---
 > 🤖 *Contexto IA: antes de tocar `backend/`, leer [[Guia-Desarrollo-IA]] (reglas `.env`, FEA, ReportLab) y [[API-Endpoints]]. Código fuente: `backend/main.py`, `backend/security.py`, `backend/crypto_fea.py`.*

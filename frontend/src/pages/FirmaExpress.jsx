@@ -7,6 +7,7 @@ import { FaStethoscope } from 'react-icons/fa';
 import { useDigitalPersona } from '../hooks/useDigitalPersona';
 import { TrasladoModal, PatientJourneyModal } from '../components/PatientModals';
 import AlertBanner from '../components/ui/AlertBanner';
+import AuthenticatedPdfButton from '../components/AuthenticatedPdfButton';
 
 export default function FirmaExpress() {
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, captura, historial, pacientes
@@ -488,12 +489,12 @@ export default function FirmaExpress() {
                                 {h.estatus_pago === 'Pendiente Autorización' && <span className="bg-purple-100 text-purple-700 font-bold px-3 py-1 rounded-full text-xs text-center">Pendiente Autorización</span>}
                                 {h.estatus_pago === 'Denegado' && <span className="bg-red-100 text-red-700 font-bold px-3 py-1 rounded-full text-xs text-center">Denegado por Sistemas</span>}
                                 {h.estatus_pago !== 'Pendiente Autorización' && h.estatus_pago !== 'Denegado' && (
-                                    <button 
-                                      onClick={() => window.open(`/api/atenciones/${h.folio}/pdf`, '_blank')}
+                                    <AuthenticatedPdfButton
+                                      endpoint={`/atenciones/${h.folio}/pdf`}
                                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow-sm flex items-center gap-2 transition"
                                     >
                                       <FiFileText /> Imprimir Comprobante
-                                    </button>
+                                    </AuthenticatedPdfButton>
                                 )}
                             </div>
                         </div>

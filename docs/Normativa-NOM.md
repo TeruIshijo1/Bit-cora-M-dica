@@ -3,7 +3,7 @@ aliases: [Normativa, NOM-004, NOM-024, Cumplimiento]
 tags: [hes/normativa, hes/seguridad]
 tipo: norma
 modulo: transversal
-actualizado: 2026-09-19
+actualizado: 2026-09-22
 relacionados:
   - "[[00_Inicio]]"
   - "[[Seguridad-FEA]]"
@@ -30,8 +30,13 @@ diagnóstica; la corrección posterior y sus regresiones constan en
 con aceptación operativa ni validación institucional.
 
 Para consentimientos, la [NOM-004, 10.1.1.10](https://dof.gob.mx/nota_detalle_popup.php?codigo=5272787)
-contempla dos testigos; el flujo corregido los exige para los consentimientos
-reconocidos y elimina la leyenda genérica de opcionalidad. La evidencia
+contempla dos testigos. El flujo técnico actual conserva los lugares del
+formato institucional (cero, uno o dos), pero permite cierre operativo con
+un testigo cuando autoriza el paciente y sin testigo adicional cuando autoriza
+un tutor, familiar o representante. Registra cuántos testigos distintos
+firmaron. Este cierre no equivale a cumplimiento del número de testigos
+previsto por la norma y requiere revisión jurídica e institucional antes de afirmar
+cumplimiento de la NOM para cada formato. La evidencia
 biométrica del paciente no es la ECDSA médica ni
 una FEA personal. Se requieren reglas por documento y validación institucional
 del modelo de firma; la leyenda de la interfaz no certifica conformidad.

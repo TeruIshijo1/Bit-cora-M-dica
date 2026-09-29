@@ -34,6 +34,8 @@ _KH_MUTATORS: dict[str, Callable[..., Any]] = {
     "save_or_update_egreso_voluntario_15": kh_database.save_or_update_egreso_voluntario_15,
     "save_or_update_consentimiento_06": kh_database.save_or_update_consentimiento_06,
     "save_or_update_consentimiento_07": kh_database.save_or_update_consentimiento_07,
+    "save_or_update_consentimiento_09": kh_database.save_or_update_consentimiento_09,
+    "save_or_update_egreso_resumen_16": kh_database.save_or_update_egreso_resumen_16,
     "sync_contact_to_ptcn": kh_database.sync_contact_to_ptcn,
     "delete_contact_from_ptcn": kh_database.delete_contact_from_ptcn,
 }
@@ -325,7 +327,45 @@ def dispatcher(operation) -> Callable[[], Any]:
         return lambda: _patient_readmission(operation.patient_ref)
     if operation.operation_type == "VERTICAL_SIGN":
         def sign_exact_document():
-            if payload.get("document_digest"):
+            attempts = tuple(getattr(operation, "attempts_log", ()))
+            first_uncertain = next((
+                attempt for attempt in attempts if attempt.error_class in {
+                    "VerticalSignatureAcknowledgedPending",
+                    "VerticalSignatureConfirmationPending",
+                    "VerticalSignatureOutcomeUnknown",
+                }
+            ), None)
+            # Legacy rows used ConfirmationPending only after an explicit
+            # SignRecord acknowledgement. An earlier OutcomeUnknown must never
+            # be promoted merely because a later readback also failed.
+            acknowledged = bool(getattr(operation, "external_applied_at", None)) or any(
+                attempt.error_class == "VerticalSignatureAcknowledgedPending"
+                for attempt in attempts
+            ) or bool(first_uncertain and first_uncertain.error_class == "VerticalSignatureConfirmationPending")
+            # An acknowledged SignRecord may itself change administrative fields
+            # in the source. Confirmation of that operation is read-only; the
+            # current clinical digest guards only a *new* external write.
+            confirmation_only = bool(getattr(operation, "external_applied_at", None)) or any(
+                attempt.error_class in {
+                    "VerticalSignatureConfirmationPending",
+                    "VerticalSignatureAcknowledgedPending",
+                    "VerticalSignatureOutcomeUnknown",
+                }
+                for attempt in getattr(operation, "attempts_log", ())
+            )
+            acknowledged_at = min(
+                (
+                    attempt.finished_at
+                    for attempt in getattr(operation, "attempts_log", ())
+                    if attempt.error_class in {
+                        "VerticalSignatureConfirmationPending",
+                        "VerticalSignatureAcknowledgedPending",
+                        "VerticalSignatureOutcomeUnknown",
+                    }
+                ),
+                default=getattr(operation, "external_applied_at", None),
+            )
+            if not confirmation_only and payload.get("document_digest"):
                 import clinical_signing
                 from database import SessionLocal
                 with SessionLocal() as db:
@@ -335,6 +375,7 @@ def dispatcher(operation) -> Callable[[], Any]:
                     )
                 if clinical_signing.document_digest(document) != payload["document_digest"]:
                     raise clinical_sync.ManualReconciliationRequired("El documento cambió después de la firma; no se firma automáticamente otra versión en Vertical")
+            # An acknowledged SignRecord must never be sent a second time.
             return vertical_signer.sign_in_vertical_api(
                 controller_name=payload["controller_name"],
                 mrnum=_resolve_vertical_mr(payload, operation.patient_ref),
@@ -342,6 +383,10 @@ def dispatcher(operation) -> Callable[[], Any]:
                 doctor_name=payload["doctor_name"],
                 doctor_cedula=payload.get("doctor_cedula"),
                 operation_id=operation_id,
+                not_before=operation.created_at,
+                not_after=acknowledged_at if confirmation_only else None,
+                confirmation_only=confirmation_only,
+                acknowledged_by_vertical=acknowledged,
             )
         return sign_exact_document
     if operation.operation_type == "UNIVERSAL_FORMAT_CREATE":

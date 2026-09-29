@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from password_policy import valid_password
+
 import argparse
 import getpass
 import json
@@ -35,8 +37,8 @@ def main() -> None:
     import models
 
     password = getpass.getpass("Contraseña temporal segura: ") if args.prompt_password else _generated_password()
-    if len(password) < 14:
-        raise SystemExit("La contraseña temporal debe tener al menos 14 caracteres.")
+    if not valid_password(password):
+        raise SystemExit("La contraseña temporal debe tener al menos 8 caracteres, mayúscula, minúscula, número y símbolo.")
 
     with SessionLocal() as db:
         if db.query(models.Usuario).count() != 0:
